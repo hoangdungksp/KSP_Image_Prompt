@@ -1,0 +1,515 @@
+/**
+ * KSP Image v0.9.0 — Component styles
+ *
+ * Theme: dark with accent colors per section
+ *   - Project: blue   (#6da9d6)
+ *   - Assets:  purple (#c490c4)
+ *   - Pipeline: rainbow per step
+ *
+ * Designed for both:
+ *   - Sidebar mode: max-width 380px (chrome side panel)
+ *   - Editor tab:   1400px+ (full screen)
+ */
+
+/* ============================================================================
+   EDITOR TAB LAYOUT
+============================================================================ */
+
+.ksp-editor-tab {
+  display: grid;
+  grid-template-columns: 260px 1fr 380px;
+  min-height: 100vh;
+  background: #0e0e10;
+  color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.ksp-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #0e0e10;
+  color: #888;
+}
+
+.ksp-editor-main {
+  padding: 24px 32px;
+  overflow-y: auto;
+  max-width: 100%;
+}
+
+/* ============================================================================
+   LEFT RAIL — Pipeline navigator
+============================================================================ */
+
+.ksp-editor-left-rail {
+  border-right: 0.5px solid #1f1f22;
+  padding: 20px 16px;
+  background: #0a0a0c;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.ksp-rail-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid #1f1f22;
+}
+
+.ksp-rail-header h3 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  color: #ccc;
+  letter-spacing: 0.05em;
+}
+
+.ksp-rail-mode-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(109, 169, 214, 0.15);
+  color: #6da9d6;
+  border-radius: 12px;
+}
+
+.ksp-pipeline-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ksp-pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid #3a3a40;
+  color: #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-size: 11px;
+  text-align: left;
+}
+
+.ksp-pipeline-step:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: #2a2a2c;
+}
+
+.ksp-pipeline-step-active {
+  background: rgba(109, 169, 214, 0.1);
+  border-color: rgba(109, 169, 214, 0.4);
+  color: #6da9d6;
+}
+
+.ksp-pipeline-step-icon {
+  font-size: 14px;
+}
+
+.ksp-pipeline-step-label {
+  flex: 1;
+}
+
+.ksp-status-dot {
+  font-size: 10px;
+  width: 14px;
+  text-align: center;
+}
+
+.ksp-status-done { color: #5dcaa5; }
+.ksp-status-in_progress { color: #f0a677; }
+.ksp-status-pending { color: #555; }
+
+/* Connector lines between pipeline steps (Q4: dot+line+dot, line dài 22px) */
+.ksp-pipeline-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.ksp-connector-dot {
+  width: 6px;
+  height: 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: #0a0a0c;
+  color: #6a4a8a;
+}
+
+.ksp-connector-line {
+  width: 0.5px;
+  height: 10px;
+  background: #6a4a8a;
+}
+
+/* ============================================================================
+   RIGHT RAIL — Context panel
+============================================================================ */
+
+.ksp-editor-right-rail {
+  border-left: 0.5px solid #1f1f22;
+  padding: 20px 16px;
+  background: #0a0a0c;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.ksp-rail-empty {
+  color: #666;
+  font-size: 12px;
+  text-align: center;
+  padding: 40px 0;
+}
+
+/* ============================================================================
+   SECTIONS
+============================================================================ */
+
+.ksp-section {
+  margin-bottom: 16px;
+  border: 1px solid #3a3a40;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.ksp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #3a3a40;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ksp-section-icon {
+  font-size: 16px;
+}
+
+.ksp-section-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  color: #6da9d6;
+}
+
+/* ============================================================================
+   COLLAPSIBLE BLOCKS
+============================================================================ */
+
+.ksp-collapsible {
+  border-bottom: 0.5px solid #1f1f22;
+}
+
+.ksp-collapsible:last-child {
+  border-bottom: none;
+}
+
+.ksp-collapsible-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #6da9d6;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ksp-collapsible-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ksp-collapsible-icon {
+  font-size: 9px;
+  color: #555;
+  width: 12px;
+}
+
+.ksp-collapsible-title {
+  flex: 1;
+}
+
+.ksp-collapsible-badge {
+  font-size: 9px;
+  color: #5dcaa5;
+  background: rgba(94, 202, 165, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.ksp-collapsible-content {
+  padding: 4px 16px 16px;
+}
+
+/* ============================================================================
+   FORM CONTROLS
+============================================================================ */
+
+.ksp-form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ksp-form-row-2 { grid-template-columns: 1fr 1fr; display: grid; }
+.ksp-form-row-3 { grid-template-columns: 1fr 1fr 1fr; display: grid; }
+
+.ksp-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.ksp-label-text {
+  font-size: 9px;
+  color: #888;
+}
+
+.ksp-input,
+.ksp-select {
+  padding: 6px 8px;
+  background: #1a1a1c;
+  border: 0.5px solid #2a2a2c;
+  color: #ddd;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ksp-input:focus,
+.ksp-select:focus {
+  border-color: #6da9d6;
+}
+
+.ksp-input:disabled,
+.ksp-select:disabled {
+  color: #888;
+  opacity: 0.7;
+}
+
+/* ============================================================================
+   API KEYS
+============================================================================ */
+
+.ksp-api-key {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.ksp-api-key-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ksp-api-key-label {
+  font-size: 9px;
+  color: #888;
+}
+
+.ksp-api-key-status {
+  font-size: 9px;
+}
+
+.ksp-api-key-status-connected { color: #5dcaa5; }
+.ksp-api-key-status-invalid { color: #e24b4a; }
+.ksp-api-key-status-empty { color: #888; }
+
+.ksp-api-key-input-wrap {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.ksp-api-key-input {
+  flex: 1;
+}
+
+.ksp-api-key-toggle {
+  padding: 0 8px;
+  background: transparent;
+  border: 0.5px solid #2a2a2c;
+  color: #888;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ksp-api-key-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #ccc;
+}
+
+/* ============================================================================
+   INFO BANNER
+============================================================================ */
+
+.ksp-info-banner {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(133, 183, 235, 0.06);
+  border-left: 2px solid rgba(133, 183, 235, 0.4);
+  border-radius: 0 3px 3px 0;
+  font-size: 10px;
+  color: #85b7eb;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   MODE-ADAPTIVE BLOCK COLORS
+============================================================================ */
+
+.ksp-section[data-mode="photos"] { border-color: rgba(196, 144, 196, 0.55); }
+.ksp-section[data-mode="tvc_commercial"] { border-color: rgba(175, 169, 236, 0.55); }
+.ksp-section[data-mode="film"] { border-color: rgba(240, 166, 119, 0.55); }
+.ksp-section[data-mode="product_photo"] { border-color: rgba(94, 202, 165, 0.55); }
+
+/* ============================================================================
+   COMING SOON STUBS (Phase 1 placeholders)
+============================================================================ */
+
+.ksp-coming-soon {
+  padding: 32px;
+  text-align: center;
+  color: #888;
+  border: 1px dashed #2a2a2c;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.ksp-coming-soon h3 {
+  margin: 0 0 12px 0;
+  color: #ccc;
+  font-size: 16px;
+}
+
+.ksp-coming-soon p {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.ksp-stub-note {
+  margin-top: 12px !important;
+  font-size: 10px !important;
+  color: #555 !important;
+  font-style: italic;
+}
+
+/* ============================================================================
+   MODE VIEW (mode-adaptive container)
+============================================================================ */
+
+.ksp-mode-view {
+  margin-top: 16px;
+}
+
+/* ============================================================================
+   SIDEBAR MODE (compact, < 480px)
+============================================================================ */
+
+@media (max-width: 480px) {
+  .ksp-editor-tab {
+    grid-template-columns: 1fr;
+  }
+  .ksp-editor-left-rail,
+  .ksp-editor-right-rail {
+    display: none;
+  }
+  .ksp-editor-main {
+    padding: 12px;
+  }
+  .ksp-form-row-2 { grid-template-columns: 1fr; }
+  .ksp-form-row-3 { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   SIDEBAR LAYOUT v0.9.0 (replaces v0.8.x sidebar Editor.tsx)
+   Vertical 1-column ~380px wide, scrollable
+============================================================================ */
+
+.ksp-sidebar-v09 {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 12px;
+  background: #0e0e10;
+  color: #e5e5e5;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+/* Sidebar mode overrides for forms (narrower than tab) */
+.ksp-sidebar-v09 .ksp-form-row-3 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ksp-sidebar-v09 .ksp-section {
+  margin-bottom: 0;
+}
+
+/* Pipeline step containers */
+.ksp-sidebar-v09 .ksp-section + .ksp-section {
+  margin-top: 0;
+}
+
+/* ============================================================================
+   PER-SECTION BORDER COLORS (v0.9.1) — easy visual differentiation
+============================================================================ */
+
+/* Project Setting — blue */
+.ksp-section.ksp-project-setting {
+  border-color: rgba(109, 169, 214, 0.55);
+  box-shadow: 0 1px 3px rgba(109, 169, 214, 0.08);
+}
+.ksp-section.ksp-project-setting .ksp-section-title { color: #6da9d6; }
+
+/* Cast (Photos) — purple */
+.ksp-section.ksp-cast-photos {
+  border-color: rgba(196, 144, 196, 0.55);
+  box-shadow: 0 1px 3px rgba(196, 144, 196, 0.08);
+}
+.ksp-section.ksp-cast-photos .ksp-section-title { color: #c490c4; }
+
+/* Camera Style (pipeline step 1) — cyan */
+.ksp-section.ksp-camera-style-block {
+  border-color: rgba(94, 202, 200, 0.55);
+  box-shadow: 0 1px 3px rgba(94, 202, 200, 0.08);
+}
+.ksp-section.ksp-camera-style-block .ksp-section-title { color: #5ecac8; }
+
+/* Idea (pipeline step 2) — yellow/gold */
+.ksp-section.ksp-photos-idea {
+  border-color: rgba(232, 200, 116, 0.55);
+  box-shadow: 0 1px 3px rgba(232, 200, 116, 0.08);
+}
+.ksp-section.ksp-photos-idea .ksp-section-title { color: #e8c874; }
+
+/* Image Gen (pipeline step 3) — coral/pink */
+.ksp-section.ksp-photos-imgen {
+  border-color: rgba(240, 144, 144, 0.55);
+  box-shadow: 0 1px 3px rgba(240, 144, 144, 0.08);
+}
+.ksp-section.ksp-photos-imgen .ksp-section-title { color: #f09090; }

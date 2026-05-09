@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "KSP Image",
+  "version": "0.9.1",
+  "description": "AI-powered prompt assembler for cinema (TVC, Photos, Product, Film) — Banana Pro, Imagen 4, Seedance, Veo3.",
+  "permissions": ["storage", "sidePanel", "contextMenus", "downloads", "notifications", "tabs", "activeTab", "scripting"],
+  "host_permissions": [
+    "<all_urls>",
+    "https://*.pinimg.com/*",
+    "https://*.pinterest.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*",
+    "https://api.elevenlabs.io/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "action": {
+    "default_title": "KSP Image v0.9.1 — Open Editor"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/editor.html", "assets/snipper.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "icons": {
+    "16": "public/icon16.png",
+    "48": "public/icon48.png",
+    "128": "public/icon128.png"
+  }
+}

@@ -1,0 +1,633 @@
+/**
+ * KSP Image v0.9.0 — Phase 2 component styles
+ * Cast / Script / Concept / Scenes-Shots
+ */
+
+/* ============================================================================
+   BUTTONS
+============================================================================ */
+
+.ksp-btn {
+  padding: 6px 12px;
+  border: 0.5px solid #2a2a2c;
+  background: rgba(255, 255, 255, 0.04);
+  color: #ccc;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ksp-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: #3a3a3c; }
+.ksp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ksp-btn-sm { padding: 3px 8px; font-size: 10px; }
+.ksp-btn-xs { padding: 2px 5px; font-size: 9px; }
+
+.ksp-btn-secondary {
+  background: rgba(109, 169, 214, 0.15);
+  border-color: rgba(109, 169, 214, 0.4);
+  color: #6da9d6;
+}
+.ksp-btn-secondary:hover { background: rgba(109, 169, 214, 0.25); }
+
+.ksp-btn-orange {
+  background: rgba(240, 166, 119, 0.2);
+  border-color: rgba(240, 166, 119, 0.5);
+  color: #f0a677;
+  font-weight: 500;
+}
+.ksp-btn-orange:hover { background: rgba(240, 166, 119, 0.3); }
+
+.ksp-btn-orange-ghost {
+  border-color: rgba(240, 166, 119, 0.4);
+  color: #f0a677;
+  background: transparent;
+}
+.ksp-btn-orange-ghost:hover { background: rgba(240, 166, 119, 0.1); }
+
+.ksp-btn-ghost {
+  background: transparent;
+  border-color: #2a2a2c;
+  color: #ccc;
+}
+
+.ksp-btn-active {
+  background: rgba(240, 166, 119, 0.2);
+  border-color: rgba(240, 166, 119, 0.5);
+  color: #f0a677;
+}
+
+.ksp-btn-danger-ghost {
+  background: rgba(226, 75, 74, 0.05);
+  border-color: rgba(226, 75, 74, 0.3);
+  color: #e24b4a;
+}
+.ksp-btn-danger-ghost:hover { background: rgba(226, 75, 74, 0.15); }
+
+.ksp-btn-disabled {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: #2a2a2c;
+  color: #666;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   FORM GROUPS
+============================================================================ */
+
+.ksp-form-group {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  border: 0.5px solid #1f1f22;
+}
+
+.ksp-form-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ksp-form-group-title {
+  font-size: 11px;
+  color: #c490c4;
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+.ksp-form-group-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ksp-textarea {
+  resize: vertical;
+  font-family: inherit;
+  min-height: 60px;
+}
+
+/* ============================================================================
+   CAST SECTION
+============================================================================ */
+
+.ksp-cast-section { border-color: rgba(196, 144, 196, 0.3); }
+
+.ksp-cast-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-cast-list {
+  padding: 12px;
+}
+
+.ksp-cast-empty {
+  padding: 20px;
+  color: #888;
+  font-size: 11px;
+  text-align: center;
+  border: 0.5px dashed #2a2a2c;
+  border-radius: 6px;
+}
+
+.ksp-character-card {
+  border: 0.5px solid rgba(196, 144, 196, 0.3);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: rgba(90, 50, 90, 0.05);
+  overflow: hidden;
+}
+
+.ksp-character-card-focused {
+  border-color: rgba(196, 144, 196, 0.6);
+  background: rgba(90, 50, 90, 0.1);
+}
+
+.ksp-character-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #ddd;
+}
+
+.ksp-character-card-header:hover { background: rgba(255, 255, 255, 0.02); }
+
+.ksp-character-avatar {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #2a2a40, #4a4a6a);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.ksp-character-summary { flex: 1; }
+.ksp-character-name { color: #c490c4; font-size: 12px; font-weight: 500; }
+.ksp-character-role { color: #888; font-size: 10px; margin-top: 2px; }
+.ksp-character-counts { display: flex; gap: 8px; font-size: 10px; color: #888; }
+.ksp-character-expand-icon { color: #555; font-size: 10px; }
+
+.ksp-character-detail {
+  padding: 12px 14px;
+  border-top: 0.5px solid rgba(196, 144, 196, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.ksp-character-detail-actions {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 0.5px solid #1f1f22;
+}
+
+.ksp-cast-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+/* Refs grid */
+.ksp-refs-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.ksp-refs-grid[data-ref-type="body"] {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.ksp-ref-card {
+  position: relative;
+  aspect-ratio: 1;
+  background: linear-gradient(135deg, #2a2a40, #4a4a6a);
+  border: 0.5px solid rgba(196, 144, 196, 0.3);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.ksp-refs-grid[data-ref-type="body"] .ksp-ref-card { aspect-ratio: 3/4; }
+
+.ksp-ref-card-empty {
+  background: transparent;
+  border: 1px dashed #2a2a2c;
+  color: #666;
+  font-size: 12px;
+}
+
+.ksp-ref-card-plus { font-size: 18px; }
+.ksp-ref-card-label { font-size: 9px; }
+
+.ksp-ref-card-preview { font-size: 24px; }
+.ksp-ref-card-info {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ksp-ref-card-angle {
+  font-size: 9px;
+  color: #ccc;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.ksp-ref-card-badge {
+  font-size: 8px;
+  background: rgba(240, 166, 119, 0.6);
+  color: white;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.ksp-ref-card-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: #ccc;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* AI Generate panel */
+.ksp-ai-generate-panel {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(240, 166, 119, 0.06);
+  border: 0.5px solid rgba(240, 166, 119, 0.3);
+  border-radius: 6px;
+}
+
+.ksp-ai-panel-header {
+  font-size: 11px;
+  color: #f0a677;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.ksp-ai-panel-prompt {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.ksp-ai-panel-prompt-label { font-size: 9px; color: #888; margin-bottom: 4px; }
+
+.ksp-ai-panel-prompt-text {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 9px;
+  color: #aaa;
+  margin: 0;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   SCRIPT / CONCEPT SECTIONS
+============================================================================ */
+
+.ksp-script-section,
+.ksp-concept-section,
+.ksp-storyboard-section {
+  border-color: rgba(240, 166, 119, 0.3);
+}
+
+.ksp-storyboard-section { border-color: rgba(175, 169, 236, 0.3); }
+
+.ksp-script-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-script-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+}
+
+.ksp-script-empty {
+  padding: 20px;
+  color: #888;
+  font-size: 11px;
+  text-align: center;
+}
+
+.ksp-script-content { padding: 0 12px 12px; }
+
+.ksp-script-header {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.ksp-script-header > .ksp-label {
+  margin-bottom: 8px;
+}
+
+.ksp-script-versions {
+  margin: 8px 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  border: 0.5px solid #1f1f22;
+}
+
+.ksp-script-versions-title {
+  font-size: 10px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.ksp-script-version-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 10px;
+  color: #ccc;
+}
+
+.ksp-script-version-label { flex: 1; color: #f0a677; }
+.ksp-script-version-time { color: #888; }
+
+/* Scene cards */
+.ksp-script-scenes,
+.ksp-scenes-list {
+  padding: 0;
+}
+
+.ksp-scene-card,
+.ksp-scene-shots-card {
+  border: 0.5px solid rgba(240, 166, 119, 0.2);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: rgba(216, 90, 48, 0.04);
+  overflow: hidden;
+}
+
+.ksp-scene-shots-card {
+  border-color: rgba(175, 169, 236, 0.2);
+  background: rgba(80, 70, 130, 0.04);
+}
+
+.ksp-scene-card-header,
+.ksp-scene-shots-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ksp-scene-card-header:hover,
+.ksp-scene-shots-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ksp-scene-expand-icon {
+  font-size: 10px;
+  color: #555;
+}
+
+.ksp-scene-title-block { flex: 1; }
+
+.ksp-scene-title {
+  color: #f0a677;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ksp-scene-shots-card .ksp-scene-title { color: #afa9ec; }
+
+.ksp-scene-meta {
+  font-size: 9px;
+  color: #888;
+  margin-top: 2px;
+}
+
+.ksp-scene-act {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+}
+
+.ksp-scene-act-setup { background: rgba(94, 202, 165, 0.15); color: #5dcaa5; }
+.ksp-scene-act-inciting { background: rgba(133, 183, 235, 0.15); color: #85b7eb; }
+.ksp-scene-act-rising { background: rgba(240, 166, 119, 0.15); color: #f0a677; }
+.ksp-scene-act-climax { background: rgba(226, 75, 74, 0.15); color: #e24b4a; }
+.ksp-scene-act-resolution { background: rgba(196, 144, 196, 0.15); color: #c490c4; }
+
+.ksp-scene-card-body,
+.ksp-scene-shots-body {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.ksp-script-add-scene {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.ksp-shots-actions {
+  margin-top: 8px;
+}
+
+.ksp-shots-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #888;
+}
+
+/* Dialog list */
+.ksp-dialog-empty {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.ksp-dialog-line {
+  display: grid;
+  grid-template-columns: 100px 100px 1fr 30px;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: start;
+}
+
+.ksp-dialog-character { font-weight: 500; color: #c490c4; }
+
+/* Concept form */
+.ksp-concept-form {
+  padding: 0 12px;
+}
+
+.ksp-concept-form > * { margin-bottom: 12px; }
+
+.ksp-collapsible-inline {
+  border: 0.5px solid #1f1f22;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ksp-collapsible-inline summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 10px;
+  color: #ccc;
+  list-style: none;
+  user-select: none;
+}
+
+.ksp-collapsible-inline summary::-webkit-details-marker { display: none; }
+
+.ksp-collapsible-inline[open] summary {
+  border-bottom: 0.5px solid #1f1f22;
+}
+
+.ksp-collapsible-inline-content {
+  padding: 10px 12px;
+}
+
+/* Tone chips */
+.ksp-tone-chips-block { margin-bottom: 10px; }
+
+.ksp-tone-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.ksp-tone-chip {
+  padding: 3px 10px;
+  background: rgba(240, 166, 119, 0.15);
+  color: #f0a677;
+  border-radius: 12px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ksp-tone-chip-remove {
+  background: transparent;
+  border: none;
+  color: #f0a677;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+}
+
+.ksp-tone-chip-input input {
+  padding: 3px 10px;
+  background: transparent;
+  border: 0.5px dashed rgba(240, 166, 119, 0.3);
+  color: #f0a677;
+  border-radius: 12px;
+  font-size: 10px;
+  width: 130px;
+  font-family: inherit;
+}
+
+/* Array lines */
+.ksp-array-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.ksp-array-line .ksp-input { flex: 1; }
+
+/* Shot cards */
+.ksp-shot-card {
+  background: rgba(175, 169, 236, 0.06);
+  border: 0.5px solid rgba(175, 169, 236, 0.2);
+  border-radius: 4px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ksp-shot-card:hover {
+  background: rgba(175, 169, 236, 0.1);
+}
+
+.ksp-shot-card-focused {
+  border-color: rgba(175, 169, 236, 0.6);
+  background: rgba(175, 169, 236, 0.12);
+}
+
+.ksp-shot-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.ksp-shot-emoji { font-size: 14px; }
+.ksp-shot-card-info { flex: 1; }
+
+.ksp-shot-card-title { font-size: 10px; color: #ddd; }
+.ksp-shot-card-meta { font-size: 9px; color: #888; margin-top: 2px; }
+
+.ksp-shot-status {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.ksp-shot-status.ksp-status-pending { background: rgba(85, 85, 85, 0.2); color: #777; }
+.ksp-shot-status.ksp-status-in_progress { background: rgba(240, 166, 119, 0.15); color: #f0a677; }
+.ksp-shot-status.ksp-status-done { background: rgba(94, 202, 165, 0.15); color: #5dcaa5; }
+
+.ksp-shot-card-quick-edit {
+  padding: 8px 12px;
+  border-top: 0.5px solid rgba(175, 169, 236, 0.15);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ksp-shot-card-edit {
+  flex: 1;
+}

@@ -1,0 +1,972 @@
+/* ============================================================================
+ * KSP Image v0.9.1 — Photos mode CSS
+ * 
+ * Styles for: CastPhotosSection · CameraStyleToggleV09 · PhotosIdeaSection · PhotosImageGenSection
+ * Tokens match existing v0.9.0 dark theme.
+ * ============================================================================ */
+
+/* === CAMERA STYLE TOGGLE === */
+
+.ksp-camera-style-block {
+  border: 1px solid #3d3d42;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.ksp-camera-style-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid #1f1f22;
+}
+
+.ksp-camera-style-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.ksp-radio-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.ksp-radio-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3d3d42;
+  border-radius: 6px;
+  cursor: pointer;
+  align-items: start;
+  background: rgba(255, 255, 255, 0.01);
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ksp-radio-card:hover {
+  background: rgba(255, 255, 255, 0.025);
+  border-color: #3a3a3c;
+}
+
+.ksp-radio-card-selected {
+  border: 1.5px solid #6a4a8a;
+  padding: 9.5px 11.5px;
+  background: rgba(106, 74, 138, 0.08);
+}
+
+.ksp-radio-card input[type="radio"] {
+  margin: 3px 0 0 0;
+}
+
+.ksp-radio-card-body {
+  min-width: 0;
+  display: block;
+}
+
+.ksp-radio-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ddd;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ksp-radio-card-desc {
+  font-size: 11px;
+  color: #999;
+  margin-top: 3px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ksp-radio-card-tag {
+  font-size: 10px;
+  color: #777;
+  margin-top: 4px;
+  font-style: italic;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* === CAST PHOTOS === */
+
+.ksp-cast-photos {
+  border: 1px solid #3d3d42;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.ksp-cast-photos-card {
+  padding: 12px 14px;
+  border-bottom: 0.5px solid #1f1f22;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.ksp-cast-photos-card:last-child {
+  border-bottom: none;
+}
+
+.ksp-cast-photos-card:hover {
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.ksp-cast-photos-selected {
+  background: rgba(106, 74, 138, 0.06);
+  border-left: 2px solid #6a4a8a;
+  padding-left: 12px;
+}
+
+.ksp-cast-photos-row {
+  display: grid;
+  grid-template-columns: minmax(95px, auto) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.ksp-cast-type-select {
+  width: 100% !important;
+  min-width: 0 !important;
+  font-size: 11px !important;
+}
+
+.ksp-cast-name-input {
+  width: 100% !important;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.ksp-btn-icon {
+  background: transparent;
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #888;
+  font-size: 11px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.ksp-btn-icon:hover {
+  color: #ddd;
+  border-color: #3a3a3c;
+}
+
+.ksp-cast-photos-block {
+  margin-top: 12px;
+}
+
+.ksp-cast-photos-block:first-child {
+  margin-top: 0;
+}
+
+.ksp-ref-label {
+  font-size: 10px;
+  color: #888;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.ksp-hint-warning {
+  color: #c79640;
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+}
+
+.ksp-cast-hint {
+  font-size: 10px;
+  color: #777;
+  margin: 6px 0 0 0;
+  line-height: 1.4;
+}
+
+/* === FACE GRID === */
+
+.ksp-face-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.ksp-face-slot {
+  aspect-ratio: 1;
+  border-radius: 5px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #3d3d42;
+}
+
+.ksp-face-slot-add {
+  border: 0.5px dashed #3a3a3c;
+  background: transparent;
+  cursor: pointer;
+  color: #888;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.ksp-face-slot-add:hover {
+  color: #ddd;
+  border-color: #6a4a8a;
+  background: rgba(106, 74, 138, 0.06);
+}
+
+.ksp-face-slot-plus {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ksp-face-slot-filled {
+  background: #1a1a1c;
+}
+
+.ksp-face-slot-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ksp-face-slot-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  font-size: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ddd;
+  padding: 2px 4px;
+  text-align: center;
+  cursor: pointer;
+  letter-spacing: 0;
+}
+
+.ksp-face-slot-label-input {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  font-size: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 2px 4px;
+  text-align: center;
+  border: 0.5px solid #6a4a8a;
+  outline: none;
+}
+
+.ksp-btn-icon-overlay {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.65);
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.ksp-btn-icon-overlay:hover {
+  background: rgba(200, 60, 60, 0.85);
+}
+
+/* === OUTFIT — same compact size as a single face slot === */
+
+.ksp-outfit-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.ksp-outfit-slot {
+  aspect-ratio: 1;
+  border: 0.5px dashed #3a3a3c;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 9px;
+  gap: 2px;
+  transition: all 0.12s;
+  padding: 0;
+  /* outfit slot occupies exactly 1 column of the 6-col grid */
+}
+
+.ksp-outfit-slot > span:first-child {
+  font-size: 16px !important;
+  line-height: 1;
+}
+
+.ksp-outfit-slot > span:last-child {
+  font-size: 9px !important;
+  margin-top: 0 !important;
+}
+
+.ksp-outfit-slot:hover {
+  color: #ddd;
+  border-color: #6a4a8a;
+  background: rgba(106, 74, 138, 0.06);
+}
+
+.ksp-outfit-preview {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #1a1a1c;
+  border: 1px solid #3d3d42;
+}
+
+.ksp-outfit-preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* === PHOTOS IDEA / THEME PICKER === */
+
+.ksp-photos-idea {
+  border: 1px solid #3d3d42;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.ksp-step-num {
+  font-size: 11px;
+  color: #666;
+  font-weight: 400;
+}
+
+.ksp-photos-idea-body {
+  padding: 10px 14px;
+}
+
+.ksp-theme-picker {
+  border: 1px solid #3d3d42;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.ksp-theme-search {
+  padding: 8px;
+  border-bottom: 0.5px solid #1f1f22;
+}
+
+.ksp-theme-search input {
+  width: 100%;
+  font-size: 12px;
+}
+
+.ksp-theme-cats {
+  display: flex;
+  gap: 5px;
+  padding: 8px;
+  border-bottom: 0.5px solid #1f1f22;
+  flex-wrap: wrap;
+  max-height: 76px;
+  overflow-y: auto;
+}
+
+.ksp-cat-pill {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #3d3d42;
+  background: transparent;
+  cursor: pointer;
+  color: #999;
+  letter-spacing: 0;
+  font-weight: 400;
+  transition: all 0.12s;
+}
+
+.ksp-cat-pill:hover {
+  color: #ddd;
+  border-color: #3a3a3c;
+}
+
+.ksp-cat-pill-selected {
+  background: rgba(106, 74, 138, 0.18);
+  color: #afa9ec;
+  border-color: #6a4a8a;
+}
+
+.ksp-theme-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ksp-theme-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #ccc;
+  transition: background 0.1s;
+  border-bottom: 0.5px solid #181818;
+}
+
+.ksp-theme-item:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ksp-theme-item-selected {
+  background: rgba(106, 74, 138, 0.16);
+  color: #ddd;
+}
+
+.ksp-theme-icon {
+  font-size: 10px;
+  color: #6a4a8a;
+  width: 10px;
+}
+
+.ksp-theme-emoji {
+  font-size: 13px;
+}
+
+.ksp-theme-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksp-theme-style-pill {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.ksp-style-bokeh {
+  background: rgba(196, 144, 196, 0.18);
+  color: #c490c4;
+}
+
+.ksp-style-documentary {
+  background: rgba(133, 183, 235, 0.18);
+  color: #85b7eb;
+}
+
+.ksp-theme-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+}
+
+.ksp-preset-summary {
+  padding: 10px 12px;
+  background: rgba(94, 202, 165, 0.05);
+  border-top: 0.5px solid #1f1f22;
+  border-radius: 0 0 6px 6px;
+  margin-top: -1px;
+}
+
+.ksp-summary-item {
+  font-size: 10px;
+  margin-bottom: 4px;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+.ksp-summary-item:last-child {
+  margin-bottom: 0;
+}
+
+.ksp-summary-key {
+  color: #888;
+  margin-right: 4px;
+}
+
+.ksp-btn-link {
+  background: none;
+  border: none;
+  color: #afa9ec;
+  font-size: 10px;
+  padding: 4px 0 0 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ksp-btn-link:hover {
+  color: #c4b8f7;
+}
+
+.ksp-custom-idea {
+  margin-top: 10px;
+}
+
+.ksp-textarea {
+  width: 100%;
+  font-size: 12px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  color: #ddd;
+  padding: 8px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.ksp-textarea:focus {
+  outline: none;
+  border-color: #6a4a8a;
+}
+
+/* === IMAGE GEN === */
+
+.ksp-photos-imgen {
+  border: 1px solid #3d3d42;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.ksp-photos-imgen-body {
+  padding: 10px 14px;
+}
+
+.ksp-btn-action {
+  width: 100%;
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: 0.5px solid #3a3a3c;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #afa9ec;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.12s;
+}
+
+.ksp-btn-action:hover {
+  background: rgba(106, 74, 138, 0.08);
+  border-color: #6a4a8a;
+}
+
+.ksp-shots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 14px 12px;
+}
+
+.ksp-shot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid #3d3d42;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.012);
+  transition: background 0.12s;
+}
+
+.ksp-shot-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ksp-shot-thumbs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ksp-shot-thumb-mini {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #1a1a1c;
+  border: 1px solid #3d3d42;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  object-fit: cover;
+}
+
+.ksp-shot-thumb-empty {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ksp-shot-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ksp-shot-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.ksp-shot-num {
+  color: #777;
+}
+
+.ksp-shot-title {
+  font-weight: 500;
+  color: #ddd;
+}
+
+.ksp-shot-line2 {
+  font-size: 9px;
+  color: #888;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksp-shot-icons {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.ksp-shot-icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+
+.ksp-shot-icon-btn:hover {
+  color: #ddd;
+  border-color: #6a4a8a;
+  background: rgba(106, 74, 138, 0.08);
+}
+
+.ksp-shot-icon-btn-danger:hover {
+  color: #f08080;
+  border-color: #b04040;
+  background: rgba(176, 64, 64, 0.08);
+}
+
+.ksp-shot-add-row {
+  width: 100%;
+  padding: 8px;
+  font-size: 11px;
+  background: transparent;
+  border: 0.5px dashed #3a3a3c;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.ksp-shot-add-row:hover {
+  color: #ddd;
+  border-color: #6a4a8a;
+  background: rgba(106, 74, 138, 0.04);
+}
+
+.ksp-shot-footnote {
+  padding: 8px 14px;
+  background: rgba(133, 183, 235, 0.04);
+  border-top: 0.5px solid #1f1f22;
+  font-size: 10px;
+  color: #888;
+  line-height: 1.4;
+}
+
+/* === EMPTY STATE === */
+.ksp-empty-state {
+  padding: 4px 0;
+}
+
+/* === Library Picker Overlay === */
+
+.ksp-library-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(2px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.ksp-library-picker {
+  background: #1a1a1c;
+  border: 1px solid #2a2a2c;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 350px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ksp-library-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 0.5px solid #2a2a2c;
+}
+
+.ksp-library-picker-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #ddd;
+}
+
+.ksp-library-picker-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.ksp-library-picker-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: #999;
+  font-size: 12px;
+}
+
+.ksp-library-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ksp-library-picker-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid #2a2a2c;
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #0e0e10;
+  padding: 0;
+  transition: border-color 0.12s, transform 0.12s;
+}
+
+.ksp-library-picker-thumb:hover {
+  border-color: #6a4a8a;
+  transform: scale(1.03);
+}
+
+.ksp-library-picker-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ksp-library-picker-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  padding: 1px 4px;
+  pointer-events: none;
+}
+
+/* Library pick button — small, ghost style under face/outfit grid */
+.ksp-btn-library-pick {
+  margin-top: 6px;
+  font-size: 10px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: inline-block;
+}
+
+.ksp-btn-library-pick:hover {
+  color: #ddd;
+  border-color: #6a4a8a;
+  background: rgba(106, 74, 138, 0.06);
+}
+
+/* Brand specificity input */
+.ksp-cast-brand-input {
+  font-size: 11px;
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  color: #ddd;
+}
+
+.ksp-cast-brand-input:focus {
+  border-color: #6a4a8a;
+  outline: none;
+}
+
+/* === Ref action icons (📁 Library + 📷 Snip) === */
+
+.ksp-ref-action-icons {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ksp-btn-ref-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #3d3d42;
+  border-radius: 5px;
+  color: #ccc;
+  cursor: pointer;
+  transition: all 0.12s;
+  padding: 0;
+  line-height: 1;
+}
+
+.ksp-btn-ref-icon:hover {
+  background: rgba(106, 74, 138, 0.15);
+  border-color: #6a4a8a;
+  transform: translateY(-1px);
+}
+
+.ksp-btn-ref-icon:active {
+  transform: translateY(0);
+}
+
+/* === Custom intent editor === */
+
+.ksp-custom-intent {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(232, 200, 116, 0.04);
+  border: 1px dashed rgba(232, 200, 116, 0.35);
+  border-radius: 5px;
+}
+
+.ksp-custom-intent-textarea {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid #3d3d42;
+  border-radius: 4px;
+  color: #e5e5e5;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.ksp-custom-intent-textarea:focus {
+  border-color: #e8c874;
+  outline: none;
+}
+
+.ksp-custom-intent-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ksp-custom-intent-en {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(94, 202, 165, 0.06);
+  border-left: 2px solid #5ecaa5;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.4;
+}
+
+.ksp-custom-intent-en-label {
+  color: #5ecaa5;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.ksp-custom-intent-hint {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+}
+
+.ksp-btn-ghost-danger {
+  background: transparent;
+  border: 1px solid rgba(220, 100, 100, 0.4);
+  color: rgba(220, 100, 100, 0.85);
+}
+
+.ksp-btn-ghost-danger:hover {
+  background: rgba(220, 100, 100, 0.08);
+  border-color: rgba(220, 100, 100, 0.6);
+}
