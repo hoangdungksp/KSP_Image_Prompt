@@ -12,8 +12,8 @@ Tôi là **Jason** (Vietnamese, prefer "Jason" in EN). Đang phát triển Chrom
 
 **Stack:** React + TypeScript + Vite + Zustand + Dexie + Tailwind + JSZip + CRXJS
 **Source:** `/home/claude/ksp-v0.9.1/` (extract zip vào đây)
-**Install path Mac:** `~/Documents/ksp-image-ext/`
-**Update command:** `bash ~/Documents/ksp-image-ext/update.sh`
+**Install path Mac:** `~/Downloads/ksp-image-ext/`
+**Update command:** `bash ~/Downloads/ksp-image-ext/update.sh`
 
 **Workflow preference:**
 - Communicate trong tiếng Việt
@@ -310,7 +310,7 @@ iPhone reference (May 2026):
 ## ⚙️ Cập nhật v0.9.1
 
 ```bash
-bash ~/Documents/ksp-image-ext/update.sh
+bash ~/Downloads/ksp-image-ext/update.sh
 ```
 
 → `chrome://extensions` → KSP Image → ↻ Reload (BẮT BUỘC nếu manifest đổi permission) → đóng/mở side panel.
@@ -339,7 +339,7 @@ Test xong gửi feedback theo format `[Section] [Action] → [Expected vs Actual
 Jason cũng đang làm:
 - **KSP AutoFlow** (Chrome extension v4→v5 refactor for AI filmmaking automation, Grok Imagine + Google Flow)
 - **KSP Studio** (web app cho film production, Cinema module, Storyboard V2, Lock Prompt, Master Prompt)
-- **LinguaNewTab** (Chrome extension cho Vietnamese learners of Chinese/English, Chirp 3 HD TTS)
+- **LinguTab** (Chrome extension cho Vietnamese learners of Chinese/English, Chirp 3 HD TTS)
 - **Facebook auto-poster** Chrome extension (Substack RSS + Gemini Vision)
 - **AWE USA 2026** sponsorship outreach (Long Beach, June 15-18)
 - **YouTube channel @DungThichVar** (XR/VR/AR/smart glasses reviews, Vietnamese audience)
