@@ -38,6 +38,7 @@ import type {
   AspectRatio,
   PoseConfig,
 } from "../types";
+import { getAngleById } from "./angles";
 
 // ============================================================================
 // BLOCK 1: FACE LOCK — compressed, supports single + multi-face
@@ -391,7 +392,8 @@ export function buildCameraAPlus(
   cameraStyle: CameraStyle,
   framing: string,
   cameraAngle: string,
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  anglePresetId?: string
 ): string {
   // Auto-match focal length to shot type for natural look
   const lensMatch: Record<string, { lens: string; aperture: string }> = {
@@ -406,11 +408,20 @@ export function buildCameraAPlus(
   const lens = lensMatch[framing] || lensMatch.medium;
   const angleHumanReadable = cameraAngle.replace(/_/g, " ");
 
-  if (cameraStyle === "BOKEH") {
-    return `*Camera:* Shot with a high-end mirrorless camera (Sony A7R V or Canon R5) with a ${lens.lens} lens at ${lens.aperture}, focusing sharply on the model. Soft impressive lighting, high contrast, beautiful skin texture, shallow depth of field, elegant cinematic feel. Camera angle: ${angleHumanReadable}.`;
+  // Resolve angle preset enforcement for repetition emphasis
+  let angleEnforcement = "";
+  if (anglePresetId) {
+    const angle = getAngleById(anglePresetId);
+    if (angle?.cameraInstruction) {
+      angleEnforcement = ` ${angle.cameraInstruction}`;
+    }
   }
-  // DOCUMENTARY — iPhone style
-  return `*Camera:* Taken with iPhone 15 Pro / iPhone 15 Pro Max in standard camera mode. Sharp throughout the entire frame, deep depth of field, natural lifestyle aesthetic. Camera angle: ${angleHumanReadable}.`;
+
+  if (cameraStyle === "BOKEH") {
+    return `*Camera:* Shot with a high-end mirrorless camera (Sony A7R V or Canon R5 Mark II) with a ${lens.lens} lens at ${lens.aperture}, focusing sharply on the model. Soft impressive lighting, high contrast, beautiful skin texture, shallow depth of field, elegant cinematic feel. Camera angle: ${angleHumanReadable}.${angleEnforcement}`;
+  }
+  // DOCUMENTARY — iPhone 17 Pro Max (current 2026 flagship)
+  return `*Camera:* Taken with iPhone 17 Pro Max in standard camera mode, 48MP Fusion main camera. Sharp throughout the entire frame, deep depth of field, natural lifestyle aesthetic. Camera angle: ${angleHumanReadable}.${angleEnforcement}`;
 }
 
 // ============================================================================
@@ -462,12 +473,12 @@ export function buildNegativeAPlus(cameraStyle: CameraStyle): string {
 
 export function buildOutputControlAPlus(aspectRatio: AspectRatio): string {
   const resolutionMap: Record<AspectRatio, string> = {
-    "9:16": "1080x1920px (vertical, TikTok/Reels)",
-    "16:9": "1920x1080px (horizontal, YouTube)",
-    "1:1": "2048x2048px (square, Instagram)",
-    "3:4": "1536x2048px (portrait, classic)",
-    "2:3": "1366x2048px (portrait, photographic)",
+    "9:16": "2160x3840px (4K vertical, modern flagship phone capture)",
+    "16:9": "3840x2160px (4K horizontal, cinematic)",
+    "1:1": "3072x3072px (high-res square, modern Instagram)",
+    "3:4": "2304x3072px (4K portrait, classic photography)",
+    "2:3": "2048x3072px (4K portrait, photographic standard)",
   };
   const resolution = resolutionMap[aspectRatio] || `aspect ratio ${aspectRatio}`;
-  return `*Output:* Aspect ratio ${aspectRatio}. Resolution: ${resolution}. 8K detail, photorealistic DSLR HD quality, sRGB color profile, no watermark, no text overlay, no logo overlay.`;
+  return `*Output:* Aspect ratio ${aspectRatio}. Resolution: ${resolution}. 8K detail upscaling, photorealistic DSLR HD quality, sRGB color profile, no watermark, no text overlay, no logo overlay.`;
 }

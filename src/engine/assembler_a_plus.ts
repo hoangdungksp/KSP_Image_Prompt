@@ -61,17 +61,31 @@ export function assemblePromptAPlus(
   const atmosphere = buildAtmosphereAPlus(project.idea, shot.order, cameraStyle);
   const lighting = buildLightingAPlus(project.idea, cameraStyle);
   const composition = buildCompositionAPlus(framing);
-  const camera = buildCameraAPlus(cameraStyle, framing, cameraAngle, aspectRatio);
+  const camera = buildCameraAPlus(cameraStyle, framing, cameraAngle, aspectRatio, shot.anglePresetId);
   const negative = buildNegativeAPlus(cameraStyle);
   const output = buildOutputControlAPlus(aspectRatio);
 
+  // CRITICAL: MANDATORY camera angle directive at TOP of prompt.
+  // Resolves the "AI ignores camera angle" issue — putting the enforcement
+  // directive first ensures it gets max attention in AI image gen models like
+  // Banana Pro and Imagen.
+  let mandatoryCameraBlock = "";
+  if (shot.anglePresetId) {
+    const angle = getAngleById(shot.anglePresetId);
+    if (angle?.enforcement) {
+      mandatoryCameraBlock = `*MANDATORY CAMERA ANGLE — ${angle.name.toUpperCase()}:* ${angle.enforcement}`;
+    }
+  }
+
   // Optimal order for AI parsing:
-  //   1. Face lock + ref meta first — set identity priority
+  //   0. MANDATORY CAMERA ANGLE — strong directive, max attention
+  //   1. Face lock + ref meta — set identity priority
   //   2. Appearance block — quick reference for human description
   //   3. Outfit + Position + Background + Atmosphere — scene narrative
   //   4. Lighting + Composition + Camera — technical photography
   //   5. Negative + Output — guardrails last
   const orderedBlocks = [
+    mandatoryCameraBlock,
     faceLock,
     refMeta,
     appearance,

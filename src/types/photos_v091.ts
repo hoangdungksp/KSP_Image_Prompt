@@ -125,8 +125,10 @@ export interface PhotosThemeState {
 export interface PhotosShot {
   id: string;
   order: number;
-  /** Angle preset id (wide_front | medium_low | closeup_side | three_quarter | over_shoulder | bird_eye | back_facing | detail). */
+  /** Angle preset id (wide_front | medium_low | closeup_side | three_quarter | over_shoulder | bird_eye | back_facing | detail | dutch_tilt | worm_eye | selfie_pov | looking_up_pov). */
   anglePresetId: string;
+  /** Pose preset id from POSES[] catalog (100 poses). Null = use angle's default framing only. */
+  posePresetId?: string;
   /** Optional camera style override (otherwise uses project.photosV091.cameraStyle). */
   cameraStyleOverride?: CameraStyle;
   /** Free-text pose tweaks ("hand on railing", "looking down at flowers"). */

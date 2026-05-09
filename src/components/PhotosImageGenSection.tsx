@@ -21,12 +21,14 @@ import {
   autoPickShots,
   removeShot,
   addShot,
+  updateShot,
 } from "../store/photos_actions";
 import {
   buildPhotosShotPrompt,
   buildAllPhotosPrompts,
 } from "../engine/photosPromptBuilder";
-import { getAngleById } from "../engine/angles";
+import { ANGLE_PRESETS, getAngleById } from "../engine/angles";
+import { POSES, POSE_CATEGORIES, getPoseById, type PoseCategory } from "../engine/poses_a_plus";
 import { SUBJECT_TYPE_LABELS, type PhotosShot } from "../types/photos_v091";
 
 const SHOT_COUNT_OPTIONS = [3, 6, 9];
@@ -40,6 +42,12 @@ export function PhotosImageGenSection() {
   const photos = ensurePhotosData(project);
 
   const [requestedCount, setRequestedCount] = useState(6);
+  // Pose: "auto" = vary all 100 · category id (e.g. "walking") = vary within · pose id = exact pose
+  const [poseSelection, setPoseSelection] = useState<string>("auto");
+  // Angle: "auto" = vary 12 · angle id = exact
+  const [angleSelection, setAngleSelection] = useState<string>("auto");
+  // Per-shot edit popup state
+  const [editingShotId, setEditingShotId] = useState<string | null>(null);
 
   const selectedCast = photos.cast.find((c) => c.id === photos.selectedCastId) ?? photos.cast[0];
 
@@ -122,7 +130,7 @@ export function PhotosImageGenSection() {
       </header>
 
       <div className="ksp-photos-imgen-body">
-        {/* Controls */}
+        {/* Cast + Shot count */}
         <div className="ksp-form-row ksp-form-row-2">
           <label className="ksp-label">
             <span className="ksp-label-text">Cast pick</span>
@@ -162,12 +170,71 @@ export function PhotosImageGenSection() {
           </label>
         </div>
 
+        {/* Pose dropdown */}
+        <label className="ksp-label">
+          <span className="ksp-label-text">Pose · 100 tư thế</span>
+          <select
+            value={poseSelection}
+            onChange={(e) => setPoseSelection(e.target.value)}
+            className="ksp-select"
+          >
+            <option value="auto">⚡ Auto-vary across all 100 poses</option>
+            <optgroup label="🎯 Vary trong 1 category">
+              {POSE_CATEGORIES.map((cat) => (
+                <option key={`cat:${cat.id}`} value={`cat:${cat.id}`}>
+                  {cat.emoji} {cat.label} ({POSES.filter((p) => p.category === cat.id).length} poses)
+                </option>
+              ))}
+            </optgroup>
+            {POSE_CATEGORIES.map((cat) => (
+              <optgroup key={cat.id} label={`${cat.emoji} ${cat.label}`}>
+                {POSES.filter((p) => p.category === cat.id).map((pose) => (
+                  <option key={pose.id} value={pose.id}>
+                    {pose.vi}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        {/* Camera Angle dropdown */}
+        <label className="ksp-label">
+          <span className="ksp-label-text">Camera Angle · 12 góc</span>
+          <select
+            value={angleSelection}
+            onChange={(e) => setAngleSelection(e.target.value)}
+            className="ksp-select"
+          >
+            <option value="auto">⚡ Auto-vary across all 12 angles</option>
+            {ANGLE_PRESETS.map((angle) => (
+              <option key={angle.id} value={angle.id}>
+                {angle.emoji} {angle.name} — {angle.description}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* Generate Prompts button — colorful! */}
         <button
           type="button"
-          className="ksp-btn-action"
-          onClick={() => updateProject(autoPickShots(project, requestedCount))}
+          className="ksp-btn-generate-prompts"
+          onClick={() => {
+            const opts: any = {};
+            if (poseSelection !== "auto") {
+              if (poseSelection.startsWith("cat:")) {
+                opts.poseCategory = poseSelection.slice(4);
+              } else {
+                opts.poseId = poseSelection;
+              }
+            }
+            if (angleSelection !== "auto") {
+              opts.angleId = angleSelection;
+            }
+            updateProject(autoPickShots(project, requestedCount, opts));
+          }}
         >
-          ↻ Auto-pick {requestedCount} angles khác nhau
+          ⚡ Generate Prompts
         </button>
       </div>
 
@@ -182,6 +249,7 @@ export function PhotosImageGenSection() {
         <div className="ksp-shots-list">
           {photos.shots.map((shot) => {
             const angle = getAngleById(shot.anglePresetId);
+            const pose = shot.posePresetId ? getPoseById(shot.posePresetId) : undefined;
             return (
               <div key={shot.id} className="ksp-shot-row">
                 <div className="ksp-shot-thumbs">
@@ -191,15 +259,29 @@ export function PhotosImageGenSection() {
                 <div className="ksp-shot-info">
                   <div className="ksp-shot-line1">
                     <span className="ksp-shot-num">{shot.order}.</span>
-                    <span className="ksp-shot-title">{angle?.name ?? "Unknown"}</span>
+                    <span className="ksp-shot-title">
+                      {pose ? pose.vi : angle?.name ?? "Unknown"}
+                    </span>
                   </div>
-                  <div className="ksp-shot-line2">{angle?.hintVn ?? "—"}</div>
+                  <div className="ksp-shot-line2">
+                    {angle?.emoji} {angle?.name ?? "—"}
+                    {pose ? ` · ${POSE_CATEGORIES.find((c) => c.id === pose.category)?.emoji ?? ""}` : ""}
+                  </div>
                 </div>
                 <div className="ksp-shot-icons">
                   <button
                     type="button"
                     className="ksp-shot-icon-btn"
-                    title="Copy prompt 13 blocks (EN)"
+                    title="Edit pose + camera angle"
+                    aria-label="Edit shot"
+                    onClick={() => setEditingShotId(shot.id)}
+                  >
+                    ✏
+                  </button>
+                  <button
+                    type="button"
+                    className="ksp-shot-icon-btn"
+                    title="Copy prompt (EN)"
                     aria-label="Copy prompt"
                     onClick={() => onCopyPrompt(shot)}
                   >
@@ -235,6 +317,14 @@ export function PhotosImageGenSection() {
             + Thêm shot
           </button>
         </div>
+      )}
+
+      {/* Per-shot edit popup */}
+      {editingShotId && (
+        <ShotEditPopup
+          shotId={editingShotId}
+          onClose={() => setEditingShotId(null)}
+        />
       )}
 
       <div className="ksp-shot-footnote">
@@ -314,4 +404,108 @@ function buildRefsReadme(
     `Generate → review → adjust prompt or refs as needed.`
   );
   return lines.join("\n");
+}
+
+// ============================================================================
+// PER-SHOT EDIT POPUP — allows changing pose + camera angle for a single shot
+// ============================================================================
+function ShotEditPopup({ shotId, onClose }: { shotId: string; onClose: () => void }) {
+  const project = useAppStore((s) => s.currentProject);
+  const updateProject = useAppStore((s) => s.updateCurrentProject);
+  if (!project) return null;
+  const photos = ensurePhotosData(project);
+  const shot = photos.shots.find((s) => s.id === shotId);
+  if (!shot) {
+    return null;
+  }
+
+  return (
+    <div className="ksp-library-picker-backdrop" onClick={onClose}>
+      <div
+        className="ksp-library-picker"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <header className="ksp-library-picker-header">
+          <span className="ksp-library-picker-title">
+            ✏ Edit Shot {shot.order}
+          </span>
+          <button
+            type="button"
+            className="ksp-btn-icon"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="ksp-library-picker-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <label className="ksp-label">
+            <span className="ksp-label-text">Pose</span>
+            <select
+              value={shot.posePresetId || ""}
+              onChange={(e) =>
+                updateProject(
+                  updateShot(project, shot.id, { posePresetId: e.target.value || undefined })
+                )
+              }
+              className="ksp-select"
+            >
+              <option value="">— Không pose cụ thể —</option>
+              {POSE_CATEGORIES.map((cat) => (
+                <optgroup key={cat.id} label={`${cat.emoji} ${cat.label}`}>
+                  {POSES.filter((p) => p.category === cat.id).map((pose) => (
+                    <option key={pose.id} value={pose.id}>
+                      {pose.vi}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+
+          <label className="ksp-label">
+            <span className="ksp-label-text">Camera Angle</span>
+            <select
+              value={shot.anglePresetId}
+              onChange={(e) =>
+                updateProject(updateShot(project, shot.id, { anglePresetId: e.target.value }))
+              }
+              className="ksp-select"
+            >
+              {ANGLE_PRESETS.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.emoji} {a.name} — {a.description}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ksp-label">
+            <span className="ksp-label-text">Pose note (free-text, optional)</span>
+            <textarea
+              value={shot.poseNote || ""}
+              onChange={(e) =>
+                updateProject(updateShot(project, shot.id, { poseNote: e.target.value }))
+              }
+              placeholder="vd: cầm bó hoa hồng đỏ, tóc tết bím..."
+              rows={2}
+              className="ksp-textarea"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="ksp-btn-action"
+            onClick={onClose}
+            style={{ marginTop: 4 }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

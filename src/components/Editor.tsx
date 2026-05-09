@@ -99,18 +99,27 @@ export function Editor() {
   }
 
   return (
-    <div className="ksp-sidebar-v09">
+    <div
+      className="ksp-sidebar-v09"
+      onClick={(e) => {
+        // Click on a section header → toggle collapse on the parent .ksp-section
+        const target = e.target as HTMLElement;
+        const header = target.closest(".ksp-section-header");
+        if (!header) return;
+        // Don't toggle if clicked on an interactive element inside header
+        if (target.closest("button, input, select, a")) return;
+        const section = header.closest(".ksp-section");
+        if (!section) return;
+        section.classList.toggle("ksp-section-collapsed");
+      }}
+    >
       {/* Section 1: PROJECT */}
-      <SectionLabel>━━━ PROJECT ━━━</SectionLabel>
       <ProjectSettingSectionV09 />
 
       {/* Section 2: ASSETS — mode-adaptive */}
-      <SectionLabel>━━━ ASSETS ━━━</SectionLabel>
       {mode === "photos" ? <CastPhotosSection /> : <CastSectionV09 />}
 
       {/* Section 3: PIPELINE — adaptive per mode */}
-      <SectionLabel>━━━ PIPELINE ━━━</SectionLabel>
-
       {mode === "photos" && <PhotosPipeline />}
       {mode === "tvc_commercial" && <TvcPipeline />}
       {mode === "product_photo" && <ProductPipeline />}

@@ -84,14 +84,14 @@ describe("Photos mode — Editor render", () => {
   it("renders Project Setting + Cast Photos + Pipeline sections", () => {
     const { getByText, container } = render(<Editor />);
     expect(getByText(/PROJECT SETTING/i)).toBeTruthy();
-    // Section labels
-    const labels = container.querySelectorAll("div");
-    const labelTexts = Array.from(labels)
-      .map((el) => el.textContent?.trim())
-      .filter(Boolean);
-    expect(labelTexts.some((t) => t?.includes("PROJECT"))).toBe(true);
-    expect(labelTexts.some((t) => t?.includes("ASSETS"))).toBe(true);
-    expect(labelTexts.some((t) => t?.includes("PIPELINE"))).toBe(true);
+    // v0.9.1 r10: separators "━━━ PROJECT/ASSETS/PIPELINE ━━━" removed.
+    // Sections render directly. Verify by their unique CSS classes.
+    const html = container.innerHTML;
+    expect(html).toContain("ksp-project-setting");
+    expect(html).toContain("ksp-cast-photos");
+    // Pipeline sections (camera style + idea + image gen) all have ksp-section class
+    const sections = container.querySelectorAll(".ksp-section");
+    expect(sections.length).toBeGreaterThanOrEqual(4); // project + cast + camera + idea + image_gen
   });
 });
 
@@ -589,5 +589,189 @@ describe("Custom intent injection (v0.9.1 r5)", () => {
     const shot = project.photosV091!.shots[0];
     const result = buildPhotosShotPrompt(project, shot)!;
     expect(result.prompt).toMatch(/holding a bouquet of red roses instead of daisies/);
+  });
+});
+
+// ============================================================================
+// 100 POSES — pose preset injection (v0.9.1 r10)
+// ============================================================================
+
+describe("100 poses + 12 angles (v0.9.1 r10)", () => {
+  it("POSES catalog has exactly 100 poses across 10 categories", async () => {
+    const { POSES, POSE_CATEGORIES } = await import("../src/engine/poses_a_plus");
+    expect(POSES.length).toBe(100);
+    expect(POSE_CATEGORIES.length).toBe(10);
+    // No duplicate IDs
+    const ids = new Set(POSES.map((p) => p.id));
+    expect(ids.size).toBe(100);
+  });
+
+  it("ANGLE_PRESETS has 12 angles after v0.9.1 r10 expansion", async () => {
+    const { ANGLE_PRESETS } = await import("../src/engine/angles");
+    expect(ANGLE_PRESETS.length).toBe(12);
+    // New 4 angles must exist
+    const ids = ANGLE_PRESETS.map((a) => a.id);
+    expect(ids).toContain("dutch_tilt");
+    expect(ids).toContain("worm_eye");
+    expect(ids).toContain("selfie_pov");
+    expect(ids).toContain("looking_up_pov");
+  });
+
+  it("autoPickShots(6) with poseId='walking_back_look' → all shots same pose, varied angles", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 6, { poseId: "walking_back_look" }) };
+    const shots = project.photosV091!.shots;
+    expect(shots.length).toBe(6);
+    // All shots same pose
+    expect(shots.every((s) => s.posePresetId === "walking_back_look")).toBe(true);
+    // Angles varied
+    const angles = new Set(shots.map((s) => s.anglePresetId));
+    expect(angles.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("autoPickShots fully auto-vary uses different poses across shots", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 6) };
+    const shots = project.photosV091!.shots;
+    expect(shots.length).toBe(6);
+    // All shots have a posePresetId
+    expect(shots.every((s) => s.posePresetId)).toBe(true);
+    // Poses varied across at least 4 distinct ones
+    const poses = new Set(shots.map((s) => s.posePresetId));
+    expect(poses.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it("Pose preset description appears in generated prompt", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 1, { poseId: "lying_face_down_sand" }) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    // pose.en for lying_face_down_sand: "Lying face down on sand or grass, elbows propped up..."
+    expect(result.prompt).toMatch(/Lying face down/);
+    expect(result.prompt).toMatch(/elbows propped/);
+  });
+
+  it("Engine A+ uses iPhone 17 Pro Max + 4K resolution (r10)", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...setCameraStyle(project, "DOCUMENTARY") };
+    project = { ...project, ...autoPickShots(project, 1) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    // r10: iPhone 17 Pro Max (latest 2026 flagship)
+    expect(result.prompt).toMatch(/iPhone 17 Pro Max/);
+    expect(result.prompt).toMatch(/48MP Fusion/);
+    // r10: 4K resolution (2160x3840 for 9:16)
+    expect(result.prompt).toMatch(/2160x3840px/);
+  });
+});
+
+// ============================================================================
+// MANDATORY CAMERA ANGLE — strong directive injection (v0.9.1 r11)
+// ============================================================================
+
+describe("MANDATORY camera angle enforcement (v0.9.1 r11)", () => {
+  it("Worm's Eye angle injects MANDATORY block at TOP of prompt with strong directives", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 1, { angleId: "worm_eye" }) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+
+    // MANDATORY block must be at TOP (within first 200 chars)
+    expect(result.prompt.slice(0, 200)).toMatch(/MANDATORY CAMERA ANGLE/);
+    // Strong directives must be present
+    expect(result.prompt).toMatch(/worm's-eye view|worm's eye/i);
+    expect(result.prompt).toMatch(/ground level|ground-level/i);
+    expect(result.prompt).toMatch(/upward.*70-80 degrees/);
+    expect(result.prompt).toMatch(/Do NOT use eye level/);
+  });
+
+  it("Bird's Eye angle injects strong overhead directive", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 1, { angleId: "bird_eye" }) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    expect(result.prompt).toMatch(/bird's-eye view|overhead shot/i);
+    expect(result.prompt).toMatch(/straight down at 90 degrees/);
+    expect(result.prompt).toMatch(/Do NOT use eye level/);
+  });
+
+  it("Dutch Tilt injects strong canted-frame directive", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 1, { angleId: "dutch_tilt" }) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    expect(result.prompt).toMatch(/Dutch angle|canted angle/i);
+    expect(result.prompt).toMatch(/15-25 degrees off horizontal/);
+    expect(result.prompt).toMatch(/horizon line must be diagonal/);
+  });
+
+  it("Camera angle directive REPEATS in Camera block for emphasis", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, { filename: "f.jpg", mimeType: "image/jpeg", dataUrl: TINY_PNG_DATA_URL }),
+    };
+    project = { ...project, ...autoPickShots(project, 1, { angleId: "worm_eye" }) };
+    useAppStore.setState({ currentProject: project });
+
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    // Worm's eye-related wording must appear at least 2 times (once in MANDATORY block, once in Camera block)
+    const matches = result.prompt.match(/worm/gi) || [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 });

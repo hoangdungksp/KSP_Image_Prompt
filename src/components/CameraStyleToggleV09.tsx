@@ -58,7 +58,7 @@ export function CameraStyleToggleV09() {
           />
           <div className="ksp-radio-card-body">
             <div className="ksp-radio-card-title">📱 Documentary · Phe B</div>
-            <div className="ksp-radio-card-desc">iPhone 15 Pro · f/22 · deep focus everywhere</div>
+            <div className="ksp-radio-card-desc">iPhone 17 Pro Max · 48MP · deep focus everywhere</div>
             <div className="ksp-radio-card-tag">Sport, street, đời thường, du lịch</div>
           </div>
         </label>

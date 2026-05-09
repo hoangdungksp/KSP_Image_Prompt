@@ -21,6 +21,11 @@ import {
 } from "../types/photos_v091";
 import type { PromptProject, ProjectV09Extensions, SubjectType, CameraStyle } from "../types";
 import { ANGLE_PRESETS, pickNextAngle } from "../engine/angles";
+import {
+  POSES,
+  autoVaryPickPoses,
+  getPoseById,
+} from "../engine/poses_a_plus";
 
 type ProjWithPhotos = PromptProject & ProjectV09Extensions;
 
@@ -238,18 +243,63 @@ export function setCustomIntent(
  * Generate N shots with auto-picked angles, replacing existing shots.
  * Default: 6 shots cycling through the 8 angle presets.
  */
+/**
+ * Auto-pick N shots with varied pose + camera angle.
+ *
+ * @param project - Current project
+ * @param count - Number of shots to create (default DEFAULT_SHOT_COUNT)
+ * @param options.poseId - If set: all shots use this exact pose (vary only angle)
+ * @param options.poseCategory - If set: shots picked from this pose category only
+ * @param options.angleId - If set: all shots use this exact camera angle (vary only pose)
+ *
+ * Behavior:
+ *   - poseId set + angleId set → all N shots identical (Aha A/B test)
+ *   - poseId set + angleId unset → all N shots same pose, varied angles
+ *   - poseId unset + angleId set → varied poses, all same angle
+ *   - both unset → fully auto-vary (default, recommended)
+ *   - poseCategory set → only pick from that category
+ */
 export function autoPickShots(
   project: PromptProject,
-  count: number = DEFAULT_SHOT_COUNT
+  count: number = DEFAULT_SHOT_COUNT,
+  options: {
+    poseId?: string;
+    poseCategory?: string;
+    angleId?: string;
+  } = {}
 ): Partial<ProjWithPhotos> {
   const data = ensurePhotosData(project);
   const safeCount = Math.max(1, Math.min(count, ANGLE_PRESETS.length));
+
+  // Pick poses
+  let poseSequence: any[] = [];
+  if (options.poseId) {
+    // All shots same pose
+    const pose = getPoseById(options.poseId);
+    poseSequence = Array(safeCount).fill(pose);
+  } else if (options.poseCategory) {
+    // Vary within category
+    const categoryPoses = POSES.filter((p) => p.category === options.poseCategory);
+    poseSequence = categoryPoses.slice(0, safeCount);
+    while (poseSequence.length < safeCount && categoryPoses.length > 0) {
+      poseSequence.push(categoryPoses[poseSequence.length % categoryPoses.length]);
+    }
+  } else {
+    // Full auto-vary across all 100
+    poseSequence = autoVaryPickPoses(safeCount);
+  }
+
+  // Pick angles
   const shots: PhotosShot[] = [];
   const usedIds: string[] = [];
   for (let i = 0; i < safeCount; i++) {
-    const angle = pickNextAngle(usedIds);
-    usedIds.push(angle.id);
-    shots.push(createPhotosShot(i + 1, angle.id));
+    const angleId = options.angleId || pickNextAngle(usedIds).id;
+    usedIds.push(angleId);
+    const shot = createPhotosShot(i + 1, angleId);
+    if (poseSequence[i]) {
+      shot.posePresetId = poseSequence[i].id;
+    }
+    shots.push(shot);
   }
   return patch({ ...data, shots });
 }

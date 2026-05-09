@@ -513,3 +513,39 @@
   box-shadow: 0 1px 3px rgba(240, 144, 144, 0.08);
 }
 .ksp-section.ksp-photos-imgen .ksp-section-title { color: #f09090; }
+
+/* ============================================================================
+   v0.9.1 r10 — SECTION COLLAPSE (click header to toggle)
+============================================================================ */
+
+.ksp-section-header {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.ksp-section-header:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* Caret indicator */
+.ksp-section-header::after {
+  content: "▼";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #888;
+  transition: transform 0.2s;
+  pointer-events: none;
+}
+
+.ksp-section.ksp-section-collapsed .ksp-section-header::after {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+/* Hide all section content when collapsed (everything except .ksp-section-header) */
+.ksp-section.ksp-section-collapsed > *:not(.ksp-section-header) {
+  display: none;
+}

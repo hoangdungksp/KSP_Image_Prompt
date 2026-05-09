@@ -16,6 +16,7 @@
 import { assemblePromptAPlus } from "./assembler_a_plus";
 import { getThemeById } from "./themes";
 import { applyAnglePreset, getAngleById } from "./angles";
+import { getPoseById } from "./poses_a_plus";
 import type {
   PromptProject,
   ProjectV09Extensions,
@@ -48,9 +49,24 @@ export function buildPhotosShotPrompt(
   const adapted = adaptToLegacyProject(project, photos, cast, shot);
   const legacyShot = adaptToLegacyShot(shot, photos.cameraStyle);
 
-  // Pass A+ extras: brand specificity + face labels for multi-face avg lock
+  // Resolve pose preset → English description for *Position:* block
+  let posePromptDesc: string | undefined;
+  if (shot.posePresetId) {
+    const pose = getPoseById(shot.posePresetId);
+    if (pose) {
+      posePromptDesc = pose.en;
+    }
+  }
+  // Combine pose preset + free-text note (note appends to preset)
+  const combinedPoseNote = posePromptDesc
+    ? shot.poseNote
+      ? `${posePromptDesc}. ${shot.poseNote}`
+      : posePromptDesc
+    : shot.poseNote;
+
+  // Pass A+ extras: brand specificity + face labels for multi-face avg lock + pose
   return assemblePromptAPlus(adapted, legacyShot, {
-    poseNote: shot.poseNote,
+    poseNote: combinedPoseNote,
     brandSpecificity: cast.brandSpecificity,
     faceLabels: cast.faceRefs.map((f) => f.label),
   });
