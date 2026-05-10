@@ -235,6 +235,32 @@ export function setCustomIntent(
   });
 }
 
+/**
+ * Set custom user-defined pose (v0.9.1-r12) — applied to all N shots when user picks
+ * "✍️ Tự nhập tư thế" in dropdown. customPoseEn is set when user clicks "Dịch".
+ * Pass `null` to clear both VI + EN.
+ */
+export function setCustomPose(
+  project: PromptProject,
+  pose: { vi?: string; en?: string } | null
+): Partial<ProjWithPhotos> {
+  const data = ensurePhotosData(project);
+  if (pose === null) {
+    return patch({
+      ...data,
+      theme: { ...data.theme, customPoseVi: undefined, customPoseEn: undefined },
+    });
+  }
+  return patch({
+    ...data,
+    theme: {
+      ...data.theme,
+      ...(pose.vi !== undefined && { customPoseVi: pose.vi }),
+      ...(pose.en !== undefined && { customPoseEn: pose.en }),
+    },
+  });
+}
+
 // ============================================================================
 // SHOTS — auto-pick angle presets so each shot has a different angle
 // ============================================================================
@@ -251,8 +277,10 @@ export function setCustomIntent(
  * @param options.poseId - If set: all shots use this exact pose (vary only angle)
  * @param options.poseCategory - If set: shots picked from this pose category only
  * @param options.angleId - If set: all shots use this exact camera angle (vary only pose)
+ * @param options.customPoseText - If set: all shots use this free-text pose (overrides poseId/poseCategory)
  *
  * Behavior:
+ *   - customPoseText set → all N shots use this text in poseNote, no preset (vary angle only by default)
  *   - poseId set + angleId set → all N shots identical (Aha A/B test)
  *   - poseId set + angleId unset → all N shots same pose, varied angles
  *   - poseId unset + angleId set → varied poses, all same angle
@@ -266,14 +294,18 @@ export function autoPickShots(
     poseId?: string;
     poseCategory?: string;
     angleId?: string;
+    customPoseText?: string;
   } = {}
 ): Partial<ProjWithPhotos> {
   const data = ensurePhotosData(project);
   const safeCount = Math.max(1, Math.min(count, ANGLE_PRESETS.length));
 
-  // Pick poses
+  // Pick poses (skipped entirely when customPoseText is provided)
   let poseSequence: any[] = [];
-  if (options.poseId) {
+  if (options.customPoseText) {
+    // User-defined pose text → set poseNote on each shot, no preset id
+    poseSequence = Array(safeCount).fill(null);
+  } else if (options.poseId) {
     // All shots same pose
     const pose = getPoseById(options.poseId);
     poseSequence = Array(safeCount).fill(pose);
@@ -296,7 +328,10 @@ export function autoPickShots(
     const angleId = options.angleId || pickNextAngle(usedIds).id;
     usedIds.push(angleId);
     const shot = createPhotosShot(i + 1, angleId);
-    if (poseSequence[i]) {
+    if (options.customPoseText) {
+      // Free-text pose: inject into poseNote, leave posePresetId undefined
+      shot.poseNote = options.customPoseText;
+    } else if (poseSequence[i]) {
       shot.posePresetId = poseSequence[i].id;
     }
     shots.push(shot);

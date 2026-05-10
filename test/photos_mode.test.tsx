@@ -775,3 +775,123 @@ describe("MANDATORY camera angle enforcement (v0.9.1 r11)", () => {
     expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ============================================================================
+// v0.9.1-r12 — Custom Pose (free-text "Tự nhập tư thế") + Connectors
+// ============================================================================
+
+describe("v0.9.1-r12 — Custom Pose free-text", () => {
+  beforeEach(() => {
+    cleanup();
+    useAppStore.setState({ currentProject: makePhotosProject() });
+  });
+
+  it("setCustomPose stores VI text in PhotosV091Data.theme.customPoseVi", async () => {
+    const { setCustomPose } = await import("../src/store/photos_actions");
+    let project = useAppStore.getState().currentProject!;
+    project = {
+      ...project,
+      ...setCustomPose(project, { vi: "ngồi cạnh ly cà phê tay đỡ cằm" }),
+    };
+    expect(project.photosV091!.theme.customPoseVi).toBe(
+      "ngồi cạnh ly cà phê tay đỡ cằm"
+    );
+  });
+
+  it("setCustomPose(null) clears both VI and EN", async () => {
+    const { setCustomPose } = await import("../src/store/photos_actions");
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...setCustomPose(project, { vi: "abc", en: "xyz" }) };
+    project = { ...project, ...setCustomPose(project, null) };
+    expect(project.photosV091!.theme.customPoseVi).toBeUndefined();
+    expect(project.photosV091!.theme.customPoseEn).toBeUndefined();
+  });
+
+  it("autoPickShots with customPoseText sets shot.poseNote and leaves posePresetId undefined", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const customPoseText = "sitting beside coffee cup, hand supporting chin";
+    project = {
+      ...project,
+      ...autoPickShots(project, 6, { customPoseText }),
+    };
+    const shots = project.photosV091!.shots;
+    expect(shots).toHaveLength(6);
+    for (const shot of shots) {
+      expect(shot.poseNote).toBe(customPoseText);
+      expect(shot.posePresetId).toBeUndefined();
+    }
+  });
+
+  it("autoPickShots with customPoseText still varies camera angles", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    project = {
+      ...project,
+      ...autoPickShots(project, 6, { customPoseText: "looking out window" }),
+    };
+    const angleIds = project.photosV091!.shots.map((s) => s.anglePresetId);
+    const unique = new Set(angleIds);
+    // Should pick 6 different angles when angleId not specified
+    expect(unique.size).toBe(6);
+  });
+
+  it("autoPickShots with customPoseText + fixed angleId: all shots same pose + angle", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    project = {
+      ...project,
+      ...autoPickShots(project, 3, {
+        customPoseText: "leaning on railing",
+        angleId: "wide_front",
+      }),
+    };
+    for (const shot of project.photosV091!.shots) {
+      expect(shot.poseNote).toBe("leaning on railing");
+      expect(shot.anglePresetId).toBe("wide_front");
+      expect(shot.posePresetId).toBeUndefined();
+    }
+  });
+
+  it("Custom pose text is injected into *Position:* block of generated prompt", () => {
+    let project = useAppStore.getState().currentProject!;
+    project = { ...project, ...addCastMember(project, "female") };
+    const castId = project.photosV091!.cast[0].id;
+    project = {
+      ...project,
+      ...addFaceRef(project, castId, {
+        filename: "f.jpg",
+        mimeType: "image/jpeg",
+        dataUrl: TINY_PNG_DATA_URL,
+      }),
+    };
+    const customText = "sitting at rooftop cafe with both hands wrapped around a hot coffee cup";
+    project = {
+      ...project,
+      ...autoPickShots(project, 1, { customPoseText: customText }),
+    };
+    useAppStore.setState({ currentProject: project });
+    const shot = project.photosV091!.shots[0];
+    const result = buildPhotosShotPrompt(project, shot)!;
+    expect(result.prompt).toContain("rooftop cafe");
+    expect(result.prompt).toContain("hot coffee cup");
+  });
+});
+
+describe("v0.9.1-r12 — Editor connector layout", () => {
+  beforeEach(() => {
+    cleanup();
+    useAppStore.setState({ currentProject: makePhotosProject() });
+  });
+
+  it("Photos mode renders Project + Cast + Camera Style sections", () => {
+    const { container } = render(<Editor />);
+    // 5 sections should all render: project, cast, camera, idea, imgen
+    const sections = container.querySelectorAll(".ksp-section");
+    expect(sections.length).toBeGreaterThanOrEqual(4);
+    // Verify at least project + cast + camera headers exist
+    const html = container.innerHTML;
+    expect(html).toContain("PROJECT");
+    expect(html.toUpperCase()).toContain("CAMERA STYLE");
+  });
+});

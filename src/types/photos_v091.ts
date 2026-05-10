@@ -111,6 +111,14 @@ export interface PhotosThemeState {
    */
   customIntentVi?: string;
   customIntentEn?: string;
+  /**
+   * Custom user-defined pose (v0.9.1-r12) — used when user picks "✍️ Tự nhập tư thế" in dropdown.
+   * One pose text applies to ALL N shots (camera angles still vary independently).
+   * Persisted at project level so reload preserves user's free-text pose.
+   * Engine injects customPoseEn into *Position:* block (or VI fallback if not translated yet).
+   */
+  customPoseVi?: string;
+  customPoseEn?: string;
 }
 
 // ============================================================================

@@ -22,6 +22,7 @@ import {
   removeShot,
   addShot,
   updateShot,
+  setCustomPose,
 } from "../store/photos_actions";
 import {
   buildPhotosShotPrompt,
@@ -179,6 +180,7 @@ export function PhotosImageGenSection() {
             className="ksp-select"
           >
             <option value="auto">⚡ Auto-vary across all 100 poses</option>
+            <option value="custom">✍️ Tự nhập tư thế (free-text)</option>
             <optgroup label="🎯 Vary trong 1 category">
               {POSE_CATEGORIES.map((cat) => (
                 <option key={`cat:${cat.id}`} value={`cat:${cat.id}`}>
@@ -197,6 +199,9 @@ export function PhotosImageGenSection() {
             ))}
           </select>
         </label>
+
+        {/* Custom pose editor — shown only when "Tự nhập" picked */}
+        {poseSelection === "custom" && <CustomPoseEditor />}
 
         {/* Camera Angle dropdown */}
         <label className="ksp-label">
@@ -221,7 +226,17 @@ export function PhotosImageGenSection() {
           className="ksp-btn-generate-prompts"
           onClick={() => {
             const opts: any = {};
-            if (poseSelection !== "auto") {
+            if (poseSelection === "custom") {
+              // User-defined free-text pose: prefer EN if translated, else VI fallback
+              const en = photos.theme.customPoseEn?.trim();
+              const vi = photos.theme.customPoseVi?.trim();
+              const text = en || vi;
+              if (!text) {
+                showToast("Gõ tư thế tiếng Việt trước (hoặc dịch sang EN)", "error");
+                return;
+              }
+              opts.customPoseText = text;
+            } else if (poseSelection !== "auto") {
               if (poseSelection.startsWith("cat:")) {
                 opts.poseCategory = poseSelection.slice(4);
               } else {
@@ -506,6 +521,99 @@ function ShotEditPopup({ shotId, onClose }: { shotId: string; onClose: () => voi
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// CUSTOM POSE EDITOR — free-text pose used for ALL N shots (v0.9.1-r12)
+// ============================================================================
+//
+// User flow:
+//   1. Pick "✍️ Tự nhập tư thế" in Pose dropdown
+//   2. Type Vietnamese pose description in textarea
+//   3. (Optional) Click 🌐 Dịch → Gemini translates VN → EN
+//   4. Click ⚡ Generate Prompts → all N shots use this pose text in *Position:* block
+//      (camera angles still vary independently per "Camera Angle" dropdown)
+//
+function CustomPoseEditor() {
+  const project = useAppStore((s) => s.currentProject);
+  const updateProject = useAppStore((s) => s.updateCurrentProject);
+  const showToast = useAppStore((s) => s.showToast);
+  const [translating, setTranslating] = React.useState(false);
+
+  if (!project) return null;
+  const photos = ensurePhotosData(project);
+  const poseVi = photos.theme.customPoseVi || "";
+  const poseEn = photos.theme.customPoseEn || "";
+
+  const handleTranslate = async () => {
+    if (!poseVi.trim()) {
+      showToast("Gõ tư thế tiếng Việt trước khi dịch", "error");
+      return;
+    }
+    setTranslating(true);
+    try {
+      // Lazy import to avoid loading Gemini client unless user clicks Dịch
+      const { translateVnToEn } = await import("../engine/gemini");
+      const en = await translateVnToEn(poseVi);
+      updateProject(setCustomPose(project, { en }));
+      showToast(`✓ Đã dịch (${en.length} chars)`, "success");
+    } catch (e: any) {
+      showToast(`Dịch lỗi: ${e.message}`, "error");
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleClear = () => {
+    updateProject(setCustomPose(project, null));
+  };
+
+  return (
+    <div className="ksp-custom-pose">
+      <label className="ksp-label" style={{ marginTop: 4 }}>
+        <span className="ksp-label-text">
+          ✍️ Tư thế tự nhập (tiếng Việt) · áp dụng cho tất cả N shots
+        </span>
+        <textarea
+          value={poseVi}
+          onChange={(e) => updateProject(setCustomPose(project, { vi: e.target.value }))}
+          placeholder="vd: ngồi cạnh ly cà phê, một tay đỡ cằm, ngón tay vuốt mép ly, ánh mắt nhìn ra xa qua cửa sổ..."
+          className="ksp-textarea ksp-custom-pose-textarea"
+          rows={3}
+          maxLength={500}
+        />
+      </label>
+      <div className="ksp-custom-pose-actions">
+        <button
+          type="button"
+          className="ksp-btn ksp-btn-sm ksp-btn-ghost"
+          onClick={handleTranslate}
+          disabled={translating || !poseVi.trim()}
+        >
+          {translating ? "⏳ Đang dịch..." : "🌐 Dịch sang tiếng Anh"}
+        </button>
+        {(poseVi || poseEn) && (
+          <button
+            type="button"
+            className="ksp-btn ksp-btn-sm ksp-btn-ghost-danger"
+            onClick={handleClear}
+          >
+            Xóa
+          </button>
+        )}
+      </div>
+      {poseEn && (
+        <div className="ksp-custom-pose-en">
+          <span className="ksp-custom-pose-en-label">✓ EN:</span> {poseEn}
+        </div>
+      )}
+      {poseVi && !poseEn && (
+        <div className="ksp-custom-pose-hint">
+          💡 Chưa dịch — engine sẽ inject tiếng Việt thẳng (AI hiểu được nhưng dịch sẽ chính xác hơn).
+        </div>
+      )}
     </div>
   );
 }

@@ -98,6 +98,13 @@ export function Editor() {
     );
   }
 
+  // Connector colors mode-aware: Cast (purple) → next pipeline section
+  // Photos: → CAMERA STYLE (cyan #5ecac8)
+  // Film/TVC: → IDEA (green #5dcaa5)
+  // Product: → stub (use gray)
+  const castToNextColor =
+    mode === "photos" ? "#5ecac8" : mode === "product_photo" ? "#888" : "#5dcaa5";
+
   return (
     <div
       className="ksp-sidebar-v09"
@@ -115,9 +122,11 @@ export function Editor() {
     >
       {/* Section 1: PROJECT */}
       <ProjectSettingSectionV09 />
+      <Connector colorFrom="#6da9d6" colorTo="#c490c4" />
 
       {/* Section 2: ASSETS — mode-adaptive */}
       {mode === "photos" ? <CastPhotosSection /> : <CastSectionV09 />}
+      <Connector colorFrom="#c490c4" colorTo={castToNextColor} />
 
       {/* Section 3: PIPELINE — adaptive per mode */}
       {mode === "photos" && <PhotosPipeline />}
@@ -205,10 +214,10 @@ function PhotosPipeline() {
   return (
     <>
       <CameraStyleToggleV09 />
-      <Connector colorFrom="#c490c4" colorTo="#5dcaa5" />
+      <Connector colorFrom="#5ecac8" colorTo="#e8c874" />
 
       <PhotosIdeaSection />
-      <Connector colorFrom="#5dcaa5" colorTo="#afa9ec" />
+      <Connector colorFrom="#e8c874" colorTo="#f09090" />
 
       <PhotosImageGenSection />
     </>

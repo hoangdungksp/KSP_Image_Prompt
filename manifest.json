@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "KSP Image",
-  "version": "0.9.1",
+  "version": "0.9.1.12",
+  "version_name": "0.9.1-r12",
   "description": "AI-powered prompt assembler for cinema (TVC, Photos, Product, Film) — Banana Pro, Imagen 4, Seedance, Veo3.",
   "permissions": ["storage", "sidePanel", "contextMenus", "downloads", "notifications", "tabs", "activeTab", "scripting"],
   "host_permissions": [
@@ -15,7 +16,7 @@
     "http://*/*"
   ],
   "action": {
-    "default_title": "KSP Image v0.9.1 — Open Editor"
+    "default_title": "KSP Image v0.9.1-r12 — Open Editor"
   },
   "side_panel": {
     "default_path": "src/sidepanel.html"
