@@ -65,9 +65,11 @@ if [ -n "$LATEST_ZIP" ]; then
             exit 1
         fi
 
-        # Sync source (preserve node_modules + dist + .git + local configs)
+        # Sync source (preserve node_modules + dist + .git + local configs + .gitignore)
         # v0.9.3-r1 fix: thêm .git vào excludes — trước đây rsync --delete wipe .git
         # mỗi lần chạy update.sh → Jason mất git repo recurring.
+        # v0.9.3-r1.1 fix: thêm .gitignore vào excludes — trước đây wipe .gitignore
+        # → node_modules bị commit accident lên GitHub.
         if command -v rsync &> /dev/null; then
             rsync -a --delete \
                 --exclude='node_modules' \
@@ -77,19 +79,21 @@ if [ -n "$LATEST_ZIP" ]; then
                 --exclude='screenshots' \
                 --exclude='.git' \
                 --exclude='.git/**' \
+                --exclude='.gitignore' \
                 --exclude='.env' \
                 --exclude='.env.*' \
                 --exclude='.vscode' \
                 --exclude='.idea' \
                 --exclude='*.local' \
-                --exclude='.installed' \
+                --exclude='package-lock.json.local' \
                 "$SRC_FOLDER/" "$PROJECT_DIR/"
         else
             for item in "$SRC_FOLDER"/*; do
                 name=$(basename "$item")
-                # NEVER overwrite .git, .env, IDE configs, local files
+                # NEVER overwrite .git, .gitignore, .env, IDE configs, local files
                 if [ "$name" != "node_modules" ] && [ "$name" != "dist" ] && [ "$name" != ".installed" ] \
-                   && [ "$name" != ".git" ] && [ "$name" != ".env" ] && [ "$name" != ".vscode" ] && [ "$name" != ".idea" ]; then
+                   && [ "$name" != ".git" ] && [ "$name" != ".gitignore" ] \
+                   && [ "$name" != ".env" ] && [ "$name" != ".vscode" ] && [ "$name" != ".idea" ]; then
                     rm -rf "$PROJECT_DIR/$name"
                     cp -R "$item" "$PROJECT_DIR/$name"
                 fi
