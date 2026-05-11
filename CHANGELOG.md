@@ -1,5 +1,219 @@
 # Changelog
 
+## [0.9.3-r1] — 2026-05-10 (afternoon late)
+
+**Sprint 0.9.3 kickoff — Foundation cleanup: xoá rác TVC archived + Film legacy.**
+
+Sau big decision May 10 morning (bỏ TVC pivot Film), Sprint 0.9.3 mở đầu bằng cleanup batch lớn: xoá 18 files rác (Nhóm 1 TVC archived + Nhóm 2 Legacy), hide TVC + Product khỏi Mode dropdown, prepare codebase cho Film rebuild các r2-r7 sắp tới.
+
+### 🚨 CRITICAL BUG FIX — `update.sh` wipe `.git/` (root cause "lúc nào cũng mất git")
+
+Phát hiện root cause: `update.sh` dòng 70 dùng `rsync -a --delete` để sync source từ zip mới về project folder, **nhưng `.git` KHÔNG có trong exclude list** → mỗi lần Jason chạy `update.sh`, rsync xóa sạch `.git/`. Đây là lý do anh ấy mất git repo **mỗi lần update**, không chỉ 1 lần khi move folder như tưởng trước đó.
+
+**Fix:** Thêm vào excludes:
+- `.git` + `.git/**` (bảo vệ git repo)
+- `.env`, `.env.*` (bảo vệ secrets local)
+- `.vscode`, `.idea` (bảo vệ IDE configs)
+- `*.local` (bảo vệ generic local files)
+
+Fix cho cả 2 branch: rsync path + fallback `cp -R` loop khi system không có rsync.
+
+**Impact:** Từ r1 trở đi, anh có thể chạy `update.sh` thoải mái, `.git/` sẽ persist qua mọi update.
+
+### Removed — Nhóm 1: TVC archived (6 files, ~42 KB)
+
+- `src/components/ProductSection.tsx`
+- `src/components/TvcConceptSection.tsx`
+- `src/components/v0_9_2_product.css`
+- `src/store/tvc_actions.ts`
+- `src/types/tvc_product_v091.ts`
+- `test/tvc_product.test.tsx` (22 TVC tests → coverage giảm 85→62)
+
+### Removed — Nhóm 2: Legacy không dùng (12 files, ~228 KB)
+
+- `src/components/FilmCharactersSection.tsx` (dead 366 dòng)
+- `src/components/StoryboardSection.tsx` (legacy v0.7.5 monolithic 1683 dòng)
+- `src/components/SubjectSection.tsx` (legacy v0.8)
+- `src/components/ReferencesSection.tsx` (legacy v0.8)
+- `src/components/IdeaSection.tsx` (replaced by `PhotosIdeaSection`)
+- `src/components/ModeIndustrySection.tsx` (legacy v0.8)
+- `src/components/CameraSection.tsx` (replaced by `CameraStyleToggleV09`)
+- `src/components/EditorTab.tsx` (dead full-width editor feature)
+- `src/components/ShotEditor.tsx` (legacy v0.7.5)
+- `src/components/ShotsSection.tsx` (legacy v0.7.5)
+- `src/components/Editor.tsx.v0.8.x.backup` (backup file)
+- `src/engine/blocks_v04.ts.backup` (backup file)
+
+Tổng cleanup: **18 files, ~270 KB code rác xoá khỏi codebase.**
+
+### Changed
+
+- **`src/editor.tsx`**: legacy EditorTab full-width 1400px (dead feature, không có code wire `window.open`) → wired tới `Editor` sidebar component cho consistency. CSS imports chuyển từ v0_9_0_phase2+phase34 sang v0_9_1_photos.
+- **`src/components/Editor.tsx`**:
+  - Remove imports `ProductSection`, `TvcConceptSection`, CSS `v0_9_2_product.css`
+  - Remove `TvcPipeline()` + `ProductPipeline()` functions
+  - Add `ArchivedModePlaceholder({mode})` — show note "Tạm gác lại" cho `tvc_commercial` + `product_photo`
+- **`src/components/ProjectSettingSectionV09.tsx`**: MODES dropdown ẩn TVC Commercial + Product Photo (comment out, code giữ trong codebase, có thể re-enable post-v1.0). Chỉ expose **Photos** + **Film / Short Film**.
+- **`src/types/v0_9_0.ts`**: remove field `tvcProduct?: TvcProductData` khỏi `ProjectV2` type + comment reserved slot cho `filmV093?: FilmV093Data` (sẽ add Sprint 0.9.3-r2).
+- **`test/components.test.tsx`**: remove `TvcConceptSection` import + test case + `tvcProject` fixture (9→8 tests).
+
+### Tests
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 704 KB main bundle, 53 KB CSS, build OK 10.3s
+- ✅ **Vitest runtime: 62/62 PASS** (49 Photos + 8 components + 5 Editor)
+- ✅ Photos workflow LOCKED không bị regression — 49 Photos tests vẫn xanh
+
+### Known stubs (sẽ rebuild r2-r7)
+
+Nhóm 3 (Film đang dùng — chưa xoá r1): `CastSectionV09`, `FilmScriptSection`, `ScenesShotsManagerV09`, `ShotDetailPanel`, `VoiceSectionV09`, `MusicSfxSectionV09`, `BundleExportV09`. Vẫn render được Film mode hiện tại với UI cũ trong khi chờ rebuild theo 5 mockups mới.
+
+### Sprint 0.9.3 roadmap
+
+- ✅ **r1** Foundation cleanup (file này)
+- ⏳ **r2** Mockup 1 Cast — `CastFilmSection.tsx` pattern Photos
+- ⏳ **r3** Mockup 2 Script v1 — `FilmIdeaScriptSection.tsx` (1-stage quick path)
+- ⏳ **r4** Mockup 3 Storyboard — `FilmStoryboardSection.tsx` hierarchy
+- ⏳ **r5** Mockup 4 Shot Detail — `FilmShotDetailPanel.tsx` + Video AI dropdown + custom Grok
+- ⏳ **r6** Mockup 5 Voice+Music+Bundle — 3 sections + ZIP folder tree
+- ⏳ **r7** Mockup 2 multi-stage upgrade — Stage 1-4 Structure/Beats/Twists/Scenes + revert logic = **v0.9.3 final**
+
+---
+
+## [0.9.2-r2] — 2026-05-10
+
+TVC mode UX consistency fix: dùng chung Cast pattern với Photos + Product Section refactor single-row.
+
+### Changed (Cast TVC)
+
+- **Editor.tsx routing**: `mode === "tvc_commercial"` giờ render `CastPhotosSection` (5 Subject Types + 1-6 face refs + outfit) thay vì `CastSectionV09` (multi-character cards).
+- **CastSectionV09 vẫn giữ cho Film mode** (cinema cần multi-character narrative).
+- Lý do: Jason feedback Cast TVC trong r1 "rất lộn xộn" → đồng nhất pattern Cast Photos.
+
+### Changed (Product Section)
+
+Full UI rewrite — single-row layout:
+
+- **Layout**: `image-slot LEFT (96×96)` + `form RIGHT (brand input + tagline textarea)` chung 1 row flex.
+- **Single image only**: upload mới luôn replace ảnh cũ. Schema `productImages: TvcProductImage[]` giữ nguyên array nhưng UI chỉ dùng `[0]` (no migration risk).
+- **3-way upload** (mirror Cast Photos):
+  - 📤 file picker (existing)
+  - 📁 LibraryPicker modal (NEW — accepts `category="product"`)
+  - 📷 Snip-to-save từ Pinterest/web (NEW — `SNIP_START` với category "product")
+- **SNIP_DONE listener**: filter `msg.category === "product"` → toast.
+
+### Removed (Product UI)
+
+- 📸 Image counter `0/6`
+- Recommendation hint "Khuyến nghị 3+ ảnh: pack shot, side view, detail"
+- "+ Thêm tagline tiếng Anh" toggle (action `setTaglineEn` giữ trong store)
+- "+ Thêm brand notes" toggle (action `setBrandNotes` giữ trong store)
+- Per-image label edit (single-image, no need)
+- Multi-image grid
+
+### Extended
+
+- **LibraryPicker**: type `"face" | "outfit"` → `"face" | "outfit" | "product"`. Empty-state hint adaptive cho product category. Schema `RefCategory` đã sẵn `"product"` từ trước (db.ts + background.ts context menu).
+
+### Tests
+
+- ✅ TypeScript: 0 errors
+- ✅ Vite production build: 9.4s
+- ✅ **Vitest runtime: 85/85 PASS** (tăng từ 77/77 ở r1)
+  - 49 photos_mode (unchanged)
+  - 22 tvc_product (8 actions + 8 UI new layout + 1 defensive Cast Film + 4 Editor routing + regression)
+  - 9 components + 5 Editor (unchanged)
+
+### Files modified
+
+- `src/components/Editor.tsx` — route TVC + Photos chung CastPhotosSection
+- `src/components/ProductSection.tsx` — full UI rewrite
+- `src/components/LibraryPicker.tsx` — extend product category
+- `src/components/v0_9_2_product.css` — single-row layout
+- `test/tvc_product.test.tsx` — 22 tests (was 14)
+- `manifest.json` + `package.json` — bump r2
+
+### Known limitations (Sprint r3+)
+
+- Brand/Tagline/Product image chưa wire vào engine prompt builder (Sprint r3 implement).
+- TVC Storyboard vẫn stub (Sprint r5).
+- Cast TVC reuse Photos store schema → khi Sprint r3 tách `castTvc` riêng có thể migrate.
+
+---
+
+## [0.9.2-r1] — 2026-05-10
+
+Sprint 0.9.2 kickoff: TVC Product/Brand section + crash fix unblock TVC test.
+
+### Fixed (Critical — Cast crash)
+
+- **CastSectionV09 line 426**: `ref.angle.replace(...)` crash với "Cannot read properties of undefined (reading 'angle')" khi user upload image hoặc khi project có legacy CharacterRef không có `angle` field. Defensive fix: `(ref.angle ?? "front").replace(...)`. Sẽ replace bằng `CastTvcSection` + `CastFilmSection` ở Sprint 0.9.2-r2+ (Hướng A separation).
+- Lý do crash: project cũ từ v0.9.0 phase34 có refs không có angle, hoặc edge case migration không add default angle cho legacy data.
+
+### Added (TVC Product Section)
+
+Section mới `📦 PRODUCT & BRAND` cho TVC Commercial mode. Đặt giữa CAST và IDEA trong pipeline.
+
+#### Fields
+- 🏷 **Brand name** — text input (Centella, Vinamilk, Apple...)
+- 💬 **Tagline VN** — textarea (Bảo vệ làn da nhạy cảm — Mỗi ngày)
+- 💬 **Tagline EN** — optional, toggle button "+ Thêm tagline tiếng Anh"
+- 📝 **Brand notes** — optional, toggle button (logo position, color rules, brand voice...)
+- 📸 **Product images** — 1-6 ảnh, multi-upload, base64 dataURL, click label để edit (Pack shot / Side view / Detail)
+
+#### Architecture (Sprint 0.9.2-r1 — minimal change, prepare for Hướng A)
+- New `src/types/tvc_product_v091.ts`: `TvcProductImage` + `TvcProductData` interfaces, `defaultTvcProductData()` factory
+- New `src/store/tvc_actions.ts`: setBrandName, setTagline, setTaglineEn, setBrandNotes, addProductImage, removeProductImage, updateProductImageLabel, ensureTvcProductData, clearTvcProduct
+- New `src/components/ProductSection.tsx`: full UI với toggles, multi-upload, image grid 3-col, per-image label edit, delete
+- New `src/components/v0_9_2_product.css`: warm orange `#e8a55e` accent (distinct với existing colors)
+- Extended `ProjectV09Extensions` (in `types/v0_9_0.ts`) với `tvcProduct?: TvcProductData`
+
+### Changed (Editor.tsx — connector flow)
+
+TVC pipeline color flow updated:
+- Cũ: PROJECT → CAST → IDEA (purple → green)
+- Mới: PROJECT → CAST → **PRODUCT** (purple → warm orange) → IDEA (warm orange → green)
+
+`castToNextColor` logic: nay 4 cases (photos / tvc_commercial / product_photo / film) thay vì 3.
+
+### Tests
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 8.69s
+- ✅ **Vitest: 77/77 PASS** (63 cũ + 14 mới r1)
+  - 4 unit tests cho `setBrandName`, `setTagline`, `setTaglineEn`, `setBrandNotes`
+  - 4 unit tests cho `addProductImage`, multiple adds, `removeProductImage`, `updateProductImageLabel`
+  - 1 test `ensureTvcProductData` returns default
+  - 3 component tests: ProductSection renders empty state, brand input reflects state, uploaded image preview
+  - 1 test CRITICAL: CastSectionV09 KHÔNG crash khi ref.angle undefined (defensive fix verified)
+  - 1 test Editor renders TVC mode với Product section trong pipeline
+
+### Known limitations / Pending
+
+- 🟡 **TVC Concept → Storyboard chuyển tiếp** vẫn là stub (note "chuyển Mode = Film để test"). Implement ở Sprint 0.9.2-r2+.
+- 🟡 **Cast section vẫn shared TVC + Film** — sẽ tách thành CastTvcSection + CastFilmSection ở Sprint 0.9.2-r2 (Hướng A).
+- 🟡 **Product images storage** = base64 dataURL trong project state (heavy nếu nhiều ảnh lớn). Migrate IndexedDB blob ở v0.9.3.
+- 🟡 **Engine inject** — Brand/Tagline chưa wire vào prompt builder (Concept/Storyboard chưa active). Sẽ làm ở Sprint kế.
+
+### Pending real-world test
+- 🟡 Anh test upload image vào Cast section: verify crash đã hết
+- 🟡 Test Product section: brand + tagline + upload 3-5 images, kiểm reload có giữ data không
+- 🟡 Verify connector PROJECT (blue) → CAST (purple) → PRODUCT (orange) → IDEA (green) hiển thị đúng
+
+### Files changed (8 files)
+
+- New: `src/types/tvc_product_v091.ts`
+- New: `src/store/tvc_actions.ts`
+- New: `src/components/ProductSection.tsx`
+- New: `src/components/v0_9_2_product.css`
+- New: `test/tvc_product.test.tsx` (14 tests)
+- Modified: `src/components/CastSectionV09.tsx` (defensive fix line 426)
+- Modified: `src/types/v0_9_0.ts` (+tvcProduct field)
+- Modified: `src/components/Editor.tsx` (import ProductSection + wire vào TvcPipeline + castToNextColor)
+- Modified: `package.json`, `manifest.json` (version bump)
+
+---
+
 ## [0.9.1-r12] — 2026-05-09
 
 UI consistency + Custom Pose free-text option.

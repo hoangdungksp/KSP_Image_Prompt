@@ -1,17 +1,16 @@
 /**
- * Editor tab entry point — mounts the full-width 1400px Editor.
- * Opened via window.open() from sidebar (Hybrid Q1 = C).
+ * Editor tab entry point — mounts the Editor in a separate tab/window.
+ * v0.9.3-r1: legacy EditorTab full-width removed (dead feature), uses Editor sidebar instead.
  */
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { EditorTab } from "./components/EditorTab";
+import { Editor } from "./components/Editor";
 import "./styles/index.css";
 import "./components/v0_9_0.css";
-import "./components/v0_9_0_phase2.css";
-import "./components/v0_9_0_phase34.css";
+import "./components/v0_9_1_photos.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <EditorTab />
+    <Editor />
   </React.StrictMode>
 );

@@ -11,7 +11,6 @@ import { useAppStore } from "../src/store/useAppStore";
 import { ProjectSettingSectionV09 } from "../src/components/ProjectSettingSectionV09";
 import { CastSectionV09 } from "../src/components/CastSectionV09";
 import { FilmScriptSection } from "../src/components/FilmScriptSection";
-import { TvcConceptSection } from "../src/components/TvcConceptSection";
 import { ScenesShotsManagerV09 } from "../src/components/ScenesShotsManagerV09";
 import { VoiceSectionV09 } from "../src/components/VoiceSectionV09";
 import { MusicSfxSectionV09 } from "../src/components/MusicSfxSectionV09";
@@ -48,18 +47,7 @@ const filmProject: any = {
   filmStructureV2: { totalDurationMinutes: 5, scenes: [] },
 };
 
-const tvcProject: any = {
-  ...filmProject,
-  id: "p2",
-  mode: "tvc_commercial",
-  industry: "skincare",
-  settingV2: {
-    ...filmProject.settingV2,
-    mode: "tvc_commercial",
-    industry: "skincare",
-    aspectRatio: "9:16",
-  },
-};
+// tvcProject fixture removed v0.9.3-r1 (TVC archived)
 
 describe("Each v0.9.0 component renders standalone", () => {
   beforeEach(() => {
@@ -82,12 +70,6 @@ describe("Each v0.9.0 component renders standalone", () => {
     useAppStore.setState({ currentProject: filmProject });
     const { container } = render(<FilmScriptSection />);
     expect(container.innerHTML).toContain("SCRIPT");
-  });
-
-  it("TvcConceptSection renders (TVC mode)", () => {
-    useAppStore.setState({ currentProject: tvcProject });
-    const { container } = render(<TvcConceptSection />);
-    expect(container.innerHTML).toContain("CONCEPT");
   });
 
   it("ScenesShotsManagerV09 renders", () => {

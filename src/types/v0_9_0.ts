@@ -457,6 +457,11 @@ export interface ProjectV09Extensions {
    * See ./photos_v091.ts for PhotosV091Data type.
    */
   photosV091?: import("./photos_v091").PhotosV091Data;
+
+  /**
+   * v0.9.3 reserved: filmV093?: import("./film_v093").FilmV093Data;
+   * (Added in Sprint 0.9.3-r2 when Film foundation lands.)
+   */
 }
 
 // ============================================================================

@@ -65,7 +65,9 @@ if [ -n "$LATEST_ZIP" ]; then
             exit 1
         fi
 
-        # Sync source (preserve node_modules + dist)
+        # Sync source (preserve node_modules + dist + .git + local configs)
+        # v0.9.3-r1 fix: thêm .git vào excludes — trước đây rsync --delete wipe .git
+        # mỗi lần chạy update.sh → Jason mất git repo recurring.
         if command -v rsync &> /dev/null; then
             rsync -a --delete \
                 --exclude='node_modules' \
@@ -73,11 +75,21 @@ if [ -n "$LATEST_ZIP" ]; then
                 --exclude='.installed' \
                 --exclude='.DS_Store' \
                 --exclude='screenshots' \
+                --exclude='.git' \
+                --exclude='.git/**' \
+                --exclude='.env' \
+                --exclude='.env.*' \
+                --exclude='.vscode' \
+                --exclude='.idea' \
+                --exclude='*.local' \
+                --exclude='.installed' \
                 "$SRC_FOLDER/" "$PROJECT_DIR/"
         else
             for item in "$SRC_FOLDER"/*; do
                 name=$(basename "$item")
-                if [ "$name" != "node_modules" ] && [ "$name" != "dist" ] && [ "$name" != ".installed" ]; then
+                # NEVER overwrite .git, .env, IDE configs, local files
+                if [ "$name" != "node_modules" ] && [ "$name" != "dist" ] && [ "$name" != ".installed" ] \
+                   && [ "$name" != ".git" ] && [ "$name" != ".env" ] && [ "$name" != ".vscode" ] && [ "$name" != ".idea" ]; then
                     rm -rf "$PROJECT_DIR/$name"
                     cp -R "$item" "$PROJECT_DIR/$name"
                 fi

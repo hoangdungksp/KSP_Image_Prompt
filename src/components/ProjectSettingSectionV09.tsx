@@ -22,10 +22,13 @@ import type {
   TimeFormat,
 } from "../types/v0_9_0";
 
+// v0.9.3-r1: TVC Commercial + Product Photo HIDDEN from Mode dropdown.
+// Code giữ trong codebase (gác lại post-v1.0). User chỉ thấy Photos + Film.
+// To re-enable later: uncomment 2 entries below.
 const MODES: { value: ProjectModeV2; label: string; emoji: string; desc: string }[] = [
   { value: "photos", label: "Photos", emoji: "📷", desc: "Single image generation, 18+ themes, Camera Style" },
-  { value: "tvc_commercial", label: "TVC Commercial", emoji: "🎬", desc: "Branded ads với Concept + Storyboard pipeline" },
-  { value: "product_photo", label: "Product Photo", emoji: "📦", desc: "Product-only, lighting setup" },
+  // { value: "tvc_commercial", label: "TVC Commercial", emoji: "🎬", desc: "Branded ads với Concept + Storyboard pipeline" },
+  // { value: "product_photo", label: "Product Photo", emoji: "📦", desc: "Product-only, lighting setup" },
   { value: "film", label: "Film / Short Film", emoji: "🎞", desc: "Multi-character narrative với Script + Scenes" },
 ];
 

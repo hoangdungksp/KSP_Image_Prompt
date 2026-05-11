@@ -14,7 +14,7 @@ import React, { useEffect, useState } from "react";
 import { db, listReferenceImages, processPendingImports, type RefCategory, type StoredReferenceImage } from "../store/db";
 
 interface LibraryPickerProps {
-  category: "face" | "outfit";
+  category: "face" | "outfit" | "product";
   onPick: (data: { dataUrl: string; mimeType: string; filename: string }) => void;
   onClose: () => void;
 }
@@ -74,7 +74,8 @@ export function LibraryPicker({ category, onPick, onClose }: LibraryPickerProps)
     onClose();
   };
 
-  const categoryLabel = category === "face" ? "👤 Face" : "👗 Outfit";
+  const categoryLabel =
+    category === "face" ? "👤 Face" : category === "outfit" ? "👗 Outfit" : "📦 Product";
 
   return (
     <div className="ksp-library-picker-backdrop" onClick={onClose}>
@@ -106,12 +107,25 @@ export function LibraryPicker({ category, onPick, onClose }: LibraryPickerProps)
           {!loading && refs.length === 0 && (
             <div className="ksp-library-picker-empty">
               <p style={{ margin: "0 0 8px" }}>
-                Chưa có {category === "face" ? "face ref" : "outfit"} nào trong Library.
+                Chưa có{" "}
+                {category === "face"
+                  ? "face ref"
+                  : category === "outfit"
+                  ? "outfit"
+                  : "ảnh sản phẩm"}{" "}
+                nào trong Library.
               </p>
               <p style={{ margin: 0, fontSize: 11, color: "#888" }}>
                 💡 Right-click ảnh trên Pinterest / Google Images →{" "}
                 <strong>Save to KSP Image</strong> →{" "}
-                <strong>{category === "face" ? "Save as Face" : "Save as Outfit"}</strong>.
+                <strong>
+                  {category === "face"
+                    ? "Save as Face"
+                    : category === "outfit"
+                    ? "Save as Outfit"
+                    : "Save as Product"}
+                </strong>
+                .
               </p>
             </div>
           )}

@@ -419,11 +419,15 @@ function RefCard({
   characterEmoji: string;
   onDelete: () => void;
 }) {
+  // Defensive (v0.9.2-r1): legacy data from v0.9.0 phase34 may not have `angle` field.
+  // Fallback to "front" to prevent crash. Will be removed when Cast section is split
+  // into CastTvcSection + CastFilmSection (Sprint 0.9.2-r2+).
+  const angleLabel = (ref.angle ?? "front").replace(/_/g, " ");
   return (
     <div className="ksp-ref-card">
       <div className="ksp-ref-card-preview">{characterEmoji}</div>
       <div className="ksp-ref-card-info">
-        <div className="ksp-ref-card-angle">{ref.angle.replace(/_/g, " ")}</div>
+        <div className="ksp-ref-card-angle">{angleLabel}</div>
         {ref.generatedByAi && <div className="ksp-ref-card-badge">✨ AI</div>}
       </div>
       <button className="ksp-ref-card-delete" onClick={onDelete} title="Delete">

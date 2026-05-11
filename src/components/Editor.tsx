@@ -23,7 +23,6 @@ import type { ProjectModeV2 } from "../types/v0_9_0";
 import { ProjectSettingSectionV09 } from "./ProjectSettingSectionV09";
 import { CastSectionV09 } from "./CastSectionV09";
 import { FilmScriptSection } from "./FilmScriptSection";
-import { TvcConceptSection } from "./TvcConceptSection";
 import { ScenesShotsManagerV09 } from "./ScenesShotsManagerV09";
 import { ShotDetailPanel } from "./ShotDetailPanel";
 import { VoiceSectionV09 } from "./VoiceSectionV09";
@@ -47,6 +46,7 @@ import "./v0_9_0.css";
 import "./v0_9_0_phase2.css";
 import "./v0_9_0_phase34.css";
 import "./v0_9_1_photos.css";
+// v0_9_2_product.css removed v0.9.3-r1 (TVC archived)
 
 export function Editor() {
   const { currentProject, setCurrentProject, showToast } = useAppStore();
@@ -100,10 +100,17 @@ export function Editor() {
 
   // Connector colors mode-aware: Cast (purple) → next pipeline section
   // Photos: → CAMERA STYLE (cyan #5ecac8)
-  // Film/TVC: → IDEA (green #5dcaa5)
-  // Product: → stub (use gray)
+  // TVC: → PRODUCT (warm orange #e8a55e)
+  // Film: → IDEA (green #5dcaa5)
+  // Product mode (stub): gray
   const castToNextColor =
-    mode === "photos" ? "#5ecac8" : mode === "product_photo" ? "#888" : "#5dcaa5";
+    mode === "photos"
+      ? "#5ecac8"
+      : mode === "tvc_commercial"
+      ? "#e8a55e"
+      : mode === "product_photo"
+      ? "#888"
+      : "#5dcaa5";
 
   return (
     <div
@@ -124,15 +131,20 @@ export function Editor() {
       <ProjectSettingSectionV09 />
       <Connector colorFrom="#6da9d6" colorTo="#c490c4" />
 
-      {/* Section 2: ASSETS — mode-adaptive */}
-      {mode === "photos" ? <CastPhotosSection /> : <CastSectionV09 />}
+      {/* Section 2: ASSETS — mode-adaptive
+          Photos + TVC dùng chung CastPhotosSection (5 Subject Types + 1-6 face refs + outfit)
+          Film giữ CastSectionV09 (multi-character cards cho narrative cinema) */}
+      {mode === "photos" || mode === "tvc_commercial" ? (
+        <CastPhotosSection />
+      ) : (
+        <CastSectionV09 />
+      )}
       <Connector colorFrom="#c490c4" colorTo={castToNextColor} />
 
       {/* Section 3: PIPELINE — adaptive per mode */}
       {mode === "photos" && <PhotosPipeline />}
-      {mode === "tvc_commercial" && <TvcPipeline />}
-      {mode === "product_photo" && <ProductPipeline />}
       {mode === "film" && <FilmPipeline />}
+      {(mode === "tvc_commercial" || mode === "product_photo") && <ArchivedModePlaceholder mode={mode} />}
     </div>
   );
 }
@@ -140,6 +152,21 @@ export function Editor() {
 // ============================================================================
 // PIPELINE LAYOUTS (per mode)
 // ============================================================================
+
+function ArchivedModePlaceholder({ mode }: { mode: string }) {
+  const label = mode === "tvc_commercial" ? "TVC Commercial" : "Product Photo";
+  return (
+    <div style={{ padding: "12px 16px" }}>
+      <div className="ksp-coming-soon" style={{ background: "#f4f1ec", border: "1px dashed #b8b0a3", borderRadius: 8, padding: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: "#5f5e5a" }}>📦 {label} Mode — tạm gác lại</h3>
+        <p style={{ fontSize: 12, color: "#888", margin: "8px 0 0", lineHeight: 1.6 }}>
+          Mode này hiện không phát triển trong Sprint 0.9.3 (đang focus Film/Short Film).
+          Vui lòng chuyển Mode = <b>Photos</b> hoặc <b>Film / Short Film</b> ở Project Setting.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function FilmPipeline() {
   return (
@@ -180,35 +207,7 @@ function FilmPipeline() {
   );
 }
 
-function TvcPipeline() {
-  return (
-    <>
-      <PipelineStep stepNum={1} icon="💡" label="Ý TƯỞNG" color="green">
-        <IdeaCardV09 />
-      </PipelineStep>
-      <Connector colorFrom="#5dcaa5" colorTo="#f0a677" />
-
-      <TvcConceptSection />
-      <Connector colorFrom="#f0a677" colorTo="#afa9ec" />
-
-      <PipelineStep stepNum={3} icon="🎬" label="STORYBOARD" color="purple-light">
-        <p style={{ fontSize: 11, color: "#888", padding: "8px 12px", margin: 0 }}>
-          TVC storyboard pipeline tương tự Film. Tạm thời để test full pipeline workflow,
-          chuyển Mode = Film ở Project Setting.
-        </p>
-      </PipelineStep>
-      <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
-
-      <VoiceSectionV09 />
-      <Connector colorFrom="#85b7eb" colorTo="#c490c4" />
-
-      <MusicSfxSectionV09 />
-      <Connector colorFrom="#c490c4" colorTo="#5dcaa5" />
-
-      <BundleExportV09 />
-    </>
-  );
-}
+// TvcPipeline + ProductPipeline removed v0.9.3-r1 — see ArchivedModePlaceholder above.
 
 function PhotosPipeline() {
   return (
@@ -221,19 +220,6 @@ function PhotosPipeline() {
 
       <PhotosImageGenSection />
     </>
-  );
-}
-
-function ProductPipeline() {
-  return (
-    <div style={{ padding: "12px 16px" }}>
-      <div className="ksp-coming-soon">
-        <h3>📦 Product Photo Mode</h3>
-        <p style={{ fontSize: 11, color: "#888", margin: "8px 0" }}>
-          Product mode chưa được prioritize trong v0.9.0 — defer v0.9.1.
-        </p>
-      </div>
-    </div>
   );
 }
 
