@@ -1,10 +1,18 @@
 # Changelog
 
-## [0.9.3-r1] — 2026-05-10 (afternoon late)
+## [0.9.3-r1] — 2026-05-11
 
 **Sprint 0.9.3 kickoff — Foundation cleanup: xoá rác TVC archived + Film legacy.**
 
-Sau big decision May 10 morning (bỏ TVC pivot Film), Sprint 0.9.3 mở đầu bằng cleanup batch lớn: xoá 18 files rác (Nhóm 1 TVC archived + Nhóm 2 Legacy), hide TVC + Product khỏi Mode dropdown, prepare codebase cho Film rebuild các r2-r7 sắp tới.
+Sau big decision May 10 (bỏ TVC pivot Film), Sprint 0.9.3 mở đầu bằng cleanup batch lớn: xoá 18 files rác (Nhóm 1 TVC archived + Nhóm 2 Legacy), hide TVC + Product khỏi Mode dropdown, prepare codebase cho Film rebuild các r2-r7 sắp tới.
+
+### 🚨 Post-ship fixes (May 11)
+
+Sau ship r1 đầu, 2 vấn đề critical phát hiện + fixed trên `main`:
+
+**1. node_modules accidentally committed (43.71 MiB bloat)** — push r1 lần đầu (commit `bbc48d4`) bloat repo từ 440 KB lên 44 MB vì `node_modules/` + `dist/` bị track. Root cause: zip ship thiếu `.gitignore` + `update.sh` rsync `--delete` xóa `.gitignore` (không có trong exclude list) từ folder fresh clone. Fix: restore `.gitignore` permanent + `git rm -r --cached node_modules dist` + commit + push. History bloat vẫn còn (44 MB trong git history) nhưng repo browse view đã clean.
+
+**2. `update.sh` còn xóa `.gitignore`** — fix lần đầu chỉ add `.git`, `.git/**`, `.env`, `.env.*`, `.vscode`, `.idea`, `*.local` vào rsync exclude — vẫn thiếu `.gitignore`. Fix bổ sung: thêm `--exclude='.gitignore'` + `--exclude='package-lock.json.local'` vào rsync block + fallback `cp -R` loop. Từ giờ chạy `update.sh` thoải mái, cả `.git/` và `.gitignore` đều persist.
 
 ### 🚨 CRITICAL BUG FIX — `update.sh` wipe `.git/` (root cause "lúc nào cũng mất git")
 
@@ -12,13 +20,14 @@ Phát hiện root cause: `update.sh` dòng 70 dùng `rsync -a --delete` để sy
 
 **Fix:** Thêm vào excludes:
 - `.git` + `.git/**` (bảo vệ git repo)
+- `.gitignore` (bảo vệ ignore rules — added post-ship May 11)
 - `.env`, `.env.*` (bảo vệ secrets local)
 - `.vscode`, `.idea` (bảo vệ IDE configs)
 - `*.local` (bảo vệ generic local files)
 
 Fix cho cả 2 branch: rsync path + fallback `cp -R` loop khi system không có rsync.
 
-**Impact:** Từ r1 trở đi, anh có thể chạy `update.sh` thoải mái, `.git/` sẽ persist qua mọi update.
+**Impact:** Từ r1 trở đi, anh có thể chạy `update.sh` thoải mái, `.git/` + `.gitignore` sẽ persist qua mọi update.
 
 ### Removed — Nhóm 1: TVC archived (6 files, ~42 KB)
 
