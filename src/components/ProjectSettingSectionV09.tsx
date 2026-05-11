@@ -32,6 +32,17 @@ const MODES: { value: ProjectModeV2; label: string; emoji: string; desc: string 
   { value: "film", label: "Film / Short Film", emoji: "🎞", desc: "Multi-character narrative với Script + Scenes" },
 ];
 
+// v0.9.3-r2 Q5 lock: Film mode chỉ show 6 genres (drama/sci_fi/action/romance/thriller/comedy)
+// Enum FilmGenreV2 giữ nguyên 9 values cho backward compat (horror/fantasy/documentary archived).
+const FILM_GENRES_V093: FilmGenreV2[] = ["drama", "sci_fi", "action", "romance", "thriller", "comedy"];
+
+// v0.9.3-r2 Q5 lock: Film mode v0.9.3 chỉ 4 styles (live_action/cgi_3d_cinematic/anime_2d/film_noir)
+// Defer cartoon_2d + stop_motion cho v0.9.4+.
+const FILM_ANIMATION_STYLES_V093: AnimationStyleV2[] = ["live_action", "cgi_3d_cinematic", "anime_2d", "film_noir"];
+
+// v0.9.3-r2 Q5 lock: 5 aspect ratios (16:9/9:16/1:1/4:3/21:9) — bỏ 4:5 và 2.39:1
+const ASPECT_RATIOS_V093: AspectRatioV2[] = ["16:9", "9:16", "1:1", "4:3", "21:9"];
+
 const GENRES: { value: FilmGenreV2; label: string }[] = [
   { value: "drama", label: "💔 Drama" },
   { value: "sci_fi", label: "🤖 Sci-fi" },
@@ -54,12 +65,13 @@ const ANIMATION_STYLES: { value: AnimationStyleV2; label: string }[] = [
 ];
 
 const ASPECT_RATIOS: { value: AspectRatioV2; label: string }[] = [
-  { value: "9:16", label: "📱 9:16 vertical (TikTok/Reels)" },
-  { value: "1:1", label: "⬜ 1:1 square (IG feed)" },
-  { value: "4:5", label: "📐 4:5 portrait" },
-  { value: "16:9", label: "🖥 16:9 landscape (YouTube/TV)" },
-  { value: "21:9", label: "🎬 21:9 cinemascope" },
-  { value: "2.39:1", label: "🎥 2.39:1 anamorphic" },
+  { value: "16:9", label: "16:9 landscape" },
+  { value: "9:16", label: "9:16 vertical" },
+  { value: "1:1", label: "1:1 square" },
+  { value: "4:5", label: "4:5 portrait" },
+  { value: "4:3", label: "4:3 classic" },
+  { value: "21:9", label: "21:9 cinemascope" },
+  { value: "2.39:1", label: "2.39:1 anamorphic" },
 ];
 
 const TIME_FORMATS: { value: TimeFormat; label: string; example: string }[] = [
@@ -148,7 +160,7 @@ export function ProjectSettingSectionV09() {
           </Label>
         </div>
 
-        <div className="ksp-form-row ksp-form-row-3">
+        <div className="ksp-form-row ksp-form-row-2">
           <Label text="Mode">
             <select
               value={setting.mode}
@@ -170,7 +182,7 @@ export function ProjectSettingSectionV09() {
                 onChange={(e) => patchSetting({ genre: e.target.value as FilmGenreV2 })}
                 className="ksp-select"
               >
-                {GENRES.map((g) => (
+                {GENRES.filter((g) => FILM_GENRES_V093.includes(g.value)).map((g) => (
                   <option key={g.value} value={g.value}>
                     {g.label}
                   </option>
@@ -195,32 +207,51 @@ export function ProjectSettingSectionV09() {
               </select>
             </Label>
           )}
+        </div>
 
-          {isFilm && (
+        {/* v0.9.3-r2: Animation Style + Dialog cùng row (sidebar 380px fit) */}
+        {isFilm && (
+          <div className="ksp-form-row ksp-form-row-2">
             <Label text="Animation Style">
               <select
                 value={setting.animationStyle ?? "live_action"}
                 onChange={(e) => patchSetting({ animationStyle: e.target.value as AnimationStyleV2 })}
                 className="ksp-select"
               >
-                {ANIMATION_STYLES.map((s) => (
+                {ANIMATION_STYLES.filter((s) =>
+                  FILM_ANIMATION_STYLES_V093.includes(s.value)
+                ).map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
                 ))}
               </select>
             </Label>
-          )}
-        </div>
 
-        <div className="ksp-form-row ksp-form-row-3">
+            <Label text="Dialog">
+              <select
+                value={setting.dialog ?? "no_dialog"}
+                onChange={(e) => patchSetting({ dialog: e.target.value } as any)}
+                className="ksp-select"
+              >
+                <option value="no_dialog">🔇 Không thoại</option>
+                <option value="has_dialog">💬 Có thoại</option>
+              </select>
+            </Label>
+          </div>
+        )}
+
+        <div className="ksp-form-row ksp-form-row-2">
           <Label text="Aspect Ratio">
             <select
               value={setting.aspectRatio}
               onChange={(e) => patchSetting({ aspectRatio: e.target.value as AspectRatioV2 })}
               className="ksp-select"
             >
-              {ASPECT_RATIOS.map((a) => (
+              {(isFilm
+                ? ASPECT_RATIOS.filter((a) => ASPECT_RATIOS_V093.includes(a.value))
+                : ASPECT_RATIOS
+              ).map((a) => (
                 <option key={a.value} value={a.value}>
                   {a.label}
                 </option>
@@ -229,21 +260,26 @@ export function ProjectSettingSectionV09() {
           </Label>
 
           {(isFilm || isTvcOrProduct) && (
-            <Label text="Duration">
+            <Label text="Duration (phút)">
               <input
-                type="text"
-                value={setting.durationMinutes ? `${setting.durationMinutes} phút` : ""}
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                value={setting.durationMinutes ?? 5}
                 onChange={(e) => {
-                  const num = parseFloat(e.target.value);
-                  if (!isNaN(num)) patchSetting({ durationMinutes: num });
+                  const num = parseInt(e.target.value, 10);
+                  if (!isNaN(num) && num >= 1 && num <= 60) {
+                    patchSetting({ durationMinutes: num });
+                  }
                 }}
-                placeholder="5 phút"
+                placeholder="5"
                 className="ksp-input"
               />
             </Label>
           )}
 
-          {setting.mode !== "photos" && (
+          {setting.mode !== "photos" && setting.mode !== "film" && (
             <Label text="Time format">
               <select
                 value={setting.timeFormat}

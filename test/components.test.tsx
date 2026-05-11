@@ -9,9 +9,9 @@ import React from "react";
 import { useAppStore } from "../src/store/useAppStore";
 
 import { ProjectSettingSectionV09 } from "../src/components/ProjectSettingSectionV09";
-import { CastSectionV09 } from "../src/components/CastSectionV09";
-import { FilmScriptSection } from "../src/components/FilmScriptSection";
-import { ScenesShotsManagerV09 } from "../src/components/ScenesShotsManagerV09";
+import { CastFilmSection } from "../src/components/CastFilmSection";
+import { FilmIdeaScriptSection } from "../src/components/FilmIdeaScriptSection";
+import { FilmStoryboardSection } from "../src/components/FilmStoryboardSection";
 import { VoiceSectionV09 } from "../src/components/VoiceSectionV09";
 import { MusicSfxSectionV09 } from "../src/components/MusicSfxSectionV09";
 import { BundleExportV09 } from "../src/components/BundleExportV09";
@@ -60,21 +60,21 @@ describe("Each v0.9.0 component renders standalone", () => {
     expect(container.innerHTML).toContain("PROJECT SETTING");
   });
 
-  it("CastSectionV09 renders (Film mode)", () => {
+  it("CastFilmSection renders (Film mode)", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<CastSectionV09 />);
+    const { container } = render(<CastFilmSection />);
     expect(container.innerHTML).toContain("CAST");
   });
 
-  it("FilmScriptSection renders", () => {
+  it("FilmIdeaScriptSection renders", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<FilmScriptSection />);
+    const { container } = render(<FilmIdeaScriptSection />);
     expect(container.innerHTML).toContain("SCRIPT");
   });
 
-  it("ScenesShotsManagerV09 renders", () => {
+  it("FilmStoryboardSection renders", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<ScenesShotsManagerV09 />);
+    const { container } = render(<FilmStoryboardSection />);
     expect(container.innerHTML).toContain("STORYBOARD");
   });
 

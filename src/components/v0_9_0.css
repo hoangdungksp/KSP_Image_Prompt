@@ -462,6 +462,9 @@
 }
 
 /* Sidebar mode overrides for forms (narrower than tab) */
+.ksp-sidebar-v09 .ksp-form-row-2 {
+  grid-template-columns: 1fr 1fr;
+}
 .ksp-sidebar-v09 .ksp-form-row-3 {
   grid-template-columns: 1fr 1fr;
 }

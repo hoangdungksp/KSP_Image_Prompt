@@ -21,9 +21,9 @@ import type { ProjectModeV2 } from "../types/v0_9_0";
 
 // v0.9.0 components (built in Phase 1-4)
 import { ProjectSettingSectionV09 } from "./ProjectSettingSectionV09";
-import { CastSectionV09 } from "./CastSectionV09";
-import { FilmScriptSection } from "./FilmScriptSection";
-import { ScenesShotsManagerV09 } from "./ScenesShotsManagerV09";
+import { CastFilmSection } from "./CastFilmSection";
+import { FilmIdeaScriptSection } from "./FilmIdeaScriptSection";
+import { FilmStoryboardSection } from "./FilmStoryboardSection";
 import { ShotDetailPanel } from "./ShotDetailPanel";
 import { VoiceSectionV09 } from "./VoiceSectionV09";
 import { MusicSfxSectionV09 } from "./MusicSfxSectionV09";
@@ -36,7 +36,7 @@ import { PhotosIdeaSection } from "./PhotosIdeaSection";
 import { PhotosImageGenSection } from "./PhotosImageGenSection";
 
 // v0.8.x reused (Idea section legacy)
-import { IdeaCardV09 } from "./IdeaCardV09";
+import { IdeaCardV09 } from "./IdeaCardV09";  // legacy — kept for non-Film modes if any
 
 // Global store for focused entities (Shot Detail navigation)
 import { useGlobalStore } from "../store/useGlobalStore";
@@ -46,6 +46,7 @@ import "./v0_9_0.css";
 import "./v0_9_0_phase2.css";
 import "./v0_9_0_phase34.css";
 import "./v0_9_1_photos.css";
+import "./v0_9_3_film.css";
 // v0_9_2_product.css removed v0.9.3-r1 (TVC archived)
 
 export function Editor() {
@@ -133,11 +134,11 @@ export function Editor() {
 
       {/* Section 2: ASSETS — mode-adaptive
           Photos + TVC dùng chung CastPhotosSection (5 Subject Types + 1-6 face refs + outfit)
-          Film giữ CastSectionV09 (multi-character cards cho narrative cinema) */}
+          Film dùng CastFilmSection v0.9.3 (multi-character cards, 4 roles, face/body refs, AI Generate stub) */}
       {mode === "photos" || mode === "tvc_commercial" ? (
         <CastPhotosSection />
       ) : (
-        <CastSectionV09 />
+        <CastFilmSection />
       )}
       <Connector colorFrom="#c490c4" colorTo={castToNextColor} />
 
@@ -171,15 +172,10 @@ function ArchivedModePlaceholder({ mode }: { mode: string }) {
 function FilmPipeline() {
   return (
     <>
-      <PipelineStep stepNum={1} icon="💡" label="Ý TƯỞNG" color="green">
-        <IdeaCardV09 />
-      </PipelineStep>
-      <Connector colorFrom="#5dcaa5" colorTo="#f0a677" />
-
-      <FilmScriptSection />
+      <FilmIdeaScriptSection />
       <Connector colorFrom="#f0a677" colorTo="#afa9ec" />
 
-      <ScenesShotsManagerV09 />
+      <FilmStoryboardSection />
       <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
 
       <PipelineStep stepNum={4} icon="🖼" label="IMAGE GEN" color="purple-light">
@@ -307,7 +303,7 @@ function PipelineStep({
   );
 }
 
-function Connector({ colorFrom, colorTo }: { colorFrom: string; colorTo: string }) {
+export function Connector({ colorFrom, colorTo }: { colorFrom: string; colorTo: string }) {
   return (
     <div
       style={{

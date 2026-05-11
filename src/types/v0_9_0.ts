@@ -361,6 +361,15 @@ export interface ProjectSettingV2 {
   durationMinutes?: number;   // For film/tvc; not applicable for photos
   timeFormat: TimeFormat;
 
+  /**
+   * v0.9.3 Film mode (Q5 lock): project-wide dialog mode.
+   * "has_dialog" — characters speak lines (Voice section shows dialog assignment per character).
+   * "no_dialog" — narrative qua hình ảnh + nhạc + SFX (Voice section shows Skip/Add Narrator).
+   * Default: "no_dialog" (anchor on Mockup 1 Robot demo).
+   * Only meaningful when mode === "film". Other modes ignore.
+   */
+  dialog?: import("./film_v093").FilmDialogMode;
+
   // AI providers
   aiProviders: AiTaskProviders;
 
@@ -400,6 +409,7 @@ export type AspectRatioV2 =
   | "9:16"        // Vertical (TikTok, Reels, Shorts)
   | "1:1"         // Square (Instagram feed)
   | "4:5"         // Portrait (Instagram feed)
+  | "4:3"         // Classic TV / retro film (added v0.9.3-r2 for Film mode)
   | "16:9"        // Landscape (YouTube, TV)
   | "21:9"        // Cinemascope (Cinema)
   | "2.39:1";     // Anamorphic widescreen
@@ -459,9 +469,11 @@ export interface ProjectV09Extensions {
   photosV091?: import("./photos_v091").PhotosV091Data;
 
   /**
-   * v0.9.3 reserved: filmV093?: import("./film_v093").FilmV093Data;
-   * (Added in Sprint 0.9.3-r2 when Film foundation lands.)
+   * v0.9.3: Film mode data (multi-character cast).
+   * Only populated when settingV2.mode === "film".
+   * See ./film_v093.ts for FilmV093Data type.
    */
+  filmV093?: import("./film_v093").FilmV093Data;
 }
 
 // ============================================================================
