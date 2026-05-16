@@ -531,21 +531,13 @@
   background: rgba(255, 255, 255, 0.045);
 }
 
-/* Caret indicator */
+/* Caret indicator removed per Jason qc6 request — section headers no longer show ▼ arrow */
 .ksp-section-header::after {
-  content: "▼";
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  color: #888;
-  transition: transform 0.2s;
-  pointer-events: none;
+  content: none;
 }
 
 .ksp-section.ksp-section-collapsed .ksp-section-header::after {
-  transform: translateY(-50%) rotate(-90deg);
+  content: none;
 }
 
 /* Hide all section content when collapsed (everything except .ksp-section-header) */

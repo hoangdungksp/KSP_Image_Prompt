@@ -25,7 +25,7 @@ import type {
   FilmShot,
   FilmCharacterV2,
   ProjectModeV2,
-} from "../types/v0_9_0";
+} from "../types/project";
 
 // ============================================================================
 // VIEW MODE (Hybrid: Sidebar 380px vs Editor tab 1400px)

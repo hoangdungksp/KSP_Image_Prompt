@@ -43,7 +43,7 @@ import type {
   AspectRatioV2,
   FilmGenreV2,
   ShotFrame,
-} from "../types/v0_9_0";
+} from "../types/project";
 
 // ============================================================================
 // PROVIDER ENDPOINTS

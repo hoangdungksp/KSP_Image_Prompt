@@ -24,8 +24,8 @@ if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
 const distAssets = fs.readdirSync(path.join(ROOT, "dist", "assets"));
 const sidepanelJs = distAssets.find((f) => f.startsWith("sidepanel.html-") && f.endsWith(".js"));
-const sidepanelCss = distAssets.find((f) => f.startsWith("v0_9_0_phase34") && f.endsWith(".css"));
-const phaseJs = distAssets.find((f) => f.startsWith("v0_9_0_phase34") && f.endsWith(".js"));
+const sidepanelCss = distAssets.find((f) => f.startsWith("index-") && f.endsWith(".css"));
+const phaseJs = distAssets.find((f) => f.startsWith("index-") && f.endsWith(".js"));
 
 const TEST_HTML = `<!doctype html>
 <html lang="vi">

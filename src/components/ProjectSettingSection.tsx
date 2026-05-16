@@ -11,7 +11,7 @@
 import React, { useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useGlobalStore, createDefaultSettingV2 } from "../store/useGlobalStore";
-import { migrateProjectToV09 } from "../store/migration_v09";
+import { migrateProjectToV09 } from "../store/migration";
 import type {
   ProjectSettingV2,
   ProjectModeV2,
@@ -20,7 +20,7 @@ import type {
   AspectRatioV2,
   ApiKeysStatus,
   TimeFormat,
-} from "../types/v0_9_0";
+} from "../types/project";
 
 // v0.9.3-r1: TVC Commercial + Product Photo HIDDEN from Mode dropdown.
 // Code giữ trong codebase (gác lại post-v1.0). User chỉ thấy Photos + Film.
@@ -80,7 +80,7 @@ const TIME_FORMATS: { value: TimeFormat; label: string; example: string }[] = [
   { value: "timecode", label: "Timecode", example: "0:00–0:01.5 (film standard)" },
 ];
 
-export function ProjectSettingSectionV09() {
+export function ProjectSettingSection() {
   const project = useAppStore((s) => s.currentProject);
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const apiKeys = useGlobalStore((s) => s.apiKeys);
@@ -296,6 +296,30 @@ export function ProjectSettingSectionV09() {
             </Label>
           )}
         </div>
+
+        {/* qc17: Video Provider — default for AI Shot List duration constraints */}
+        {isFilm && (
+          <div className="ksp-form-row">
+            <Label text="Video AI Provider (default)">
+              <select
+                value={setting.defaultVideoProvider ?? "seedance-2-pro"}
+                onChange={(e) =>
+                  patchSetting({ defaultVideoProvider: e.target.value } as any)
+                }
+                className="ksp-select"
+                title="AI Shot List dùng durations của provider này. Mỗi shot có thể override riêng trong Storyboard."
+              >
+                <option value="seedance-2-pro">
+                  Seedance 2.0 Pro — 4-15s flexible
+                </option>
+                <option value="veo-3">Veo 3 — 8s only</option>
+                <option value="kling-2">Kling 2.0 — 5s / 10s</option>
+                <option value="sora">Sora — 5s / 10s / 20s</option>
+                <option value="grok-imagine">Grok Imagine — 6s / 10s</option>
+              </select>
+            </Label>
+          </div>
+        )}
       </CollapsibleBlock>
 
       {/* API KEYS */}

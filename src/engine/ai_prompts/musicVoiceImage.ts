@@ -2,7 +2,7 @@
  * KSP Image v0.9.0 — AI prompts for Voice + Music + Image Gen
  */
 
-import type { FilmSceneScript, FilmCharacterV2, FilmGenreV2 } from "../../types/v0_9_0";
+import type { FilmSceneScript, FilmCharacterV2, FilmGenreV2 } from "../../types/project";
 
 // ============================================================================
 // MUSIC BRIEF GENERATOR (per Scene → Suno/Udio prompt)

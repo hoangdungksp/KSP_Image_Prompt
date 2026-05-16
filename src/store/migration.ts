@@ -20,7 +20,7 @@ import type {
   CharacterRef,
   FilmShot,
   ShotFrame,
-} from "../types/v0_9_0";
+} from "../types/project";
 import { createDefaultSettingV2, genId } from "./useGlobalStore";
 
 // ============================================================================
@@ -203,7 +203,57 @@ export function migrateProjectToV09(
 export function migrateAllProjects(
   projects: PromptProject[]
 ): (PromptProject & ProjectV09Extensions)[] {
-  return projects.map((p) => migrateProjectToV09(p));
+  return projects.map((p) => migrateProjectToV09(p)).map(migrateQc16DropPerShotGrids);
+}
+
+/**
+ * qc16 Migration A: Drop deprecated per-shot grid data (paradigm shift).
+ *
+ * Per-shot grid fields (framesR5, gridImageDataUrl, imagePromptR5, cropSettings on shot)
+ * are replaced by scene-level SceneGrid[]. Old data is dropped on first load —
+ * user re-uploads grids in new Storyboard UI.
+ *
+ * This is a CLEAN BREAK (Jason confirmed Q5=A): we don't try to convert per-shot
+ * grids to scene-level (would be lossy and confusing). Just clear and re-init.
+ *
+ * Idempotent: safe to call multiple times. Marker `qc16Migrated: true` prevents
+ * double-runs.
+ */
+export function migrateQc16DropPerShotGrids(
+  project: PromptProject & ProjectV09Extensions
+): PromptProject & ProjectV09Extensions {
+  const film = (project as any).filmV093;
+  if (!film) return project;
+  if ((film as any).qc16Migrated) return project;
+
+  // Drop per-shot grid fields from all shots in all scenes
+  const shotsBySceneId = film.shotsBySceneId ?? {};
+  const cleanedShots: Record<string, any[]> = {};
+  for (const [sceneId, shots] of Object.entries(shotsBySceneId)) {
+    cleanedShots[sceneId] = (shots as any[]).map((shot) => {
+      const {
+        framesR5,
+        gridImageDataUrl,
+        imagePromptR5,
+        cropSettings,
+        ...rest
+      } = shot;
+      return rest;
+    });
+  }
+
+  // Drop defaultCropSettings from film data (was qc15 per-project default)
+  const { defaultCropSettings, ...filmRest } = film as any;
+
+  return {
+    ...project,
+    filmV093: {
+      ...filmRest,
+      shotsBySceneId: cleanedShots,
+      qc16Migrated: true,
+      updatedAt: Date.now(),
+    },
+  } as PromptProject & ProjectV09Extensions;
 }
 
 /**

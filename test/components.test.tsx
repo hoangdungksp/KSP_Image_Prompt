@@ -8,14 +8,13 @@ import { render, cleanup } from "@testing-library/react";
 import React from "react";
 import { useAppStore } from "../src/store/useAppStore";
 
-import { ProjectSettingSectionV09 } from "../src/components/ProjectSettingSectionV09";
+import { ProjectSettingSection } from "../src/components/ProjectSettingSection";
 import { CastFilmSection } from "../src/components/CastFilmSection";
 import { FilmIdeaScriptSection } from "../src/components/FilmIdeaScriptSection";
 import { FilmStoryboardSection } from "../src/components/FilmStoryboardSection";
-import { VoiceSectionV09 } from "../src/components/VoiceSectionV09";
-import { MusicSfxSectionV09 } from "../src/components/MusicSfxSectionV09";
-import { BundleExportV09 } from "../src/components/BundleExportV09";
-import { ShotDetailPanel } from "../src/components/ShotDetailPanel";
+import { FilmVoiceSection } from "../src/components/FilmVoiceSection";
+import { FilmMusicSfxSection } from "../src/components/FilmMusicSfxSection";
+import { FilmBundleExportSection } from "../src/components/FilmBundleExportSection";
 
 const filmProject: any = {
   id: "p1",
@@ -54,9 +53,9 @@ describe("Each v0.9.0 component renders standalone", () => {
     cleanup();
   });
 
-  it("ProjectSettingSectionV09 renders", () => {
+  it("ProjectSettingSection renders", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<ProjectSettingSectionV09 />);
+    const { container } = render(<ProjectSettingSection />);
     expect(container.innerHTML).toContain("PROJECT SETTING");
   });
 
@@ -78,53 +77,56 @@ describe("Each v0.9.0 component renders standalone", () => {
     expect(container.innerHTML).toContain("STORYBOARD");
   });
 
-  it("VoiceSectionV09 renders", () => {
+  it("FilmVoiceSection renders (no_dialog mode)", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<VoiceSectionV09 />);
+    const { container } = render(<FilmVoiceSection />);
     expect(container.innerHTML).toContain("VOICE");
   });
 
-  it("MusicSfxSectionV09 renders (with script)", () => {
+  it("FilmMusicSfxSection renders (with script)", () => {
     const projWithScript = {
       ...filmProject,
-      script: {
-        titleEn: "T",
-        titleVi: "T",
-        logline: "x",
-        synopsisEn: "x",
-        scenes: [
-          {
-            id: "s1",
-            order: 0,
-            titleEn: "Scene 1",
-            settings: "EXT.",
-            durationSeconds: 30,
-            act: "setup",
-            actionLinesEn: "x",
-            dialog: [],
-            sfx: [],
-            musicBrief: "",
-          },
-        ],
-        versions: [],
+      filmV093: {
+        schemaVersion: "v0.9.3-film",
+        characters: [],
+        script: {
+          titleEn: "T",
+          titleVi: "T",
+          logline: "x",
+          synopsisEn: "x",
+          scenes: [
+            {
+              id: "s1",
+              order: 1,
+              titleEn: "Scene 1",
+              settings: "EXT.",
+              durationSeconds: 30,
+              act: "setup",
+              actionLinesEn: "x",
+              dialog: [],
+              sfx: [],
+              musicBrief: "",
+            },
+          ],
+          versions: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
     };
     useAppStore.setState({ currentProject: projWithScript });
-    const { container } = render(<MusicSfxSectionV09 />);
+    const { container } = render(<FilmMusicSfxSection />);
     expect(container.innerHTML).toContain("MUSIC");
   });
 
-  it("BundleExportV09 renders (Film mode)", () => {
+  it("FilmBundleExportSection renders", () => {
     useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<BundleExportV09 />);
+    const { container } = render(<FilmBundleExportSection />);
     expect(container.innerHTML).toContain("BUNDLE");
   });
 
-  it("ShotDetailPanel renders empty state", () => {
-    useAppStore.setState({ currentProject: filmProject });
-    const { container } = render(<ShotDetailPanel />);
-    expect(container.innerHTML).toContain("Click");
-  });
+  // qc16: FilmShotDetailPanel deleted (paradigm shift to scene-level grids).
+  // Storyboard tests now cover scene grid display.
 });

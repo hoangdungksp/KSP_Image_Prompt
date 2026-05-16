@@ -1,0 +1,5476 @@
+/*
+ * KSP Image v0.9.3 — Film mode styles
+ *
+ * Cast section styling (Mockup 1 implementation).
+ * Role colors per Q2 lock:
+ *   protagonist purple #534AB7
+ *   antagonist red #993556
+ *   companion pink #993556
+ *   extra gray #5F5E5A
+ *
+ * Layout per Q1 lock: vertical full-width cards stack dọc.
+ */
+
+/* ============================================================================
+   SECTION CONTAINER
+   ============================================================================ */
+
+.ksp-cast-film {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ============================================================================
+   CHARACTER CARD
+   ============================================================================ */
+
+.ksp-cast-film-card {
+  background: #1c1c1c;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color 0.15s ease;
+}
+
+.ksp-cast-film-card:hover {
+  border-color: #3a3a3a;
+}
+
+/* Role indication via avatar circle only (no duplicate border) */
+
+.ksp-cast-film-card-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* ============================================================================
+   AVATAR
+   ============================================================================ */
+
+.ksp-cast-film-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.ksp-cast-film-avatar[data-role="protagonist"] {
+  background: #2a2545;
+  color: #b8b0ff;
+}
+.ksp-cast-film-avatar[data-role="antagonist"] {
+  background: #3a1f29;
+  color: #ff9ab5;
+}
+.ksp-cast-film-avatar[data-role="companion"] {
+  background: #3a1f29;
+  color: #ffb8d0;
+}
+.ksp-cast-film-avatar[data-role="extra"] {
+  background: #2a2825;
+  color: #b0aea8;
+}
+
+/* ============================================================================
+   CARD BODY (Name + Role + Description + Refs)
+   ============================================================================ */
+
+.ksp-cast-film-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================================
+   REFS ROW (Face / Body)
+   ============================================================================ */
+
+.ksp-cast-film-refs-row {
+  border-left: 2px solid #4f7cd4;
+  padding-left: 10px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.ksp-cast-film-refs-label {
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.ksp-cast-film-refs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ksp-cast-film-ref-slot {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2a2a2a;
+}
+
+.ksp-cast-film-ref-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ksp-cast-film-ref-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 9px;
+  padding: 2px 4px;
+  text-align: center;
+  text-transform: lowercase;
+}
+
+.ksp-cast-film-ref-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ksp-cast-film-ref-remove:hover {
+  background: #c0392b;
+}
+
+.ksp-cast-film-ref-add {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+  border: 1.5px dashed #555;
+  background: transparent;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ksp-cast-film-ref-add:hover {
+  border-color: #888;
+  color: #ccc;
+}
+
+/* ============================================================================
+   AI GENERATE ROW (Q4 stub)
+   ============================================================================ */
+
+.ksp-cast-film-aigen-row {
+  margin-top: 8px;
+}
+
+.ksp-btn-aigen {
+  background: linear-gradient(135deg, #5a4f8a, #7a3f5f);
+  color: #fff;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ksp-btn-aigen:hover {
+  filter: brightness(1.15);
+}
+
+.ksp-cast-film-aigen-badge {
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 400;
+}
+
+/* ============================================================================
+   REMOVE BUTTON
+   ============================================================================ */
+
+.ksp-cast-film-remove {
+  font-size: 18px;
+  color: #888;
+  padding: 0 8px;
+}
+
+.ksp-cast-film-remove:hover {
+  color: #ff7575;
+}
+
+/* ============================================================================
+   FOOTER (AI gợi ý cast)
+   ============================================================================ */
+
+.ksp-cast-film-footer {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+/* ============================================================================
+   AI GENERATE MODAL (Q4)
+   ============================================================================ */
+
+.ksp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.ksp-modal {
+  background: #1c1c1c;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  min-width: 320px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ksp-modal-aigen {
+  border-color: #5a4f8a;
+}
+
+.ksp-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #2c2c2c;
+}
+
+.ksp-modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.ksp-btn-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+}
+
+.ksp-btn-close:hover {
+  background: #2c2c2c;
+  color: #fff;
+}
+
+.ksp-modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ksp-modal-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid #2c2c2c;
+}
+
+/* ============================================================================
+   SEGMENTED CONTROL (Dialog toggle Q5)
+   ============================================================================ */
+
+.ksp-segmented {
+  display: inline-flex;
+  background: #1c1c1c;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.ksp-segmented-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.ksp-segmented-btn:hover {
+  color: #ccc;
+}
+
+.ksp-segmented-btn.active {
+  background: #2c2c2c;
+  color: #fff;
+}
+
+/* ============================================================================
+   r3 (Mockup 2) — IDEA + SCRIPT sections
+   ============================================================================ */
+
+.ksp-idea-film {
+  border: 0.5px solid #1D9E75;
+}
+
+.ksp-idea-film-textarea {
+  width: calc(100% - 20px);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 80px;
+  margin: 10px;
+  /* qc9: Hide border until focus, per Jason */
+  border: 0.5px solid transparent;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #ddd;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ksp-idea-film-textarea:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ksp-idea-film-textarea:focus {
+  outline: none;
+  border-color: #1D9E75;
+  background: rgba(29, 158, 117, 0.04);
+}
+
+.ksp-script-film {
+  border: 0.5px solid #D85A30;
+}
+
+.ksp-section-meta {
+  font-size: 11px;
+  color: #aaa;
+  margin-left: auto;
+}
+
+.ksp-script-film-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ksp-script-film-label {
+  font-size: 11px;
+  color: #aaa;
+  font-weight: 500;
+}
+
+.ksp-script-film-empty {
+  font-size: 11px;
+  color: #888;
+  padding: 8px 10px;
+  background: #1c1c1c;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.ksp-script-film-empty p {
+  margin: 0;
+}
+
+.ksp-script-film-empty strong {
+  color: #D85A30;
+}
+
+.ksp-script-film-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.ksp-script-film-generate {
+  flex: 1;
+  min-width: 200px;
+}
+
+.ksp-script-film-versions {
+  background: #1a1a1a;
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.ksp-script-film-versions h4 {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ksp-script-film-versions ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ksp-script-film-versions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.ksp-script-film-versions li:last-child {
+  border-bottom: none;
+}
+
+.ksp-script-film-versions-meta {
+  font-size: 10px;
+  color: #777;
+  margin-left: auto;
+}
+
+.ksp-script-film-content {
+  margin-top: 10px;
+}
+
+.ksp-script-film-meta {
+  font-size: 12px;
+  color: #ccc;
+  padding: 8px 10px;
+  background: #1c1c1c;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.ksp-script-film-meta strong {
+  color: #D85A30;
+  margin-right: 4px;
+}
+
+.ksp-script-film-meta div {
+  margin-bottom: 2px;
+}
+
+.ksp-script-film-feed-note {
+  font-size: 10px;
+  color: #888;
+  text-align: center;
+  margin-top: 12px;
+  padding: 6px;
+  font-style: italic;
+}
+
+/* ============================================================================
+   SCENE CARD (collapsible)
+   ============================================================================ */
+
+.ksp-scene-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.ksp-scene-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ddd;
+  transition: background 0.15s ease;
+}
+
+.ksp-scene-card-header:hover {
+  background: #222;
+}
+
+.ksp-scene-card[data-expanded="true"] .ksp-scene-card-header {
+  background: #1c1c1c;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.ksp-scene-card-arrow {
+  font-size: 10px;
+  color: #888;
+  width: 12px;
+}
+
+.ksp-scene-card-settings {
+  font-size: 11px;
+  color: #888;
+  margin-left: 4px;
+}
+
+.ksp-scene-card-remove {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.ksp-scene-card-remove:hover {
+  color: #ff7575;
+}
+
+.ksp-scene-card-body {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.ksp-scene-card-title {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 8px;
+}
+
+.ksp-scene-card-block {
+  margin-bottom: 8px;
+  padding-left: 8px;
+  border-left: 2px solid #3a3a3a;
+}
+
+.ksp-scene-card-block-label {
+  display: block;
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-scene-card-action {
+  margin: 0;
+  cursor: text;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+.ksp-scene-card-action:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ksp-scene-card-dialog-line {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.ksp-scene-card-dialog-line strong {
+  color: #b8b0ff;
+}
+
+.ksp-scene-card-paren {
+  color: #888;
+  font-style: italic;
+}
+
+/* Color-coded inline blocks per Mockup 2 spec */
+.ksp-scene-block-sfx {
+  border-left-color: #185FA5;
+  background: rgba(24, 95, 165, 0.08);
+}
+
+.ksp-scene-block-sfx .ksp-scene-card-block-label {
+  color: #4f9eea;
+}
+
+.ksp-scene-block-music {
+  border-left-color: #534AB7;
+  background: rgba(83, 74, 183, 0.08);
+}
+
+.ksp-scene-block-music .ksp-scene-card-block-label {
+  color: #b8b0ff;
+}
+
+.ksp-scene-block-transition {
+  border-left-color: #0F6E56;
+  background: rgba(15, 110, 86, 0.08);
+}
+
+.ksp-scene-block-transition .ksp-scene-card-block-label {
+  color: #5dcaa5;
+}
+
+.ksp-scene-block-dialog {
+  border-left-color: #b87093;
+}
+
+/* ============================================================================
+   QC2 (May 12) — Cast section rebuild per Mockup 1 NEW reference
+   OVERRIDES r3.2/r4 polish locks (Jason explicit decision to bring back avatars,
+   card background, AI gợi ý footer, etc.)
+   ============================================================================ */
+
+/* Header — bỏ margin bottom (Jason explicit) */
+.ksp-cast-film .ksp-section-header {
+  margin-bottom: 0 !important;
+}
+
+.ksp-cast-film-subtitle {
+  font-size: 11px;
+  color: #888;
+  margin-left: 8px;
+  font-style: italic;
+}
+
+/* Empty state when no characters */
+.ksp-cast-film-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: #888;
+  line-height: 1.6;
+}
+
+.ksp-cast-film-empty p {
+  margin: 0;
+}
+
+/* Cards list container */
+.ksp-cast-film-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Character card — bring back background + border-radius (override polish) */
+.ksp-cast-film-card {
+  background: #1a1a1a !important;
+  border: 0.5px solid #2c2c2c !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  margin: 10px !important;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ksp-cast-film-card:hover {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+}
+
+/* Override r4 separator (no longer needed since cards have their own border) */
+.ksp-cast-film .ksp-cast-film-card + .ksp-cast-film-card {
+  border-top: 0.5px solid #2c2c2c !important;
+}
+
+/* Card inner layout: avatar left | body right */
+.ksp-cast-film-card-inner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* Avatar circle — inline with name/role (override polish display:none) */
+.ksp-cast-film-avatar {
+  display: flex !important;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  border: 0.5px solid #3c3c3c;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+/* Role-tinted avatar */
+.ksp-cast-film-card[data-role="protagonist"] .ksp-cast-film-avatar {
+  background: rgba(196, 144, 196, 0.12);
+  border-color: rgba(196, 144, 196, 0.35);
+}
+.ksp-cast-film-card[data-role="antagonist"] .ksp-cast-film-avatar {
+  background: rgba(216, 90, 90, 0.12);
+  border-color: rgba(216, 90, 90, 0.35);
+}
+.ksp-cast-film-card[data-role="companion"] .ksp-cast-film-avatar {
+  background: rgba(94, 202, 165, 0.12);
+  border-color: rgba(94, 202, 165, 0.35);
+}
+.ksp-cast-film-card[data-role="extra"] .ksp-cast-film-avatar {
+  background: rgba(150, 150, 150, 0.1);
+  border-color: rgba(150, 150, 150, 0.25);
+}
+
+.ksp-cast-film-avatar-emoji {
+  line-height: 1;
+}
+
+/* Body section — takes full card width (avatar is now inline in header-row) */
+.ksp-cast-film-body {
+  width: auto !important;
+}
+
+/* Header row: avatar + name/role view/edit + actions on right */
+.ksp-cast-film-header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+/* View mode: name purple bold + role grey label below */
+.ksp-cast-film-header-view {
+  flex: 1;
+  min-width: 0;
+}
+
+.ksp-cast-film-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #c490c4;
+  line-height: 1.3;
+  margin-bottom: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksp-cast-film-role {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.3;
+}
+
+/* Edit mode: name input + role select */
+.ksp-cast-film-header-edit {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ksp-cast-film-header-edit input,
+.ksp-cast-film-header-edit select {
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+}
+
+/* Right-side actions: edit + × */
+.ksp-cast-film-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ksp-cast-film-edit-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: #2a2a2a;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ksp-cast-film-edit-btn:hover {
+  background: #333;
+  border-color: #4c4c4c;
+  color: #ddd;
+}
+
+.ksp-cast-film-remove-btn {
+  font-size: 14px;
+  padding: 2px 8px;
+  background: #2a2a2a;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.ksp-cast-film-remove-btn:hover {
+  background: rgba(216, 90, 90, 0.15);
+  border-color: rgba(216, 90, 90, 0.4);
+  color: #d85a5a;
+}
+
+/* Description textarea — minimal border, blends with card */
+.ksp-cast-film-description {
+  width: 100%;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: #ccc;
+  font-family: inherit;
+  padding: 4px 0;
+  margin-bottom: 8px;
+  resize: vertical;
+  min-height: 32px;
+  line-height: 1.5;
+}
+
+.ksp-cast-film-description:focus {
+  outline: 1px solid #3c3c3c;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.ksp-cast-film-description::placeholder {
+  color: #555;
+  font-style: italic;
+}
+
+/* Refs button row — 3 inline buttons */
+.ksp-cast-film-refs-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Refs button (Face / Body) — blue/teal badge style */
+.ksp-cast-film-refs-btn {
+  font-size: 11px;
+  padding: 5px 12px;
+  background: rgba(79, 124, 212, 0.1);
+  border: 0.5px solid rgba(79, 124, 212, 0.3);
+  border-radius: 4px;
+  color: #6da9d6;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.ksp-cast-film-refs-btn:hover {
+  background: rgba(79, 124, 212, 0.18);
+  border-color: rgba(79, 124, 212, 0.5);
+}
+
+.ksp-cast-film-refs-btn.active {
+  background: rgba(79, 124, 212, 0.25);
+  border-color: #4f7cd4;
+  color: #8cb8df;
+}
+
+.ksp-cast-film-refs-btn-body {
+  background: rgba(123, 137, 212, 0.1);
+  border-color: rgba(123, 137, 212, 0.3);
+  color: #8c9ad6;
+}
+
+.ksp-cast-film-refs-btn-body:hover {
+  background: rgba(123, 137, 212, 0.18);
+  border-color: rgba(123, 137, 212, 0.5);
+}
+
+.ksp-cast-film-refs-btn-body.active {
+  background: rgba(123, 137, 212, 0.25);
+  border-color: #7b89d4;
+}
+
+/* AI Generate button — orange/brown filled (between face + body refs) */
+.ksp-cast-film-aigen-btn {
+  font-size: 11px;
+  padding: 5px 14px;
+  background: rgba(186, 117, 23, 0.18);
+  border: 0.5px solid rgba(186, 117, 23, 0.4);
+  border-radius: 4px;
+  color: #e0a866;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ksp-cast-film-aigen-btn:hover {
+  background: rgba(186, 117, 23, 0.28);
+  border-color: #BA7517;
+}
+
+.ksp-cast-film-aigen-badge {
+  font-size: 6px;
+  color: #5dcaa5;
+  margin-left: 2px;
+}
+
+/* Refs expanded inline grid (when face/body refs button clicked) */
+.ksp-cast-film-refs-expanded {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid;
+  border-radius: 0 4px 4px 0;
+}
+
+.ksp-cast-film-refs-expanded-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+/* Refs grid inside expanded — reuses .ksp-cast-film-ref-slot from base */
+
+/* ============================================================================
+   QC2 — Footer (Add Character + AI suggest cast) 2-col layout
+   ============================================================================ */
+
+.ksp-cast-film-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 10px 0 10px;
+}
+
+.ksp-cast-film-add-btn {
+  font-size: 12px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 0.5px dashed #4c4c4c;
+  border-radius: 4px;
+  color: #ddd;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+  text-align: center;
+}
+
+.ksp-cast-film-add-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: #888;
+  border-style: solid;
+  color: #fff;
+}
+
+.ksp-cast-film-ai-suggest-btn {
+  font-size: 12px;
+  padding: 8px 14px;
+  background: rgba(196, 144, 196, 0.18);
+  border: 0.5px solid rgba(196, 144, 196, 0.4);
+  border-radius: 4px;
+  color: #d4a8d4;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ksp-cast-film-ai-suggest-btn:hover {
+  background: rgba(196, 144, 196, 0.28);
+  border-color: #c490c4;
+  color: #e4c8e4;
+}
+
+/* ============================================================================
+   QC2 — Info banner (context-aware: no_dialog vs has_dialog)
+   ============================================================================ */
+
+.ksp-cast-film-banner {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(79, 124, 212, 0.08);
+  border-left: 2px solid #4f7cd4;
+  border-radius: 0 4px 4px 0;
+  font-size: 11px;
+  color: #bcd0e8;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.ksp-cast-film-banner-icon {
+  color: #6da9d6;
+  font-size: 13px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.ksp-cast-film-banner strong {
+  color: #ddd;
+}
+
+/* ============================================================================
+   Idea + Script padding stays per r4 lock (unchanged by QC2)
+   ============================================================================ */
+.ksp-idea-film,
+.ksp-script-film {
+  padding: 0 !important;
+}
+
+.ksp-idea-film .ksp-section-header,
+.ksp-script-film .ksp-section-header {
+  padding: 10px 12px;
+  margin: 0;
+}
+
+/* qc9: idea-film-textarea override removed — main rule above sets margin: 10px + border on focus only */
+
+.ksp-script-film-breadcrumb {
+  margin: 0 12px 10px 12px !important;
+}
+
+.ksp-script-film-provider {
+  margin: 0 12px 10px 12px !important;
+  width: calc(100% - 24px) !important;
+}
+
+.ksp-script-film-actions {
+  margin: 0 12px 12px 12px !important;
+}
+
+.ksp-script-film-content {
+  margin: 0 12px 12px 12px !important;
+}
+
+.ksp-script-film-versions {
+  margin: 0 12px 8px 12px !important;
+}
+
+.ksp-script-film-feed-note {
+  padding: 0 12px 10px 12px !important;
+  margin: 0 !important;
+}
+
+/* Smaller refs slots (mockup 36×36 thay vì 64×64) */
+.ksp-cast-film-ref-slot {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.ksp-cast-film-ref-add {
+  width: 44px !important;
+  height: 44px !important;
+  font-size: 18px !important;
+}
+
+.ksp-cast-film-ref-label {
+  font-size: 8px !important;
+  padding: 1px 3px !important;
+}
+
+.ksp-cast-film-ref-remove {
+  width: 14px !important;
+  height: 14px !important;
+  font-size: 11px !important;
+}
+
+.ksp-cast-film-refs-label {
+  font-size: 10px !important;
+  margin-bottom: 3px !important;
+}
+
+/* Smaller AI Generate button */
+.ksp-btn-aigen {
+  font-size: 10px !important;
+  padding: 4px 10px !important;
+}
+
+/* Smaller avatar (36 → 32) */
+.ksp-cast-film-avatar {
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 12px !important;
+}
+
+/* Cast section header — gọn hơn */
+.ksp-cast-film .ksp-section-header {
+  margin-bottom: 8px;
+}
+
+/* Idea/Script section spacing tighter */
+.ksp-idea-film,
+.ksp-script-film {
+  padding: 12px;
+}
+
+/* Script breadcrumb stub */
+.ksp-script-film-breadcrumb {
+  background: var(--color-background-secondary, #1a1a1a);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 0.5px solid #2c2c2c;
+}
+
+.ksp-script-film-breadcrumb-label {
+  font-size: 9px;
+  color: #aaa;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.ksp-script-film-breadcrumb-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.ksp-stage-pill {
+  font-size: 9px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.ksp-stage-pending {
+  background: #2a2a2a;
+  color: #888;
+  opacity: 0.6;
+}
+
+.ksp-stage-active {
+  background: #FAEEDA;
+  color: #854F0B;
+  font-weight: 500;
+}
+
+.ksp-script-film-breadcrumb-status {
+  font-size: 10px;
+  color: #888;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Provider toggle 50/50, no label */
+.ksp-script-film-provider {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-background-secondary, #1c1c1c);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.ksp-script-film-provider .ksp-segmented-btn {
+  flex: 1;
+  text-align: center;
+}
+
+/* Generate button — solid orange filled (Mockup 2 spec) */
+.ksp-script-film-generate-btn {
+  background: #D85A30 !important;
+  color: white !important;
+  border: none !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 9px 14px !important;
+  border-radius: 6px !important;
+  width: 100%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ksp-script-film-generate-btn:hover:not(:disabled) {
+  background: #c04d27 !important;
+  filter: brightness(1.05);
+}
+
+.ksp-script-film-generate-btn:disabled {
+  background: #6b3a25 !important;
+  color: #aaa !important;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.ksp-script-film-generate {
+  flex: 1;
+  min-width: 0 !important;
+}
+
+/* ============================================================================
+   r4 — Storyboard section (Mockup 3)
+   ============================================================================ */
+
+.ksp-storyboard-film {
+  border: 0.5px solid #534AB7;
+  padding: 0 !important;
+}
+
+.ksp-storyboard-film .ksp-section-header {
+  padding: 10px 12px;
+}
+
+.ksp-storyboard-film-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: #888;
+  background: #1c1c1c;
+  margin: 0 12px;
+  border-radius: 6px;
+}
+
+.ksp-storyboard-film-empty p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ksp-storyboard-scene {
+  margin: 10px 12px 8px 12px;
+  background: #04060f;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ksp-storyboard-scene-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ddd;
+  background: #151516;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-storyboard-scene-header:hover {
+  background: #1c1c1d;
+}
+
+.ksp-storyboard-arrow {
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-storyboard-scene-title {
+  color: var(--color-text-secondary, #aaa);
+  font-style: italic;
+  font-size: 11px;
+}
+
+.ksp-storyboard-scene-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-storyboard-scene-body {
+  padding: 8px;
+}
+
+.ksp-storyboard-empty-row {
+  font-size: 11px;
+  color: #888;
+  text-align: center;
+  padding: 12px;
+  margin: 0;
+  font-style: italic;
+}
+
+.ksp-storyboard-shot {
+  background: #151515;
+  border: 0.5px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+
+.ksp-storyboard-shot:hover {
+  border-color: #444;
+}
+
+.ksp-storyboard-shot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ksp-storyboard-shot-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ksp-storyboard-shot-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ksp-storyboard-shot-meta {
+  flex: 1;
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-storyboard-scene-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ksp-storyboard-ai-btn {
+  background: linear-gradient(135deg, #5a4f8a, #7a3f5f) !important;
+  color: white !important;
+  border: none !important;
+}
+
+.ksp-storyboard-film-footer {
+  padding: 8px 12px 12px 12px;
+  text-align: center;
+}
+
+/* Status badges */
+.ksp-status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.ksp-status-rendered {
+  background: #EAF3DE;
+  color: #3B6D11;
+}
+
+.ksp-status-rendering {
+  background: #FAEEDA;
+  color: #854F0B;
+}
+
+.ksp-status-pending {
+  background: #2a2a2a;
+  color: #888;
+}
+
+.ksp-status-locked {
+  background: #E6F1FB;
+  color: #0C447C;
+}
+
+/* ============================================================================
+   r5 — SHOT DETAIL PANEL (Mockup 4, inline expand drawer)
+   ============================================================================ */
+
+/* Shot row expand chevron button */
+.ksp-storyboard-shot-expand {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 10px;
+  color: #aaa;
+  flex-shrink: 0;
+}
+
+.ksp-storyboard-shot-expanded {
+  background: #1d2644 !important;
+  border-left: 5px solid #afa9ec !important;
+}
+
+/* qc13: Margin per Jason spec - 20px top, 12px right, 50px bottom, 50px left */
+.ksp-shot-detail-panel {
+  /* qc14: Removed border-left dashed + padding-left per Jason spec */
+  margin: 20px 12px 50px 50px;
+  background: rgba(83, 74, 183, 0.025);
+  border-radius: 6px;
+  position: relative;
+}
+
+/* qc13: Orange arrow connector from expanded shot row → IMAGE GEN section */
+.ksp-shot-detail-arrow-from-shot {
+  position: absolute;
+  top: -10px;
+  left: -38px;
+  width: 36px;
+  height: 28px;
+  pointer-events: none;
+}
+
+.ksp-shot-detail-arrow-from-shot svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* qc14: Removed legacy gradient/chevron internal connector — replaced by
+   inline <Connector colorFrom colorTo /> matching section connector style.
+   See FilmShotDetailPanel.tsx render. */
+
+/* Each block (Image Gen / Video AI) */
+.ksp-shot-detail-block {
+  margin: 8px 0;
+  border: 0.5px solid #AFA9EC;
+  border-radius: 6px;
+  background: rgba(20, 20, 25, 0.4);
+  overflow: hidden;
+}
+
+.ksp-shot-detail-imagegen,
+.ksp-shot-detail-videoai {
+  border-color: #AFA9EC;
+}
+
+.ksp-shot-detail-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid rgba(175, 169, 236, 0.3);
+  background: rgba(83, 74, 183, 0.08);
+}
+
+.ksp-shot-detail-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #afa9ec;
+  text-transform: uppercase;
+}
+
+.ksp-shot-detail-section-meta {
+  font-size: 10px;
+  color: #888;
+  margin-left: auto;
+  font-style: italic;
+}
+
+.ksp-shot-detail-block-body {
+  padding: 10px;
+}
+
+.ksp-shot-detail-label {
+  display: block;
+  font-size: 10px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.ksp-shot-detail-grid-meta {
+  font-size: 11px;
+  color: #ccc;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.ksp-shot-detail-prompt {
+  font-family: ui-monospace, "SF Mono", monospace !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+  width: 100% !important;
+  resize: vertical !important;
+  margin-bottom: 4px !important;
+}
+
+.ksp-shot-detail-prompt-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+/* Char count badges (r5 thresholds: <70% green, 70-95% yellow, >95% red) */
+.ksp-shot-detail-char-count {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.ksp-char-count-green {
+  background: rgba(94, 202, 165, 0.15);
+  color: #5dcaa5;
+}
+
+.ksp-char-count-yellow {
+  background: rgba(232, 200, 116, 0.15);
+  color: #e8c874;
+}
+
+.ksp-char-count-red {
+  background: rgba(217, 88, 88, 0.15);
+  color: #d95858;
+}
+
+.ksp-shot-detail-actions-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ksp-shot-detail-btn-copy {
+  background: #534AB7 !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 500 !important;
+}
+
+.ksp-shot-detail-btn-copy:hover {
+  filter: brightness(1.1);
+}
+
+/* Grid upload area */
+.ksp-shot-detail-upload-grid {
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed #444;
+  border-radius: 4px;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.ksp-shot-detail-frames-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 6px;
+}
+
+.ksp-shot-detail-frames-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ksp-shot-detail-frame-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ksp-shot-detail-frame-thumb.ksp-frame-locked {
+  border-color: #4f9eea;
+  background: rgba(24, 95, 165, 0.08);
+}
+
+.ksp-shot-detail-frame-img {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #555;
+}
+
+.ksp-shot-detail-frame-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ksp-shot-detail-frame-placeholder {
+  font-size: 14px;
+  color: #555;
+  font-weight: 600;
+}
+
+.ksp-shot-detail-frame-actions {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px 2px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.ksp-btn-tiny {
+  font-size: 9px !important;
+  padding: 1px 4px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  line-height: 1 !important;
+}
+
+.ksp-shot-detail-replace-hint {
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* Provider dropdown */
+.ksp-shot-detail-provider-select {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.ksp-shot-detail-provider-info {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+  min-height: 18px;
+}
+
+/* Inline add custom provider form */
+.ksp-shot-detail-add-provider {
+  padding: 8px 10px;
+  background: rgba(83, 74, 183, 0.06);
+  border: 0.5px solid rgba(175, 169, 236, 0.3);
+  border-radius: 4px;
+  margin: 4px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ksp-shot-detail-add-provider input {
+  width: 100% !important;
+}
+
+.ksp-shot-detail-add-provider-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+
+/* ============================================================================
+   r6 — VOICE / MUSIC+SFX / BUNDLE EXPORT (Mockup 5)
+   ============================================================================ */
+
+/* === VOICE SECTION (blue #378ADD) === */
+.ksp-voice-film {
+  border: 0.5px solid #378ADD;
+  padding: 0 !important;
+}
+
+.ksp-voice-film .ksp-section-header {
+  padding: 10px 12px;
+}
+
+.ksp-voice-film-body {
+  padding: 10px 12px;
+}
+
+.ksp-voice-film-label {
+  display: block;
+  font-size: 10px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.ksp-voice-film-tiny-label {
+  font-size: 10px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+
+.ksp-voice-film-global {
+  margin-bottom: 12px;
+}
+
+.ksp-voice-film-provider-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+.ksp-voice-film-provider-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  color: #aaa;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.ksp-voice-film-provider-btn:hover {
+  background: rgba(55, 138, 221, 0.06);
+  border-color: #378ADD;
+  color: #ddd;
+}
+
+.ksp-voice-film-provider-btn-active {
+  background: rgba(55, 138, 221, 0.12) !important;
+  border-color: #378ADD !important;
+  color: #85b7eb !important;
+}
+
+.ksp-voice-film-provider-pricing {
+  font-size: 9px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-voice-film-no-dialog {
+  padding: 12px;
+  background: rgba(55, 138, 221, 0.04);
+  border-radius: 4px;
+}
+
+.ksp-voice-film-message {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+.ksp-voice-film-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ksp-voice-film-has-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ksp-voice-film-summary {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.ksp-voice-film-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: #888;
+  background: #1c1c1c;
+  border-radius: 6px;
+}
+
+.ksp-voice-film-empty p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ksp-voice-film-char-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.ksp-voice-film-char-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ksp-voice-film-char-meta {
+  font-size: 10px;
+  color: #888;
+  margin-left: auto;
+}
+
+.ksp-voice-film-char-provider {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.ksp-voice-film-char-provider select {
+  flex: 1;
+}
+
+.ksp-voice-film-line-preview {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.5;
+  padding-left: 8px;
+  border-left: 2px solid #378ADD;
+  background: rgba(55, 138, 221, 0.03);
+  padding: 6px 8px;
+  border-radius: 0 4px 4px 0;
+}
+
+.ksp-voice-film-line {
+  margin-bottom: 3px;
+}
+
+.ksp-voice-film-line-prefix {
+  color: #888;
+  font-style: italic;
+}
+
+.ksp-voice-film-line-more {
+  font-size: 10px;
+  color: #777;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.ksp-voice-film-footer-note {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px dashed #2c2c2c;
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+}
+
+/* === MUSIC + SFX SECTION (pink #D4537E) === */
+.ksp-music-sfx-film {
+  border: 0.5px solid #D4537E;
+  padding: 0 !important;
+}
+
+.ksp-music-sfx-film .ksp-section-header {
+  padding: 10px 12px;
+}
+
+.ksp-music-sfx-film-body {
+  padding: 10px 12px;
+}
+
+.ksp-music-sfx-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: #888;
+  background: #1c1c1c;
+  border-radius: 6px;
+}
+
+.ksp-music-sfx-block {
+  margin-bottom: 14px;
+}
+
+.ksp-music-sfx-h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #D4537E;
+  margin: 0 0 4px;
+}
+
+.ksp-music-sfx-hint {
+  font-size: 11px;
+  color: #888;
+  margin: 0 0 8px;
+  font-style: italic;
+}
+
+.ksp-music-sfx-provider-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ksp-music-sfx-provider-row select {
+  flex: 1;
+}
+
+.ksp-music-sfx-arc-note {
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+  padding: 6px 10px;
+  background: rgba(212, 83, 126, 0.06);
+  border-left: 2px solid #D4537E;
+  border-radius: 0 4px 4px 0;
+  margin-top: 8px;
+}
+
+.ksp-music-brief-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.ksp-music-brief-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ksp-music-brief-scene-title {
+  font-size: 11px;
+  color: #ccc;
+  font-style: italic;
+  flex: 1;
+}
+
+.ksp-music-brief-duration {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-music-brief-textarea {
+  width: 100% !important;
+  font-size: 11px !important;
+  font-family: ui-monospace, monospace !important;
+  margin-bottom: 4px !important;
+  resize: vertical !important;
+}
+
+.ksp-music-brief-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.ksp-music-brief-count {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-music-brief-count-ideal {
+  color: #5dcaa5;
+  font-weight: 600;
+}
+
+.ksp-music-brief-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* SFX cards */
+.ksp-sfx-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.ksp-sfx-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ksp-sfx-card-count {
+  font-size: 10px;
+  color: #888;
+  margin-left: auto;
+}
+
+.ksp-sfx-empty {
+  font-size: 11px;
+  color: #777;
+  font-style: italic;
+  margin: 4px 0 8px;
+}
+
+.ksp-sfx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+
+.ksp-sfx-cue {
+  color: #ccc;
+  flex: 1;
+}
+
+.ksp-sfx-link {
+  font-size: 11px;
+  text-decoration: none;
+  color: #85b7eb;
+  padding: 2px 4px;
+}
+
+.ksp-sfx-link:hover {
+  color: #afa9ec;
+}
+
+.ksp-sfx-add-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ksp-sfx-add-row input {
+  flex: 1;
+}
+
+/* === BUNDLE EXPORT SECTION (green #639922) === */
+.ksp-bundle-film {
+  border: 0.5px solid #639922;
+  padding: 0 !important;
+}
+
+.ksp-bundle-film .ksp-section-header {
+  padding: 10px 12px;
+}
+
+.ksp-bundle-film-body {
+  padding: 10px 12px;
+}
+
+.ksp-bundle-film-intro {
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.ksp-bundle-film-h3 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #97c249;
+  margin: 0 0 4px;
+}
+
+.ksp-bundle-film-tree {
+  background: #0d0d0e;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #97c249;
+  font-family: ui-monospace, "SF Mono", monospace;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 12px;
+}
+
+.ksp-bundle-film-warning {
+  padding: 10px 12px;
+  background: rgba(255, 200, 100, 0.05);
+  border-left: 2px solid #e8a55e;
+  font-size: 11px;
+  color: #ddb88a;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 10px;
+}
+
+.ksp-bundle-film-actions {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.ksp-bundle-film-download {
+  flex: 1;
+  background: #639922 !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 600 !important;
+  padding: 10px 14px !important;
+  font-size: 12px !important;
+}
+
+.ksp-bundle-film-download:hover {
+  filter: brightness(1.1);
+}
+
+.ksp-bundle-film-download:disabled {
+  background: #2c2c2c !important;
+  color: #666 !important;
+  cursor: not-allowed;
+}
+
+.ksp-bundle-film-stats {
+  padding: 8px 10px;
+  background: rgba(99, 153, 34, 0.06);
+  border-left: 2px solid #639922;
+  font-size: 11px;
+  color: #97c249;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 10px;
+}
+
+.ksp-bundle-film-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px dashed #2c2c2c;
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+
+/* ============================================================================
+   r7 — MULTI-STAGE SCRIPT WIZARD (v0.9.3 final)
+   ============================================================================ */
+
+.ksp-script-film-mode-wrap {
+  margin: 0 12px 10px 12px;
+}
+
+.ksp-script-film-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ksp-script-film-mode-btn {
+  flex: 1;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 0.5px solid #2c2c2c;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 11px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.ksp-script-film-mode-btn:hover {
+  background: rgba(216, 90, 48, 0.06);
+  border-color: #D85A30;
+  color: #ddd;
+}
+
+.ksp-script-film-mode-btn.active {
+  background: rgba(216, 90, 48, 0.12);
+  border-color: #D85A30;
+  color: #f0a677;
+  font-weight: 600;
+}
+
+/* Breadcrumb pills — clickable in r7 (was stub r3) */
+.ksp-stage-pill-clickable {
+  cursor: pointer;
+  border: 0.5px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  color: #aaa;
+  transition: all 0.15s;
+}
+
+.ksp-stage-pill-clickable.ksp-stage-active {
+  background: #FAEEDA !important;
+  color: #854F0B !important;
+  font-weight: 600;
+  border-color: #ddb88a;
+}
+
+.ksp-stage-pill-clickable.ksp-stage-done {
+  background: rgba(94, 202, 165, 0.1);
+  color: #5dcaa5;
+  border-color: rgba(94, 202, 165, 0.3);
+}
+
+.ksp-stage-pill-clickable.ksp-stage-pending {
+  background: #2a2a2a;
+  color: #888;
+  opacity: 0.7;
+}
+
+.ksp-stage-pill-clickable:hover:not(.ksp-stage-active) {
+  border-color: #D85A30;
+  color: #ddd;
+  opacity: 1;
+}
+
+/* Wizard stage panel */
+.ksp-wizard-stage {
+  margin: 0 12px 12px 12px;
+  padding: 10px 12px;
+  background: rgba(216, 90, 48, 0.04);
+  border-left: 2px solid #D85A30;
+  border-radius: 0 4px 4px 0;
+}
+
+.ksp-wizard-stage-h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f0a677;
+  margin: 0 0 4px;
+}
+
+.ksp-wizard-stage-hint {
+  font-size: 11px;
+  color: #aaa;
+  margin: 0 0 10px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.ksp-wizard-stage-output {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(94, 202, 165, 0.06);
+  border-left: 2px solid #5dcaa5;
+  border-radius: 0 4px 4px 0;
+}
+
+.ksp-wizard-stage-output-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-stage-output-body {
+  font-size: 11px;
+  color: #ddd;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.ksp-wizard-advanced-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 8px;
+}
+
+.ksp-wizard-framework-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ksp-wizard-framework-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ksp-wizard-framework-row:hover {
+  background: rgba(216, 90, 48, 0.04);
+  border-color: #D85A30;
+}
+
+.ksp-wizard-framework-row input[type="radio"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.ksp-wizard-framework-row strong {
+  display: block;
+  font-size: 11px;
+  color: #ddd;
+  margin-bottom: 2px;
+}
+
+.ksp-wizard-framework-row p {
+  font-size: 10px;
+  color: #888;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Stage 2 — Beats list */
+.ksp-wizard-beats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ksp-wizard-beat-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.ksp-wizard-beat-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-beat-header strong {
+  font-size: 10px;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.ksp-wizard-beat-header input {
+  flex: 1;
+}
+
+.ksp-wizard-beat-desc {
+  width: 100% !important;
+  font-size: 11px !important;
+  resize: vertical !important;
+}
+
+/* Stage 3 — Twists list */
+.ksp-wizard-twists-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ksp-wizard-twist-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+  transition: all 0.15s;
+}
+
+.ksp-wizard-twist-card.accepted {
+  background: rgba(94, 202, 165, 0.06);
+  border-color: #5dcaa5;
+}
+
+.ksp-wizard-twist-card.rejected {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.ksp-wizard-twist-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-twist-header strong {
+  font-size: 11px;
+  color: #ddd;
+}
+
+.ksp-wizard-twist-beat {
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+  margin-left: auto;
+}
+
+.ksp-wizard-twist-desc {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.ksp-wizard-twist-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ksp-wizard-twists-summary {
+  font-size: 11px;
+  color: #888;
+  text-align: center;
+  padding: 6px;
+  font-style: italic;
+}
+
+/* Stage 4 — Scenes list */
+.ksp-wizard-scenes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ksp-wizard-scene-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.ksp-wizard-scene-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-scene-header strong {
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-wizard-scene-title {
+  font-size: 11px;
+  color: #ddd;
+  font-weight: 500;
+  flex: 1;
+}
+
+.ksp-wizard-scene-duration {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-wizard-scene-settings {
+  font-size: 10px;
+  color: #aaa;
+  font-style: italic;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-scene-action {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.ksp-wizard-scene-beats {
+  font-size: 9px;
+  color: #777;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-wizard-scenes-summary {
+  font-size: 11px;
+  color: #ddd;
+  text-align: center;
+  padding: 6px;
+}
+
+
+/* ============================================================================
+   QC FIX (Tier 2) — Storyboard shot row compact 1-line layout (Mockup 3 match)
+   ============================================================================ */
+
+/* Compact 1-line shot row — emoji + title + meta + status badge */
+.ksp-storyboard-shot-row-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  min-height: 32px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.ksp-storyboard-shot-row-compact:hover {
+  background: rgba(83, 74, 183, 0.06);
+}
+
+.ksp-storyboard-shot-emoji {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+}
+
+.ksp-storyboard-shot-title-text {
+  flex: 1;
+  font-size: 12px;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: text;
+  transition: background 0.15s;
+}
+
+.ksp-storyboard-shot-title-text:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ksp-storyboard-shot-title-text strong {
+  color: #b8b8d8;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.ksp-storyboard-shot-meta-inline {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+/* Inline controls (grid/type/lock/×) — only visible when row expanded */
+.ksp-storyboard-shot-controls-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 30px; /* indent under emoji */
+  background: rgba(83, 74, 183, 0.04);
+  border-top: 0.5px solid #2c2c2c;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-storyboard-shot-controls-inline .ksp-select-sm {
+  font-size: 10px;
+  padding: 3px 6px;
+  height: 26px;
+}
+
+/* Scene header AI button — top-right (Mockup 3 fix 3.3) */
+.ksp-storyboard-scene-ai-btn {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+/* 2-col bottom action row (Mockup 3 fix 3.8) */
+.ksp-storyboard-scene-actions-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ksp-storyboard-scene-actions-2col .ksp-btn {
+  width: 100%;
+  text-align: center;
+}
+
+
+/* ============================================================================
+   qc4 — Script Stepper Wizard (NEW design per Jason mockup May 12)
+   Replaces old breadcrumb + provider toggle + multi-stage/quick toggle UI.
+   ============================================================================ */
+
+/* Section meta on header (e.g. "2/5 stages · 4 scenes") */
+.ksp-section-meta-stepper {
+  font-size: 10px;
+  color: #888;
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+}
+
+/* Stepper container */
+.ksp-script-stepper {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Single step row */
+.ksp-step-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid #1a1a1a;
+  align-items: flex-start;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ksp-step-card:last-child {
+  border-bottom: none;
+}
+
+/* State: pending (default upcoming) */
+.ksp-step-card.ksp-step-pending {
+  opacity: 0.95;
+}
+
+/* State: locked (upstream not done) */
+.ksp-step-card.ksp-step-locked {
+  opacity: 0.45;
+}
+
+/* State: done */
+.ksp-step-card.ksp-step-done {
+  opacity: 1;
+}
+
+/* State: active — orange tinted bg + left border accent */
+.ksp-step-card.ksp-step-active {
+  background: rgba(216, 90, 48, 0.08);
+  border-left: 2px solid #D85A30;
+  padding-left: 10px;
+}
+
+/* Circle indicator (number or ✓) */
+.ksp-step-indicator {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  border: 0.5px solid #3c3c3c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  font-family: inherit;
+}
+
+.ksp-step-indicator:hover:not(:disabled) {
+  background: #2a2a2a;
+  border-color: #5c5c5c;
+}
+
+.ksp-step-indicator:disabled {
+  cursor: not-allowed;
+}
+
+.ksp-step-done .ksp-step-indicator {
+  background: rgba(94, 202, 165, 0.15);
+  border-color: #5dcaa5;
+  color: #5dcaa5;
+}
+
+.ksp-step-active .ksp-step-indicator {
+  background: rgba(216, 90, 48, 0.25);
+  border-color: #D85A30;
+  color: #e89378;
+}
+
+/* Body section (content right of circle) */
+.ksp-step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Header row: label + status pill */
+.ksp-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ksp-step-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ddd;
+}
+
+.ksp-step-active .ksp-step-label {
+  font-weight: 600;
+  color: #f0a677;
+}
+
+.ksp-step-locked .ksp-step-label,
+.ksp-step-pending .ksp-step-label {
+  color: #888;
+}
+
+/* Status pill */
+.ksp-step-status-pill {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.ksp-step-status-done {
+  background: rgba(94, 202, 165, 0.15);
+  color: #5dcaa5;
+}
+
+.ksp-step-status-active {
+  background: rgba(216, 90, 48, 0.2);
+  color: #e89378;
+}
+
+/* Hint text (for pending/locked stages) */
+.ksp-step-hint {
+  font-size: 10px;
+  color: #666;
+  line-height: 1.5;
+}
+
+/* Preview content (for done stages — collapsed view) */
+.ksp-step-preview-content {
+  margin-top: 2px;
+}
+
+.ksp-step-preview-pill {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(94, 202, 165, 0.15);
+  color: #5dcaa5;
+  border-radius: 3px;
+  margin-bottom: 6px;
+}
+
+.ksp-step-preview-text {
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+.ksp-step-preview-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ksp-step-preview-list li {
+  font-size: 10px;
+  color: #aaa;
+  line-height: 1.4;
+}
+
+.ksp-step-preview-list-num {
+  color: #888;
+  margin-right: 2px;
+}
+
+.ksp-step-preview-list-more {
+  color: #666 !important;
+  font-style: italic;
+}
+
+.ksp-step-preview-list-rejected {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.ksp-step-done-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ksp-step-done-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 0.5px solid #3c3c3c;
+  color: #888;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ksp-step-done-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: #5c5c5c;
+  color: #ccc;
+}
+
+/* Active stage body */
+.ksp-step-active-body {
+  margin-top: 6px;
+}
+
+.ksp-step-active-hint {
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.ksp-step-primary-btn {
+  width: 100%;
+  font-size: 12px;
+  padding: 8px 14px;
+  background: #D85A30;
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: filter 0.15s;
+}
+
+.ksp-step-primary-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ksp-step-primary-btn:disabled {
+  background: #6b3a25;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ksp-step-primary-btn-sm {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+.ksp-step-secondary-btn {
+  font-size: 11px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 0.5px dashed #4c4c4c;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ksp-step-secondary-btn:hover {
+  border-color: #888;
+  border-style: solid;
+  color: #ddd;
+}
+
+.ksp-step-active-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: space-between;
+}
+
+/* Advanced toggle (Stage 1) */
+.ksp-step-advanced-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 10px;
+  padding: 4px 0;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.ksp-step-advanced-toggle:hover {
+  color: #ccc;
+}
+
+.ksp-step-framework-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ksp-step-framework-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 0.5px solid #2c2c2c !important;
+  border-radius: 4px !important;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.ksp-step-framework-row:hover {
+  background: rgba(216, 90, 48, 0.04);
+  border-color: #D85A30;
+}
+
+.ksp-step-framework-radio {
+  flex-shrink: 0 !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+}
+
+.ksp-step-framework-text {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  display: block !important;
+  overflow: hidden !important;
+}
+
+.ksp-step-framework-row strong {
+  display: block !important;
+  font-size: 12px !important;
+  color: #ddd !important;
+  margin: 0 0 2px 0 !important;
+  line-height: 1.3 !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+}
+
+.ksp-step-framework-row p {
+  font-size: 10px !important;
+  color: #888 !important;
+  margin: 0 !important;
+  line-height: 1.4 !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+}
+
+/* Beats list (Stage 2) */
+.ksp-step-beats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.ksp-step-beat-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  align-items: flex-start;
+}
+
+.ksp-step-beat-order {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  padding-top: 4px;
+  min-width: 14px;
+}
+
+.ksp-step-beat-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ksp-step-beat-title {
+  font-size: 11px !important;
+  padding: 3px 6px !important;
+}
+
+.ksp-step-beat-desc {
+  font-size: 10px;
+  width: 100%;
+  background: transparent;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  color: #ccc;
+  font-family: inherit;
+  padding: 4px 6px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.ksp-step-beat-desc:focus {
+  outline: none;
+  border-color: #D85A30;
+}
+
+.ksp-step-beat-remove {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.ksp-step-beat-remove:hover {
+  color: #d85a5a;
+}
+
+/* Twists list (Stage 3) */
+.ksp-step-twists-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.ksp-step-twist-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+  transition: all 0.15s;
+}
+
+.ksp-step-twist-card.accepted {
+  background: rgba(94, 202, 165, 0.06);
+  border-color: #5dcaa5;
+}
+
+.ksp-step-twist-card.rejected {
+  opacity: 0.4;
+}
+
+.ksp-step-twist-card.rejected .ksp-step-twist-desc {
+  text-decoration: line-through;
+}
+
+.ksp-step-twist-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ksp-step-twist-header strong {
+  font-size: 11px;
+  color: #ddd;
+}
+
+.ksp-step-twist-beat {
+  font-size: 10px;
+  color: #888;
+  font-style: italic;
+  margin-left: auto;
+}
+
+.ksp-step-twist-desc {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.ksp-step-twist-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ksp-step-twist-btn {
+  font-size: 10px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 3px;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ksp-step-twist-btn:hover {
+  border-color: #5c5c5c;
+  color: #ddd;
+}
+
+.ksp-step-twist-btn.active-accept {
+  background: rgba(94, 202, 165, 0.15);
+  border-color: #5dcaa5;
+  color: #5dcaa5;
+}
+
+.ksp-step-twist-btn.active-reject {
+  background: rgba(216, 90, 90, 0.15);
+  border-color: #d85a5a;
+  color: #d85a5a;
+}
+
+/* Scenes list (Stage 4) */
+.ksp-step-scenes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.ksp-step-scene-card {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.ksp-step-scene-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.ksp-step-scene-header strong {
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-step-scene-title {
+  flex: 1;
+  font-size: 11px;
+  color: #ddd;
+  font-weight: 500;
+}
+
+.ksp-step-scene-duration {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-step-scene-settings {
+  font-size: 10px;
+  color: #aaa;
+  font-style: italic;
+  margin-bottom: 3px;
+}
+
+.ksp-step-scene-action {
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.4;
+}
+
+.ksp-step-scenes-summary {
+  font-size: 11px;
+  color: #aaa;
+}
+
+/* Footer info bar */
+.ksp-script-stepper-footer {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 0.5px solid #2c2c2c;
+  font-size: 10px;
+  color: #777;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  line-height: 1.5;
+}
+
+.ksp-script-stepper-footer-icon {
+  color: #888;
+}
+
+
+/* ============================================================================
+   qc6 — Scene count control (Stage 4)
+   ============================================================================ */
+.ksp-step-scene-count-control {
+  margin-bottom: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  border: 0.5px solid #2c2c2c;
+}
+
+.ksp-step-scene-count-label {
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 6px;
+  display: block;
+  font-weight: 500;
+}
+
+.ksp-step-scene-count-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ksp-step-scene-count-input {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 8px;
+  background: #1a1a1a;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 3px;
+  color: #ddd;
+  font-family: inherit;
+}
+
+.ksp-step-scene-count-input:focus {
+  outline: none;
+  border-color: #D85A30;
+}
+
+.ksp-step-scene-count-input::placeholder {
+  color: #666;
+  font-style: italic;
+}
+
+.ksp-step-scene-count-clear {
+  font-size: 10px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 0.5px solid #3c3c3c;
+  color: #888;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.ksp-step-scene-count-clear:hover {
+  border-color: #5c5c5c;
+  color: #ccc;
+}
+
+.ksp-step-scene-count-hint {
+  font-size: 10px;
+  color: #888;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   qc8 — Cast Film Section refactor
+   - Header `+` button at top-right corner (dashed border)
+   - 3 buttons row: Face refs / Body refs / ✨ AI Gen Description (icon-only)
+   - Expanded panel below buttons with grid + [+] upload + [✨] AI gen image
+   - Removed: .ksp-cast-film-footer + .ksp-cast-film-banner (CSS legacy kept but no JSX)
+   ============================================================================ */
+
+/* Header + button corner (top-right of section header) */
+.ksp-cast-film .ksp-section-header {
+  position: relative;
+}
+
+.ksp-cast-film-add-corner {
+  width: 24px !important;
+  height: 24px !important;
+  margin-left: 8px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 1px dashed #5c5c5c !important;
+  border-radius: 4px !important;
+  color: #888 !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.15s !important;
+  flex-shrink: 0 !important;
+}
+
+.ksp-cast-film-add-corner:hover {
+  border-color: #BA7517 !important;
+  border-style: solid !important;
+  color: #BA7517 !important;
+  background: rgba(186, 117, 23, 0.06) !important;
+}
+
+/* AI Gen Description icon-only button (qc8) */
+.ksp-cast-film-aigen-icon-btn {
+  width: 32px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  background: linear-gradient(135deg, #5a4f8a, #7a3f5f) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 4px !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  transition: filter 0.15s !important;
+}
+
+.ksp-cast-film-aigen-icon-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.ksp-cast-film-aigen-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* qc8: Update refs-buttons row to flex with proper alignment */
+.ksp-cast-film-refs-buttons {
+  display: flex !important;
+  gap: 6px !important;
+  align-items: center !important;
+  margin-top: 8px !important;
+  flex-wrap: nowrap !important;
+}
+
+.ksp-cast-film-refs-buttons .ksp-cast-film-refs-btn {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Hint showing next missing label */
+.ksp-cast-film-refs-next-hint {
+  font-size: 10px;
+  color: #888;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.ksp-cast-film-refs-next-hint strong {
+  color: #e89378;
+  font-weight: 500;
+}
+
+/* AI gen image button in expanded panel — same visual treatment as + upload */
+.ksp-cast-film-ref-aigen {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  border: 1px dashed #6a4a8a;
+  background: linear-gradient(135deg, rgba(90, 79, 138, 0.15), rgba(122, 63, 95, 0.15));
+  color: #b89cd4;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.ksp-cast-film-ref-aigen:hover:not(:disabled) {
+  border-color: #BA7517;
+  border-style: solid;
+  background: linear-gradient(135deg, rgba(186, 117, 23, 0.18), rgba(122, 63, 95, 0.18));
+  color: #f0a677;
+}
+
+.ksp-cast-film-ref-aigen:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* qc8: Hide obsolete elements (footer + banner) if they sneak back into DOM */
+.ksp-cast-film-footer,
+.ksp-cast-film-banner {
+  display: none !important;
+}
+
+/* ============================================================================
+   qc10 — Film Shot List Section (NEW)
+   - Magenta border #D4537E
+   - Per scene: collapsible card with shots TABLE (text, no visuals)
+   - Each shot row: # / title / type select / movement select / duration / × remove
+   - Click # to expand action detail (purpose VN + action textarea)
+   ============================================================================ */
+
+.ksp-shotlist-film {
+  border: 0.5px solid #D4537E;
+  padding: 0;
+}
+
+.ksp-shotlist-film .ksp-section-header {
+  padding: 10px 12px;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-shotlist-film-empty {
+  padding: 14px 12px;
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+.ksp-shotlist-film-empty p {
+  margin: 0 0 4px;
+}
+
+/* Scene card */
+.ksp-shotlist-film-scene-card {
+  border-bottom: 0.5px solid #1a1a1a;
+}
+
+.ksp-shotlist-film-scene-card:last-of-type {
+  border-bottom: none;
+}
+
+.ksp-shotlist-film-scene-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: rgba(212, 83, 126, 0.04);
+  border-bottom: 0.5px solid #1a1a1a;
+  transition: background 0.15s;
+}
+
+.ksp-shotlist-film-scene-header:hover {
+  background: rgba(212, 83, 126, 0.08);
+}
+
+.ksp-shotlist-film-scene-toggle {
+  font-size: 9px;
+  color: #888;
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.ksp-shotlist-film-scene-order {
+  font-size: 11px;
+  color: #e89378;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.ksp-shotlist-film-scene-title {
+  flex: 1;
+  font-size: 11px;
+  color: #ddd;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksp-shotlist-film-scene-meta {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
+.ksp-shotlist-film-scene-body {
+  padding: 8px 12px 12px;
+}
+
+.ksp-shotlist-film-scene-action {
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid #4f7cd4;
+  border-radius: 0 3px 3px 0;
+  line-height: 1.5;
+}
+
+.ksp-shotlist-film-empty-shots {
+  padding: 8px 0;
+}
+
+.ksp-shotlist-film-empty-shots p {
+  font-size: 11px;
+  color: #888;
+  margin: 0 0 8px;
+}
+
+.ksp-shotlist-film-empty-shots-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Table layout */
+.ksp-shotlist-film-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.ksp-shotlist-film-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 90px 90px 36px 22px 20px;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 0.5px solid #1a1a1a;
+}
+
+.ksp-shotlist-film-row:last-of-type {
+  border-bottom: none;
+}
+
+.ksp-shotlist-film-row-head {
+  font-size: 9px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 0;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-shotlist-film-col-num {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ksp-shotlist-film-col-num:hover {
+  color: #ccc;
+}
+
+.ksp-shotlist-film-title-input {
+  font-size: 11px;
+  padding: 3px 6px;
+  background: transparent;
+  border: 0.5px solid transparent;
+  border-radius: 3px;
+  color: #ddd;
+  width: 100%;
+  font-family: inherit;
+}
+
+.ksp-shotlist-film-title-input:focus,
+.ksp-shotlist-film-title-input:hover {
+  outline: none;
+  border-color: #3c3c3c;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ksp-shotlist-film-select {
+  font-size: 10px;
+  padding: 2px 18px 2px 6px;
+  background-color: #1a1a1a;
+  /* qc11: Custom SVG arrow so native arrow không overlap text */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5 L5 6.5 L8 3.5' stroke='%23999' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  color: #ccc;
+  font-family: inherit;
+  width: 100%;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ksp-shotlist-film-select:focus {
+  outline: none;
+  border-color: #D4537E;
+}
+
+.ksp-shotlist-film-dur-input {
+  font-size: 11px;
+  padding: 3px 6px;
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  color: #ccc;
+  width: 100%;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-shotlist-film-dur-input:focus {
+  outline: none;
+  border-color: #D4537E;
+}
+
+.ksp-shotlist-film-remove-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.ksp-shotlist-film-remove-btn:hover {
+  color: #d85a5a;
+  background: rgba(216, 90, 90, 0.08);
+}
+
+/* Detail expand row (click on # number) */
+.ksp-shotlist-film-row-detail {
+  margin: 0 0 6px 32px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid #D4537E;
+  border-radius: 0 3px 3px 0;
+}
+
+.ksp-shotlist-film-purpose {
+  font-size: 10px;
+  color: #ccc;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.ksp-shotlist-film-detail-label {
+  color: #888;
+  font-weight: 500;
+}
+
+.ksp-shotlist-film-action-edit {
+  width: 100%;
+  font-size: 10px;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  color: #ccc;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.ksp-shotlist-film-action-edit:focus {
+  outline: none;
+  border-color: #D4537E;
+}
+
+/* Scene-level actions row */
+.ksp-shotlist-film-scene-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.ksp-shotlist-film-duration-info {
+  flex: 1;
+  font-size: 10px;
+  color: #888;
+}
+
+.ksp-shotlist-film-duration-info.warn {
+  color: #e8a55e;
+}
+
+/* Footer */
+.ksp-shotlist-film-footer {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 0.5px solid #2c2c2c;
+}
+
+.ksp-shotlist-film-footer-text {
+  font-size: 10px;
+  color: #777;
+  line-height: 1.5;
+}
+
+/* Regen single shot button (🔄) — sits between dur + remove × */
+.ksp-shotlist-film-regen-btn {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ksp-shotlist-film-regen-btn:hover:not(:disabled) {
+  color: #e89378;
+  background: rgba(232, 147, 120, 0.1);
+}
+
+.ksp-shotlist-film-regen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   qc12 Storyboard Shot Row — 2-line layout (title above, meta below)
+   ============================================================================ */
+
+.ksp-storyboard-shot-title-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ksp-storyboard-shot-title-block .ksp-storyboard-shot-title-text {
+  font-size: 12px;
+  color: #ddd;
+  cursor: default;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksp-storyboard-shot-title-block .ksp-storyboard-shot-title-text:hover {
+  /* qc12: title no longer click-to-edit */
+  background: transparent;
+}
+
+.ksp-storyboard-shot-title-block .ksp-storyboard-shot-meta-inline {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   qc12 Shot Detail — Grid format picker pills (auto-regens prompt on change)
+   ============================================================================ */
+
+.ksp-shot-detail-grid-picker {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 8px;
+}
+
+.ksp-shot-detail-grid-pill {
+  padding: 3px 8px;
+  font-size: 10px;
+  background: transparent;
+  border: 0.5px solid #3c3c3c;
+  color: #aaa;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  transition: all 0.12s;
+}
+
+.ksp-shot-detail-grid-pill:hover {
+  border-color: #5c5c5c;
+  color: #ddd;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ksp-shot-detail-grid-pill.active {
+  border-color: #534AB7;
+  background: rgba(83, 74, 183, 0.18);
+  color: #afa9ec;
+  font-weight: 500;
+}
+
+/* ============================================================================
+   qc13 Cast warnings — stale Cast banner + 0 face refs warning per character
+   ============================================================================ */
+
+.ksp-cast-film-stale-banner {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  background: rgba(186, 117, 23, 0.08);
+  border-left: 2px solid #BA7517;
+  border-radius: 0 3px 3px 0;
+  font-size: 11px;
+  color: #f0a677;
+  line-height: 1.5;
+}
+
+.ksp-cast-film-stale-banner strong {
+  color: #f5c4b3;
+}
+
+.ksp-cast-film-no-refs-warning {
+  margin: 6px 0 4px;
+  padding: 6px 8px;
+  background: rgba(216, 90, 90, 0.06);
+  border-left: 2px solid #A32D2D;
+  border-radius: 0 3px 3px 0;
+  font-size: 10px;
+  color: #e89378;
+  line-height: 1.5;
+}
+
+.ksp-cast-film-no-refs-warning strong {
+  color: #f0a677;
+  font-weight: 500;
+}
+
+/* ============================================================================
+   qc15 Grid Crop Preview Modal
+   ============================================================================ */
+
+.ksp-grid-crop-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 16px;
+}
+
+.ksp-grid-crop-modal {
+  background: #1a1a1a;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ksp-grid-crop-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-grid-crop-modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #afa9ec;
+  font-weight: 500;
+}
+
+.ksp-grid-crop-modal-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.ksp-grid-crop-modal-close:hover {
+  color: #ddd;
+}
+
+.ksp-grid-crop-modal-body {
+  padding: 12px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ksp-grid-crop-controls-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ksp-grid-crop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ksp-grid-crop-field label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ksp-grid-crop-field select,
+.ksp-grid-crop-field input[type="number"] {
+  background: #0d0d0d;
+  border: 0.5px solid #3c3c3c;
+  color: #ddd;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-grid-crop-field select:focus,
+.ksp-grid-crop-field input:focus {
+  outline: none;
+  border-color: #534AB7;
+}
+
+.ksp-grid-crop-field-readonly {
+  padding: 5px 8px;
+  font-size: 11px;
+  color: #aaa;
+  font-family: ui-monospace, monospace;
+  background: rgba(83, 74, 183, 0.08);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+}
+
+.ksp-grid-crop-natural-info {
+  font-size: 10px;
+  color: #888;
+  margin-bottom: 10px;
+  font-family: ui-monospace, monospace;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ksp-grid-crop-link-btn {
+  background: transparent;
+  border: 0.5px solid #534AB7;
+  color: #afa9ec;
+  padding: 1px 6px;
+  font-size: 9px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.ksp-grid-crop-link-btn:hover {
+  background: rgba(83, 74, 183, 0.15);
+}
+
+.ksp-grid-crop-gutter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.ksp-grid-crop-gutter-row label {
+  font-size: 11px;
+  color: #ddd;
+  min-width: 100px;
+}
+
+.ksp-grid-crop-gutter-row label strong {
+  color: #afa9ec;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-grid-crop-slider {
+  flex: 1;
+}
+
+.ksp-grid-crop-gutter-hint {
+  font-size: 9px;
+  color: #666;
+}
+
+.ksp-grid-crop-preview-wrap {
+  position: relative;
+  margin: 12px 0;
+  background: #0a0a0a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  overflow: hidden;
+  max-height: 50vh;
+}
+
+.ksp-grid-crop-preview-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 50vh;
+  object-fit: contain;
+}
+
+.ksp-grid-crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ksp-grid-crop-overlay-cell {
+  position: absolute;
+  background: rgba(83, 74, 183, 0.18);
+  border: 1px dashed rgba(175, 169, 236, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.ksp-grid-crop-overlay-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(83, 74, 183, 0.85);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-grid-crop-output-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #aaa;
+  font-family: ui-monospace, monospace;
+  padding: 8px 10px;
+  background: rgba(83, 74, 183, 0.06);
+  border-radius: 3px;
+}
+
+.ksp-grid-crop-output-info strong {
+  color: #ddd;
+}
+
+.ksp-grid-crop-validation {
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+.ksp-grid-crop-validation.ok {
+  background: rgba(31, 158, 117, 0.15);
+  color: #5dcaa5;
+}
+
+.ksp-grid-crop-validation.error {
+  background: rgba(163, 45, 45, 0.15);
+  color: #e89378;
+}
+
+.ksp-grid-crop-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 0.5px solid #2c2c2c;
+}
+
+.ksp-grid-crop-approve-btn {
+  background: #1D9E75 !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.ksp-grid-crop-approve-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.ksp-grid-crop-approve-btn:disabled {
+  background: #444 !important;
+  color: #888 !important;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   qc16 — Storyboard Visual Grids
+   ============================================================================ */
+
+.ksp-storyboard-stats {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-scene-subtitle {
+  color: #aaa;
+  font-style: italic;
+  font-size: 11px;
+}
+
+.ksp-storyboard-scene-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-scene-body {
+  padding: 10px;
+}
+
+.ksp-storyboard-empty {
+  padding: 12px;
+  text-align: center;
+  color: #888;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+/* Grid format selector row */
+.ksp-storyboard-grid-format-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: rgba(83, 74, 183, 0.06);
+  border-radius: 4px;
+}
+
+.ksp-storyboard-grid-format-row label {
+  font-size: 10px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ksp-storyboard-grid-format-row select {
+  background: #0d0d0d;
+  border: 0.5px solid #3c3c3c;
+  color: #ddd;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-grid-format-row select:focus {
+  outline: none;
+  border-color: #534AB7;
+}
+
+.ksp-storyboard-grid-stats {
+  margin-left: auto;
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+/* Grid block (one SceneGrid) */
+.ksp-storyboard-grid-block {
+  background: #1a1a1a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 5px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.ksp-storyboard-grid-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #ddd;
+}
+
+.ksp-storyboard-grid-header strong {
+  color: #afa9ec;
+  font-weight: 500;
+}
+
+.ksp-storyboard-grid-info {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-no-upload-warning {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: rgba(216, 90, 90, 0.08);
+  border-left: 2px solid #A32D2D;
+  border-radius: 0 3px 3px 0;
+  font-size: 11px;
+  color: #e89378;
+  line-height: 1.5;
+}
+
+/* Visual grid container — display: grid auto-flow */
+.ksp-storyboard-grid {
+  display: grid;
+  gap: 3px;
+  background: #0a0a0a;
+  padding: 3px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+/* qc22 bug fix: cells own their aspect-ratio (driven by project aspect 16:9, 9:16, etc.)
+ * Container height = auto, derived from cell aspect-ratio × number of rows.
+ */
+.ksp-storyboard-grid-cells-aspect .ksp-storyboard-cell {
+  aspect-ratio: var(--ksp-cell-aspect, 16 / 9);
+}
+
+/* For vertical aspects: limit container width so cells don't grow huge.
+ * Detect via CSS aspect-ratio comparison through inline data attribute.
+ * Simpler approach: just cap container width at 480px universally for grid block.
+ * Wider container allowed in landscape since cells stay short anyway. */
+.ksp-storyboard-grid-cells-aspect {
+  max-width: 100%;
+}
+
+/* Cell base */
+.ksp-storyboard-cell {
+  position: relative;
+  background: #1a2438;
+  border-radius: 2px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ksp-storyboard-cell-empty {
+  background: rgba(50, 50, 50, 0.3);
+  border: 0.5px dashed #444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ksp-storyboard-cell-empty-label {
+  color: #555;
+  font-size: 14px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-cell-no-upload {
+  background: rgba(120, 30, 30, 0.12);
+  border: 0.5px dashed #a32d2d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+}
+
+.ksp-storyboard-cell-shot-num {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 9px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-family: ui-monospace, monospace;
+  z-index: 2;
+}
+
+.ksp-storyboard-cell-no-upload .ksp-storyboard-cell-shot-num {
+  position: static;
+  background: transparent;
+  color: #e89378;
+}
+
+.ksp-storyboard-cell-no-upload-label {
+  font-size: 9px;
+  color: #e89378;
+  margin-top: 2px;
+}
+
+.ksp-storyboard-cell-filled {
+  background: linear-gradient(135deg, #2a3a5a, #3a3a4a);
+}
+
+.ksp-storyboard-cell-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ksp-storyboard-cell-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 9px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-cell-actions {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  display: flex;
+  gap: 1px;
+  opacity: 0.85;
+  z-index: 2;
+}
+
+.ksp-storyboard-cell:hover .ksp-storyboard-cell-actions {
+  opacity: 1;
+}
+
+.ksp-storyboard-cell-btn {
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border: none;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  padding: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.ksp-storyboard-cell-btn:hover:not(:disabled) {
+  background: rgba(83, 74, 183, 0.85);
+}
+
+.ksp-storyboard-cell-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ksp-storyboard-cell-btn.locked {
+  background: rgba(31, 158, 117, 0.85);
+}
+
+/* Grid actions row */
+.ksp-storyboard-grid-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.ksp-storyboard-grid-actions .ksp-btn-sm {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+
+/* Image prompt collapsible */
+.ksp-storyboard-prompt-collapsible {
+  border-top: 0.5px solid #2c2c2c;
+  padding-top: 8px;
+}
+
+.ksp-storyboard-prompt-toggle {
+  background: transparent;
+  border: none;
+  color: #afa9ec;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+}
+
+.ksp-storyboard-prompt-toggle:hover {
+  color: #c8c0ff;
+}
+
+.ksp-storyboard-prompt-chars {
+  margin-left: auto;
+  color: #666;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-storyboard-prompt-body {
+  padding: 8px 0;
+}
+
+.ksp-storyboard-prompt-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ksp-storyboard-prompt-textarea {
+  width: 100%;
+  min-height: 100px;
+  max-height: 240px;
+  padding: 8px;
+  background: #0d0d0d;
+  border: 0.5px solid #2c2c2c;
+  color: #ccc;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  border-radius: 3px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+/* ============================================================================
+   qc17 — Film Frame Edit Modal
+   ============================================================================ */
+
+.ksp-frame-edit-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 12px;
+}
+
+.ksp-frame-edit-modal {
+  background: #1a1a1a;
+  border: 0.5px solid #3c3c3c;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 620px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ksp-frame-edit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid #2c2c2c;
+}
+
+.ksp-frame-edit-modal-header h3 {
+  margin: 0;
+  font-size: 12px;
+  color: #afa9ec;
+  font-weight: 500;
+}
+
+.ksp-frame-edit-modal-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.ksp-frame-edit-modal-close:hover {
+  color: #ddd;
+}
+
+.ksp-frame-edit-modal-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Frame preview wrap — height auto from children.
+ * Single image (no Advanced or no last-frame picked): pane fills with image aspect.
+ * Split mode (Advanced + last-frame picked): 2 panes side-by-side 50/50.
+ */
+.ksp-frame-edit-preview-wrap {
+  background: #0a0a0a;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  max-height: 260px;
+}
+
+.ksp-frame-edit-preview-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  object-fit: contain;
+}
+
+.ksp-frame-edit-preview-empty {
+  color: #666;
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+  padding: 16px;
+}
+
+/* Editable fields */
+.ksp-frame-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ksp-frame-edit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ksp-frame-edit-row-full {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ksp-frame-edit-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ksp-frame-edit-fields label > span {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ksp-frame-edit-fields .ksp-input,
+.ksp-frame-edit-fields .ksp-select,
+.ksp-frame-edit-fields .ksp-textarea {
+  background: #0d0d0d;
+  border: 0.5px solid #3c3c3c;
+  color: #ddd;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.ksp-frame-edit-fields .ksp-textarea {
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 40px;
+}
+
+.ksp-frame-edit-fields .ksp-input:focus,
+.ksp-frame-edit-fields .ksp-select:focus,
+.ksp-frame-edit-fields .ksp-textarea:focus {
+  outline: none;
+  border-color: #534AB7;
+}
+
+.ksp-frame-edit-input-warn {
+  border-color: #A32D2D !important;
+  background: rgba(216, 90, 90, 0.05) !important;
+}
+
+.ksp-frame-edit-duration-warn {
+  background: rgba(216, 90, 90, 0.08);
+  border-left: 2px solid #A32D2D;
+  border-radius: 0 3px 3px 0;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: #e89378;
+  line-height: 1.5;
+}
+
+/* Prompt blocks (collapsible) */
+.ksp-frame-edit-prompt-block {
+  background: rgba(83, 74, 183, 0.05);
+  border: 0.5px solid #2c2c2c;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.ksp-frame-edit-prompt-toggle {
+  background: transparent;
+  border: none;
+  color: #afa9ec;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+}
+
+.ksp-frame-edit-prompt-toggle:hover {
+  color: #c8c0ff;
+  background: rgba(83, 74, 183, 0.08);
+}
+
+.ksp-frame-edit-prompt-chars {
+  margin-left: auto;
+  color: #666;
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-frame-edit-prompt-body {
+  padding: 0 12px 12px 12px;
+}
+
+.ksp-frame-edit-prompt-note {
+  font-size: 10px;
+  color: #aaa;
+  font-style: italic;
+  padding: 4px 0;
+  line-height: 1.5;
+}
+
+.ksp-frame-edit-prompt-note strong {
+  color: #afa9ec;
+  font-style: normal;
+}
+
+.ksp-frame-edit-prompt-textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 260px;
+  padding: 8px;
+  background: #0d0d0d;
+  border: 0.5px solid #2c2c2c;
+  color: #ccc;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  border-radius: 3px;
+  resize: vertical;
+  box-sizing: border-box;
+  margin: 4px 0 6px 0;
+}
+
+/* Footer */
+.ksp-frame-edit-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 0.5px solid #2c2c2c;
+  flex-wrap: wrap;
+}
+
+.ksp-frame-edit-footer-actions-left,
+.ksp-frame-edit-footer-actions-right {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================================
+   qc20 — Stage 4 Scene Complexity Warning
+   ============================================================================ */
+
+.ksp-step-scene-warn-badge {
+  background: #3d2a13;
+  color: #ffb86c;
+  border: 0.5px solid #6b4423;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.ksp-step-scene-warn-badge:hover {
+  background: #523818;
+  border-color: #8a5a30;
+}
+
+.ksp-step-scene-warn-panel {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #1f1810;
+  border: 0.5px solid #3d2a13;
+  border-radius: 4px;
+}
+
+.ksp-step-scene-warn-hint {
+  font-size: 11px;
+  color: #d4ad7a;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.ksp-step-scene-warn-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ksp-step-scene-split-preview {
+  margin-top: 6px;
+}
+
+.ksp-step-scene-split-reason {
+  font-size: 11px;
+  color: #ccc;
+  background: #1a1a1a;
+  padding: 6px 8px;
+  border-left: 2px solid #ffb86c;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.ksp-step-scene-split-sub {
+  background: #161616;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #ddd;
+}
+
+.ksp-step-scene-split-sub strong {
+  color: #8be9fd;
+  font-size: 10px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.ksp-step-scene-split-action {
+  font-size: 10px;
+  color: #aaa;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* ============================================================================
+   qc21 — Storyboard Hướng F-9 UI refactor
+   ============================================================================ */
+
+.ksp-sb-scene-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  margin-top: 2px;
+}
+
+.ksp-sb-scene-info-auto {
+  color: #50fa7b;
+}
+
+.ksp-sb-scene-info-manual {
+  color: #ffb86c;
+}
+
+.ksp-sb-grid-advanced-toggle {
+  background: transparent;
+  border: 0.5px solid #2c2c2c;
+  color: #888;
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ksp-sb-grid-advanced-toggle:hover {
+  color: #ddd;
+  border-color: #555;
+}
+.ksp-sb-grid-advanced-toggle-active {
+  color: #8be9fd;
+  border-color: #4a6b78;
+  background: #1a2a30;
+}
+
+.ksp-sb-grid-advanced-panel {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #161616;
+  border: 0.5px solid #2c2c2c;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ksp-sb-grid-reset-btn {
+  background: transparent;
+  border: 0.5px solid #50fa7b;
+  color: #50fa7b;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.ksp-sb-grid-reset-btn:hover {
+  background: #1a2a1a;
+}
+
+.ksp-sb-migration-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #2a2010;
+  border: 0.5px solid #4a3818;
+  color: #ffb86c;
+  padding: 2px 6px;
+  font-size: 10px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-sb-migration-hint button {
+  background: transparent;
+  border: none;
+  color: #50fa7b;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  text-decoration: underline;
+  font-size: 10px;
+  font-family: inherit;
+}
+
+/* ============================================================================
+   qc22c — Edit Frame Modal Advanced first/last-frame mode
+   ============================================================================ */
+
+.ksp-frame-edit-advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.ksp-frame-edit-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #ddd;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.ksp-frame-edit-advanced-toggle input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ksp-frame-edit-advanced-picker {
+  flex: 1 1 100%;
+  min-width: 180px;
+  background: #161616;
+  color: #ddd;
+  border: 0.5px solid #444;
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+/* Meta inline label for manual override in scene header */
+.ksp-sb-meta-manual {
+  color: #ffb86c;
+}
+
+/* ============================================================================
+   qc22 hotfix — Grid Crop Modal target aspect indicator
+   ============================================================================ */
+
+/* Inner crop zone (target cell aspect) drawn inside each overlay cell.
+ * Visible only when source cell aspect != target. */
+.ksp-grid-crop-overlay-target {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid #50fa7b;
+  background: rgba(80, 250, 123, 0.08);
+  pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(20, 20, 20, 0.35);
+  clip-path: inset(0);
+}
+
+.ksp-grid-crop-target-info {
+  color: #50fa7b;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+/* ============================================================================
+   Edit Frame Modal — split preview (first-frame + last-frame side-by-side)
+   ============================================================================ */
+
+.ksp-frame-edit-preview-split {
+  display: flex !important;
+  gap: 8px;
+}
+
+.ksp-frame-edit-preview-pane {
+  position: relative;
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.ksp-frame-edit-preview-pane:hover {
+  opacity: 0.9;
+}
+
+.ksp-frame-edit-preview-pane:hover::after {
+  content: "📥 Click to download";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #50fa7b;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+}
+
+.ksp-frame-edit-preview-split .ksp-frame-edit-preview-pane {
+  width: 50%;
+}
+
+.ksp-frame-edit-preview-pane .ksp-frame-edit-preview-img {
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  object-fit: contain;
+  display: block;
+}
+
+.ksp-frame-edit-preview-label {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #50fa7b;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   Animatic Player Modal
+   ============================================================================ */
+
+.ksp-animatic-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 9999;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  animation: ksp-fade-in 0.15s ease-out;
+}
+
+@keyframes ksp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ksp-animatic-modal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  color: #ddd;
+  overflow: hidden;
+  font-family: ui-monospace, "Menlo", monospace;
+}
+
+.ksp-animatic-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #000;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.ksp-animatic-topbar-left {
+  color: #ffb86c;
+  font-weight: bold;
+}
+
+.ksp-animatic-topbar-right {
+  color: #50fa7b;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ksp-animatic-shot-id {
+  background: rgba(80, 250, 123, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.ksp-animatic-close-btn {
+  background: transparent;
+  border: 0.5px solid #555;
+  color: #aaa;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.ksp-animatic-close-btn:hover {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #888;
+}
+
+.ksp-animatic-viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  padding: 20px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ksp-animatic-frame-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.ksp-animatic-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 80px;
+  background: #1a1a1a;
+  border: 1px dashed #444;
+  border-radius: 8px;
+}
+
+.ksp-animatic-empty-label {
+  font-size: 32px;
+  color: #555;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.ksp-animatic-empty-sub {
+  font-size: 12px;
+  color: #777;
+}
+
+.ksp-animatic-caption {
+  background: #000;
+  color: #fff;
+  padding: 12px 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  max-height: 80px;
+  overflow-y: auto;
+  flex-shrink: 0;
+  border-top: 0.5px solid #1a1a1a;
+}
+
+.ksp-animatic-timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #000;
+  flex-shrink: 0;
+}
+
+.ksp-animatic-time {
+  font-size: 11px;
+  color: #888;
+  min-width: 40px;
+}
+
+.ksp-animatic-timeline-track {
+  flex: 1;
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  position: relative;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.ksp-animatic-timeline-fill {
+  height: 100%;
+  background: #50fa7b;
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.ksp-animatic-timeline-marker {
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 8px;
+  background: #ffb86c;
+  pointer-events: none;
+}
+
+.ksp-animatic-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #000;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ksp-animatic-ctrl-btn {
+  background: transparent;
+  border: 0.5px solid #333;
+  color: #ddd;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.ksp-animatic-ctrl-btn:hover {
+  background: #1a1a1a;
+  border-color: #555;
+}
+
+.ksp-animatic-ctrl-play {
+  background: #50fa7b;
+  color: #000;
+  border-color: #50fa7b;
+  font-size: 16px;
+}
+
+.ksp-animatic-ctrl-play:hover {
+  background: #6dffa0;
+  border-color: #6dffa0;
+}
+
+.ksp-animatic-shot-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #aaa;
+  padding: 0 12px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ksp-animatic-shot-info strong {
+  color: #fff;
+  font-size: 12px;
+}
+
+.ksp-animatic-speed-group {
+  display: flex;
+  gap: 2px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.ksp-animatic-speed-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.ksp-animatic-speed-btn:hover {
+  color: #fff;
+}
+
+.ksp-animatic-speed-btn.active {
+  background: #50fa7b;
+  color: #000;
+}
+
+.ksp-animatic-thumb-strip {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px;
+  background: #000;
+  overflow-x: auto;
+  flex-shrink: 0;
+  border-top: 0.5px solid #1a1a1a;
+}
+
+.ksp-animatic-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 80px;
+  height: 45px;
+  border: 1.5px solid transparent;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #1a1a1a;
+  padding: 0;
+  transition: all 0.15s;
+}
+
+.ksp-animatic-thumb:hover {
+  border-color: #555;
+}
+
+.ksp-animatic-thumb.active {
+  border-color: #50fa7b;
+}
+
+.ksp-animatic-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ksp-animatic-thumb-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #666;
+  background: #0a0a0a;
+}
+
+.ksp-animatic-thumb-num {
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 0 3px;
+  font-size: 8px;
+  font-family: ui-monospace, monospace;
+  border-radius: 2px;
+}
+
+/* Play Animatic button (Storyboard scene header) */
+.ksp-sb-play-animatic-btn {
+  background: transparent;
+  border: 0.5px solid #50fa7b;
+  color: #50fa7b;
+  padding: 3px 10px;
+  font-size: 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.ksp-sb-play-animatic-btn:hover {
+  background: #1a2a1a;
+}
+
+.ksp-sb-play-animatic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #333;
+  color: #555;
+}
+
+/* ============================================================================
+   Cell video uploaded badge — small play-rectangle bottom-left of cell
+   ============================================================================ */
+
+.ksp-storyboard-cell-video-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: #50fa7b;
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  line-height: 1.2;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ============================================================================
+   Edit Frame Modal — video uploaded badge + video preview
+   ============================================================================ */
+
+.ksp-frame-edit-video-badge {
+  display: inline-block;
+  margin-left: 10px;
+  background: #50fa7b;
+  color: #000;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+/* Make panes look draggable when in advanced split mode */
+.ksp-frame-edit-preview-split .ksp-frame-edit-preview-pane[draggable="true"] {
+  cursor: grab;
+}
+.ksp-frame-edit-preview-split .ksp-frame-edit-preview-pane[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* Animatic Player — video markers */
+
+.ksp-animatic-video-indicator {
+  font-size: 12px;
+  color: #50fa7b;
+  vertical-align: middle;
+}
+
+.ksp-animatic-thumb-video-marker {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  background: #50fa7b;
+  color: #000;
+  font-size: 8px;
+  font-weight: bold;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-family: ui-monospace, monospace;
+  line-height: 1.2;
+}
+
+/* ============================================================================
+   Edit Frame Modal — Left pane video/image view toggle (top-right icons)
+   ============================================================================ */
+
+.ksp-frame-edit-preview-view-toggle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+  padding: 2px;
+  z-index: 3;
+}
+
+.ksp-frame-edit-view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.12s;
+}
+
+.ksp-frame-edit-view-toggle-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ksp-frame-edit-view-toggle-btn.active {
+  background: #50fa7b;
+  color: #000;
+}

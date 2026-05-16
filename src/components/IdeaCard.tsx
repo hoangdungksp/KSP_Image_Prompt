@@ -18,7 +18,7 @@ const PLACEHOLDER_BY_MODE: Record<string, string> = {
   photos: "VD: Cô gái ngồi cafe Đà Lạt sương mù, ôm cốc cafe nóng, ánh nắng vàng buổi sáng.",
 };
 
-export function IdeaCardV09() {
+export function IdeaCard() {
   const project = useAppStore((s) => s.currentProject);
   const updateProject = useAppStore((s) => s.updateCurrentProject);
 

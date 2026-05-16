@@ -22,7 +22,7 @@ import type {
   CharacterRef,
   ScriptVersion,
   ConceptVersion,
-} from "../types/v0_9_0";
+} from "../types/project";
 import { genId } from "./useGlobalStore";
 
 type ProjectV09 = PromptProject & ProjectV09Extensions;

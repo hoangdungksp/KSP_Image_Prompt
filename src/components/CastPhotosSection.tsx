@@ -35,7 +35,7 @@ import {
   SUBJECT_TYPE_LABELS,
   type PhotosCastMember,
   type PhotosImageRef,
-} from "../types/photos_v091";
+} from "../types/photos";
 import type { SubjectType } from "../types";
 
 export function CastPhotosSection() {

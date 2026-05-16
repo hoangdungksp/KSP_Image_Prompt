@@ -161,7 +161,7 @@ export interface PhotosShot {
  *   - theme: { themeId: undefined, customIdeaVi: "" }
  *   - shots: [] (user clicks Auto-pick to populate 6 shots with varied angles)
  */
-export interface PhotosV091Data {
+export interface PhotosData {
   schemaVersion: "v0.9.1-photos";
   /** BOKEH or DOCUMENTARY (HANDOFF Nguyên tắc 1) — top-level decision. */
   cameraStyle: CameraStyle;
@@ -181,7 +181,7 @@ export interface PhotosV091Data {
 // FACTORIES
 // ============================================================================
 
-export function createDefaultPhotosV091(): PhotosV091Data {
+export function createDefaultPhotosV091(): PhotosData {
   const now = Date.now();
   return {
     schemaVersion: "v0.9.1-photos",

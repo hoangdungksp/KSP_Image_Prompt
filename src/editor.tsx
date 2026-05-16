@@ -6,8 +6,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Editor } from "./components/Editor";
 import "./styles/index.css";
-import "./components/v0_9_0.css";
-import "./components/v0_9_1_photos.css";
+import "./components/base.css";
+import "./components/photos.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

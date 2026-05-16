@@ -4,21 +4,21 @@
  * Pure functions that take a project and return a patch.
  * Components call: useAppStore.getState().updateCurrentProject(photosAction(...))
  *
- * All actions are reduce-style: produce updated PhotosV091Data, never mutate.
+ * All actions are reduce-style: produce updated PhotosData, never mutate.
  */
 
 import {
   createDefaultPhotosV091,
   createCastMember,
   createPhotosShot,
-  type PhotosV091Data,
+  type PhotosData,
   type PhotosCastMember,
   type PhotosImageRef,
   type PhotosShot,
   MAX_FACE_REFS,
   DEFAULT_FACE_LABELS,
   DEFAULT_SHOT_COUNT,
-} from "../types/photos_v091";
+} from "../types/photos";
 import type { PromptProject, ProjectV09Extensions, SubjectType, CameraStyle } from "../types";
 import { ANGLE_PRESETS, pickNextAngle } from "../engine/angles";
 import {
@@ -30,12 +30,12 @@ import {
 type ProjWithPhotos = PromptProject & ProjectV09Extensions;
 
 /** Get photos data, creating default if missing. */
-export function ensurePhotosData(project: PromptProject): PhotosV091Data {
+export function ensurePhotosData(project: PromptProject): PhotosData {
   const p = project as ProjWithPhotos;
   return p.photosV091 ?? createDefaultPhotosV091();
 }
 
-function patch(data: PhotosV091Data): Partial<ProjWithPhotos> {
+function patch(data: PhotosData): Partial<ProjWithPhotos> {
   return { photosV091: { ...data, updatedAt: Date.now() } };
 }
 
@@ -49,7 +49,7 @@ export function addCastMember(
 ): Partial<ProjWithPhotos> {
   const data = ensurePhotosData(project);
   const newCast = createCastMember(data.cast.length + 1, subjectType);
-  const next: PhotosV091Data = {
+  const next: PhotosData = {
     ...data,
     cast: [...data.cast, newCast],
     // Auto-select first cast added
@@ -64,7 +64,7 @@ export function updateCastMember(
   updates: Partial<PhotosCastMember>
 ): Partial<ProjWithPhotos> {
   const data = ensurePhotosData(project);
-  const next: PhotosV091Data = {
+  const next: PhotosData = {
     ...data,
     cast: data.cast.map((c) => (c.id === castId ? { ...c, ...updates } : c)),
   };
@@ -77,7 +77,7 @@ export function removeCastMember(
 ): Partial<ProjWithPhotos> {
   const data = ensurePhotosData(project);
   const remaining = data.cast.filter((c) => c.id !== castId);
-  const next: PhotosV091Data = {
+  const next: PhotosData = {
     ...data,
     cast: remaining.map((c, i) => ({ ...c, order: i + 1 })),
     // If removed was selected, fall back to first remaining (or undefined)

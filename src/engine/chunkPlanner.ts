@@ -21,8 +21,8 @@ import type {
   AnimationChunk,
   TimeFormat,
   ShotFrame,
-} from "../types/v0_9_0";
-import { formatTimeRange } from "../types/v0_9_0";
+} from "../types/project";
+import { formatTimeRange } from "../types/project";
 
 // ============================================================================
 // PROVIDER CONFIGS

@@ -30,7 +30,7 @@ import {
 } from "../engine/photosPromptBuilder";
 import { ANGLE_PRESETS, getAngleById } from "../engine/angles";
 import { POSES, POSE_CATEGORIES, getPoseById, type PoseCategory } from "../engine/poses_a_plus";
-import { SUBJECT_TYPE_LABELS, type PhotosShot } from "../types/photos_v091";
+import { SUBJECT_TYPE_LABELS, type PhotosShot } from "../types/photos";
 
 const SHOT_COUNT_OPTIONS = [3, 6, 9];
 

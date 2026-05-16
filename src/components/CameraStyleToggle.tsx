@@ -14,7 +14,7 @@ import { useAppStore } from "../store/useAppStore";
 import { ensurePhotosData, setCameraStyle } from "../store/photos_actions";
 import type { CameraStyle } from "../types";
 
-export function CameraStyleToggleV09() {
+export function CameraStyleToggle() {
   const project = useAppStore((s) => s.currentProject);
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   if (!project) return null;

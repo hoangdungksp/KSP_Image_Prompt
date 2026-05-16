@@ -16,43 +16,42 @@
 import React from "react";
 import { useAppStore, createEmptyProject, createEmptyShot } from "../store/useAppStore";
 import { saveProject } from "../store/db";
-import { migrateProjectToV09 } from "../store/migration_v09";
-import type { ProjectModeV2 } from "../types/v0_9_0";
+import { migrateProjectToV09 } from "../store/migration";
+import type { ProjectModeV2 } from "../types/project";
 
 // v0.9.0 components (built in Phase 1-4)
-import { ProjectSettingSectionV09 } from "./ProjectSettingSectionV09";
+import { ProjectSettingSection } from "./ProjectSettingSection";
 import { CastFilmSection } from "./CastFilmSection";
 import { FilmIdeaScriptSection } from "./FilmIdeaScriptSection";
+import { FilmShotListSection } from "./FilmShotListSection";
 import { FilmStoryboardSection } from "./FilmStoryboardSection";
-import { ShotDetailPanel } from "./ShotDetailPanel";
-import { VoiceSectionV09 } from "./VoiceSectionV09";
-import { MusicSfxSectionV09 } from "./MusicSfxSectionV09";
-import { BundleExportV09 } from "./BundleExportV09";
+// ShotDetailPanel deleted r5 (atomic Q6) — replaced by FilmShotDetailPanel inline expand drawer
+// rendered inside FilmStoryboardSection when a shot row is clicked.
+// r6: VoiceSectionV09 / MusicSfxSectionV09 / BundleExportV09 all deleted (atomic Q6),
+// replaced by FilmVoiceSection / FilmMusicSfxSection / FilmBundleExportSection.
+import { FilmVoiceSection } from "./FilmVoiceSection";
+import { FilmMusicSfxSection } from "./FilmMusicSfxSection";
+import { FilmBundleExportSection } from "./FilmBundleExportSection";
 
 // v0.9.1 Photos mode components
 import { CastPhotosSection } from "./CastPhotosSection";
-import { CameraStyleToggleV09 } from "./CameraStyleToggleV09";
+import { CameraStyleToggle } from "./CameraStyleToggle";
 import { PhotosIdeaSection } from "./PhotosIdeaSection";
 import { PhotosImageGenSection } from "./PhotosImageGenSection";
 
 // v0.8.x reused (Idea section legacy)
-import { IdeaCardV09 } from "./IdeaCardV09";  // legacy — kept for non-Film modes if any
-
-// Global store for focused entities (Shot Detail navigation)
-import { useGlobalStore } from "../store/useGlobalStore";
+import { IdeaCard } from "./IdeaCard";  // legacy — kept for non-Film modes if any
 
 // Inject v0.9.0 styles
-import "./v0_9_0.css";
-import "./v0_9_0_phase2.css";
-import "./v0_9_0_phase34.css";
-import "./v0_9_1_photos.css";
-import "./v0_9_3_film.css";
+import "./base.css";
+import "./components.css";
+import "./pipeline.css";
+import "./photos.css";
+import "./film.css";
 // v0_9_2_product.css removed v0.9.3-r1 (TVC archived)
 
 export function Editor() {
   const { currentProject, setCurrentProject, showToast } = useAppStore();
-  const focusedShotId = useGlobalStore((s) => s.focusedShotId);
-  const setFocusedShot = useGlobalStore((s) => s.setFocusedShot);
 
   const handleNewProject = async () => {
     const empty = createEmptyProject();
@@ -81,23 +80,9 @@ export function Editor() {
   const migrated = migrateProjectToV09(currentProject);
   const mode = (migrated.settingV2?.mode ?? "photos") as ProjectModeV2;
 
-  // If a shot is focused, show its detail panel (replaces sidebar content)
-  if (focusedShotId) {
-    return (
-      <div className="ksp-sidebar-v09">
-        <div style={{ padding: "8px 12px", borderBottom: "0.5px solid #1f1f22" }}>
-          <button
-            className="ksp-btn ksp-btn-sm ksp-btn-ghost"
-            onClick={() => setFocusedShot(null)}
-            style={{ width: "100%" }}
-          >
-            ← Back to Pipeline
-          </button>
-        </div>
-        <ShotDetailPanel />
-      </div>
-    );
-  }
+  // r5: Shot detail is now an INLINE EXPAND DRAWER inside FilmStoryboardSection
+  // (no longer a modal-style route that replaces the sidebar). The focusedShotId
+  // pattern from v0.9.0 is gone; per-shot state lives in filmV093.expandedShotId.
 
   // Connector colors mode-aware: Cast (purple) → next pipeline section
   // Photos: → CAMERA STYLE (cyan #5ecac8)
@@ -129,7 +114,7 @@ export function Editor() {
       }}
     >
       {/* Section 1: PROJECT */}
-      <ProjectSettingSectionV09 />
+      <ProjectSettingSection />
       <Connector colorFrom="#6da9d6" colorTo="#c490c4" />
 
       {/* Section 2: ASSETS — mode-adaptive
@@ -173,32 +158,24 @@ function FilmPipeline() {
   return (
     <>
       <FilmIdeaScriptSection />
-      <Connector colorFrom="#f0a677" colorTo="#afa9ec" />
+      <Connector colorFrom="#f0a677" colorTo="#D4537E" />
+
+      <FilmShotListSection />
+      <Connector colorFrom="#D4537E" colorTo="#afa9ec" />
 
       <FilmStoryboardSection />
       <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
 
-      <PipelineStep stepNum={4} icon="🖼" label="IMAGE GEN" color="purple-light">
-        <p style={{ fontSize: 11, color: "#888", padding: "8px 12px", margin: 0 }}>
-          Click vào shot trong Storyboard ở trên → Shot Detail mở ra với Image Gen block (upload grid + auto-crop + replace single frame).
-        </p>
-      </PipelineStep>
-      <Connector colorFrom="#afa9ec" colorTo="#afa9ec" />
-
-      <PipelineStep stepNum={5} icon="🎞" label="VIDEO AI" color="purple-light">
-        <p style={{ fontSize: 11, color: "#888", padding: "8px 12px", margin: 0 }}>
-          Click shot → Shot Detail có Video AI block với chunks + animation prompts cho Seedance/Veo3/Kling.
-        </p>
-      </PipelineStep>
-      <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
-
-      <VoiceSectionV09 />
+      {/* r5: Steps 4 (IMAGE GEN) + 5 (VIDEO AI) are now per-shot — accessed by
+          clicking a shot row in Storyboard to expand FilmShotDetailPanel inline.
+          No standalone sections here anymore. */}
+      <FilmVoiceSection />
       <Connector colorFrom="#85b7eb" colorTo="#c490c4" />
 
-      <MusicSfxSectionV09 />
+      <FilmMusicSfxSection />
       <Connector colorFrom="#c490c4" colorTo="#5dcaa5" />
 
-      <BundleExportV09 />
+      <FilmBundleExportSection />
     </>
   );
 }
@@ -208,7 +185,7 @@ function FilmPipeline() {
 function PhotosPipeline() {
   return (
     <>
-      <CameraStyleToggleV09 />
+      <CameraStyleToggle />
       <Connector colorFrom="#5ecac8" colorTo="#e8c874" />
 
       <PhotosIdeaSection />

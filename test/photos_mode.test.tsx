@@ -32,7 +32,7 @@ import {
 import { buildPhotosShotPrompt } from "../src/engine/photosPromptBuilder";
 import { Editor } from "../src/components/Editor";
 import { CastPhotosSection } from "../src/components/CastPhotosSection";
-import { CameraStyleToggleV09 } from "../src/components/CameraStyleToggleV09";
+import { CameraStyleToggle } from "../src/components/CameraStyleToggle";
 import { PhotosIdeaSection } from "../src/components/PhotosIdeaSection";
 import { PhotosImageGenSection } from "../src/components/PhotosImageGenSection";
 import { THEMES } from "../src/engine/themes";
@@ -101,8 +101,8 @@ describe("Photos components — standalone render", () => {
     expect(getByText(/Chưa có cast/i)).toBeTruthy();
   });
 
-  it("CameraStyleToggleV09 renders with BOKEH default selected", () => {
-    const { container } = render(<CameraStyleToggleV09 />);
+  it("CameraStyleToggle renders with BOKEH default selected", () => {
+    const { container } = render(<CameraStyleToggle />);
     const inputs = container.querySelectorAll('input[type="radio"]');
     expect(inputs.length).toBe(2);
     const checked = Array.from(inputs).filter(
@@ -786,7 +786,7 @@ describe("v0.9.1-r12 — Custom Pose free-text", () => {
     useAppStore.setState({ currentProject: makePhotosProject() });
   });
 
-  it("setCustomPose stores VI text in PhotosV091Data.theme.customPoseVi", async () => {
+  it("setCustomPose stores VI text in PhotosData.theme.customPoseVi", async () => {
     const { setCustomPose } = await import("../src/store/photos_actions");
     let project = useAppStore.getState().currentProject!;
     project = {

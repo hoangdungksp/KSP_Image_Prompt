@@ -6,7 +6,7 @@
  * 3. singleFrameRegen: Regenerate 1 frame with continuity
  */
 
-import type { FilmSceneScript, FilmShot, FilmCharacterV2, AnimationStyleV2, AspectRatioV2 } from "../../types/v0_9_0";
+import type { FilmSceneScript, FilmShot, FilmCharacterV2, AnimationStyleV2, AspectRatioV2 } from "../../types/project";
 
 // ============================================================================
 // 1. SHOTS FOR SCENE

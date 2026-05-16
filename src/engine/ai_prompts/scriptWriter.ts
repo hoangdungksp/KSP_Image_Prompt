@@ -6,7 +6,7 @@
  * Language: System prompt English; output JSON has both EN + VI fields.
  */
 
-import type { FilmGenreV2, AnimationStyleV2, AspectRatioV2, FilmCharacterV2 } from "../../types/v0_9_0";
+import type { FilmGenreV2, AnimationStyleV2, AspectRatioV2, FilmCharacterV2 } from "../../types/project";
 
 export interface ScriptWriterInput {
   ideaRaw: string;             // Vietnamese or English from user

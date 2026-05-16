@@ -1,7 +1,7 @@
 /**
  * KSP Image v0.9.1 — Photos prompt builder
  *
- * Adapter that converts PhotosV091Data + selected cast + selected shot
+ * Adapter that converts PhotosData + selected cast + selected shot
  * into the existing v0.4 PromptProject shape, then delegates to assemblePrompt.
  *
  * This way Photos mode v0.9.1 inherits the proven 13-block engine for free:
@@ -28,7 +28,7 @@ import type {
   CameraStyle,
   AspectRatio,
 } from "../types";
-import type { PhotosCastMember, PhotosShot, PhotosV091Data } from "../types/photos_v091";
+import type { PhotosCastMember, PhotosShot, PhotosData } from "../types/photos";
 
 type ProjWithPhotos = PromptProject & ProjectV09Extensions;
 
@@ -95,7 +95,7 @@ export function buildAllPhotosPrompts(
 
 function adaptToLegacyProject(
   project: PromptProject,
-  photos: PhotosV091Data,
+  photos: PhotosData,
   cast: PhotosCastMember,
   _shot: PhotosShot
 ): PromptProject {
@@ -157,7 +157,7 @@ function adaptToLegacyShot(photosShot: PhotosShot, _projectCameraStyle: CameraSt
   };
 }
 
-function resolveIdea(photos: PhotosV091Data): IdeaInput {
+function resolveIdea(photos: PhotosData): IdeaInput {
   const themeId = photos.theme.themeId;
   const customIntentEn = photos.theme.customIntentEn?.trim();
   const customIntentVi = photos.theme.customIntentVi?.trim();

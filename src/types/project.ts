@@ -125,6 +125,79 @@ export interface FilmSceneScript {
   transitionToNext?: string; // "Cut to" / "Match cut" / "Fade to"
   // Linkage
   shotIds?: string[];       // FilmShot.id derived from this scene
+
+  // qc16 — Scene-level visual storyboard grids (replaces per-shot grid concept)
+  /** qc16: Grids that pack shots into visual cells. Each grid = one Banana Pro upload. */
+  grids?: SceneGrid[];
+  /** qc16 → qc21: Grid format for this scene.
+   * - undefined: scene mới, packer will auto-pick from shot count + aspect.
+   * - set: either persisted from auto-pick (gridFormatManual !== true) OR user override (gridFormatManual === true).
+   * - qc21 Storyboard UI shows "(auto)" badge or "Reset to Auto" button based on gridFormatManual flag.
+   */
+  gridFormat?: SceneGridFormat;
+  /**
+   * qc21 Q21.4: Tracks whether scene.gridFormat is auto-picked or user-overridden.
+   * - undefined/false: auto-resolved by pickOptimalGridFormat (re-evaluates on shot count change)
+   * - true: user explicitly chose via "⚙ Advanced" dropdown → preserve as-is
+   * Note: Pre-qc21 projects with manually-set gridFormat (qc17 era) appear as
+   * gridFormatManual undefined (legacy). Storyboard UI shows migration hint
+   * "🔧 Manual · Reset to Auto?" to give user option.
+   */
+  gridFormatManual?: boolean;
+}
+
+// ============================================================================
+// qc16 — Scene-level visual grids (paradigm shift from per-shot grids)
+// ============================================================================
+
+export type SceneGridFormat = "2x2" | "2x3" | "3x2" | "2x4" | "4x2" | "3x3" | "4x3" | "3x4" | "4x4";
+
+/**
+ * One grid that packs N shots from a scene into a single Banana Pro / Imagen image.
+ * Multiple grids per scene if shot count > grid cells (Option A pack).
+ */
+export interface SceneGrid {
+  id: string;
+  order: number;             // 1-indexed within scene
+  gridFormat: SceneGridFormat;
+  /** AI-generated EN prompt for the entire grid (all cells together). */
+  imagePrompt?: string;
+  /** User-uploaded grid PNG (after Banana Pro generates). Base64 dataURL inline. */
+  gridImageDataUrl?: string;
+  /** qc15-style crop settings (provider + dimensions + gutter). */
+  cropSettings?: ShotCropSettings;
+  /** Cells in this grid (cells.length === rows × cols). Some cells may be empty. */
+  cells: SceneGridCell[];
+}
+
+/**
+ * One cell in a SceneGrid = one shot snapshot.
+ * Cells with no shotId are "empty" placeholders (when shots count doesn't fill grid).
+ */
+export interface SceneGridCell {
+  /** 1-indexed within grid (left-to-right, top-to-bottom). */
+  order: number;
+  /** Link to FilmShot.id. Undefined if cell is empty (leftover from packing). */
+  shotId?: string;
+  /** Cropped frame PNG (from grid upload + crop engine). Base64 dataURL. */
+  dataUrl?: string;
+  /** Lock to prevent regen overwriting user-approved frame. */
+  locked?: boolean;
+  /** Per-cell prompt override (user fine-tunes single frame regen). */
+  promptOverride?: string;
+  /**
+   * Optional video asset uploaded by user for this cell (after generating via
+   * Veo3/Kling/Seedance externally). Used by Animatic Player to render
+   * actual motion instead of static keyframe.
+   */
+  video?: {
+    /** Base64 dataURL of the video file (mp4 / webm). */
+    dataUrl: string;
+    /** Original filename (for display + download). */
+    filename: string;
+    /** Actual duration of uploaded video in seconds. May differ from shot.durationSeconds. */
+    durationSeconds?: number;
+  };
 }
 
 export interface ScriptDialog {
@@ -173,9 +246,17 @@ export interface FilmShot {
   titleVi?: string;
   shotType: "wide_establishing" | "medium" | "close_up" | "insert" | "over_shoulder" | "two_shot" | "pov";
   durationSeconds: number;
-  gridFormat: "2x2" | "2x3" | "3x2" | "3x3" | "4x3";
+  gridFormat: "2x2" | "2x3" | "3x2" | "3x3" | "4x3" | "3x4";
   cameraMovement: FilmCameraMovement;
-  purpose?: string;          // Narrative purpose
+  purpose?: string;          // English narrative purpose (legacy, kept for downstream prompts)
+
+  // qc10 — Shot List section (text planning before storyboard visual)
+  /** Vietnamese narrative purpose — displayed in UI for Jason. */
+  purposeVi?: string;
+  /** Vietnamese action description — what happens in this shot. */
+  actionVi?: string;
+  /** English action — used for downstream image/video AI prompts. */
+  actionEn?: string;
 
   // Frames (auto-derived from Script + grid format)
   frames?: ShotFrame[];
@@ -191,6 +272,47 @@ export interface FilmShot {
 
   // Lock
   locked?: boolean;
+
+  // ====================================================================
+  // r5 (Mockup 4 Shot Detail) — additive fields, optional, backward-compat
+  // ====================================================================
+  /** r5 image prompt EN (separate from legacy `imagePrompt` to avoid mixing) */
+  imagePromptR5?: string;
+  /** r5 animation prompt EN (flat single string, not legacy AnimationChunk[]) */
+  animationPromptR5?: string;
+  /** r5 selected video provider id (default "seedance-2-pro") */
+  videoProviderId?: string;
+  /** r5 uploaded grid image base64 (inline, will migrate IDB v0.9.4) */
+  gridImageDataUrl?: string;
+  /** r5 auto-cropped frames per grid format (derived count) */
+  framesR5?: import("./film").ShotR5Frame[];
+
+  /**
+   * qc15: User-confirmed crop settings used when last cropping the grid.
+   * Persisted so user can re-crop with same settings, or override project default.
+   */
+  cropSettings?: ShotCropSettings;
+}
+
+/**
+ * qc15: Crop settings — per-shot override + per-project default fallback.
+ *
+ * Workflow:
+ *   1. User uploads grid → Preview & Crop modal opens
+ *   2. Modal pre-fills from shot.cropSettings (if exists) OR project default
+ *      OR provider defaults
+ *   3. User adjusts (provider, totalWidth, totalHeight, gutterPx)
+ *   4. Clicks "Approve & Crop" → saves to shot.cropSettings + runs crop
+ */
+export interface ShotCropSettings {
+  /** AI provider ID (from gridProviders.ts) — "nano-banana" | "chatgpt" | etc. */
+  provider: string;
+  /** User-confirmed total grid width in pixels */
+  totalWidth: number;
+  /** User-confirmed total grid height in pixels */
+  totalHeight: number;
+  /** Gutter between cells in pixels */
+  gutterPx: number;
 }
 
 export interface ShotFrame {
@@ -368,7 +490,16 @@ export interface ProjectSettingV2 {
    * Default: "no_dialog" (anchor on Mockup 1 Robot demo).
    * Only meaningful when mode === "film". Other modes ignore.
    */
-  dialog?: import("./film_v093").FilmDialogMode;
+  dialog?: import("./film").FilmDialogMode;
+
+  /**
+   * qc16/qc17: Default video generation provider for Film mode.
+   * AI Shot List generation uses this provider's supported durations as constraints.
+   * Per-shot override is still possible (shot.videoProviderId).
+   * Default: "seedance-2-pro" (most flexible — 4-15s).
+   * Full wire in qc17 (validate + clamp on copy animation prompt).
+   */
+  defaultVideoProvider?: string;
 
   // AI providers
   aiProviders: AiTaskProviders;
@@ -464,16 +595,16 @@ export interface ProjectV09Extensions {
   /**
    * v0.9.1: Photos mode data (cast, theme, shots, camera style).
    * Only populated when settingV2.mode === "photos".
-   * See ./photos_v091.ts for PhotosV091Data type.
+   * See ./photos_v091.ts for PhotosData type.
    */
-  photosV091?: import("./photos_v091").PhotosV091Data;
+  photosV091?: import("./photos").PhotosData;
 
   /**
    * v0.9.3: Film mode data (multi-character cast).
    * Only populated when settingV2.mode === "film".
-   * See ./film_v093.ts for FilmV093Data type.
+   * See ./film_v093.ts for FilmData type.
    */
-  filmV093?: import("./film_v093").FilmV093Data;
+  filmV093?: import("./film").FilmData;
 }
 
 // ============================================================================

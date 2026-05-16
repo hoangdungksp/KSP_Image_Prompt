@@ -1,0 +1,504 @@
+/**
+ * KSP Image qc10 — Film Shot List Section (NEW)
+ *
+ * Pipeline position: SCRIPT → SHOT LIST → STORYBOARD
+ *
+ * Pure TEXT planning section. Per scene, displays a table of shots with:
+ *   #  | Type     | Movement | Duration | Action (VN)
+ *   1.1| Wide     | Static   | 4s       | Robot xuất hiện trong rừng
+ *   1.2| Close-up | Zoom in  | 3s       | Mắt LED sáng dần lên
+ *
+ * AI button per scene: "✨ AI sinh shot list từ scene action" → calls
+ * runShotListForScene() (Gemini Flash, ~$0). Result populates shotsBySceneId
+ * via setShotsForScene action. User then edits inline before moving to
+ * STORYBOARD section (visual rendering).
+ *
+ * Design philosophy:
+ * - CHEAP: Pure text → AI cost ~free per scene
+ * - REVIEWABLE: User edits shot list TEXT before $$ storyboard renders
+ * - REUSED schema: Same `FilmShot[]` written to `shotsBySceneId`
+ *   → Storyboard section reads the same data, just adds visual layer
+ */
+
+import React, { useState } from "react";
+import { useAppStore } from "../store/useAppStore";
+import {
+  ensureFilmData,
+  getShotsForScene,
+  addShot,
+  removeShot,
+  updateShot,
+  setShotsForScene,
+} from "../store/film_actions";
+import type { FilmShot, FilmSceneScript } from "../types/project";
+import {
+  runShotListForScene,
+  regenSingleShot,
+  type GeneratedShot,
+} from "../engine/filmShotListGeneration";
+import type { FilmScriptProvider } from "../engine/filmScriptStages";
+
+const SHOT_TYPE_OPTIONS: { value: FilmShot["shotType"]; labelVi: string }[] = [
+  { value: "wide_establishing", labelVi: "Wide / Toàn cảnh" },
+  { value: "medium", labelVi: "Medium / Trung cảnh" },
+  { value: "close_up", labelVi: "Close-up / Cận" },
+  { value: "insert", labelVi: "Insert / Chèn" },
+  { value: "over_shoulder", labelVi: "Over shoulder / Qua vai" },
+  { value: "two_shot", labelVi: "Two-shot / 2 người" },
+  { value: "pov", labelVi: "POV / Góc nhìn" },
+];
+
+const CAMERA_MOVEMENT_OPTIONS: { value: string; labelVi: string }[] = [
+  { value: "static", labelVi: "Static / Đứng yên" },
+  { value: "pan_left", labelVi: "Pan trái" },
+  { value: "pan_right", labelVi: "Pan phải" },
+  { value: "tilt_up", labelVi: "Tilt lên" },
+  { value: "tilt_down", labelVi: "Tilt xuống" },
+  { value: "zoom_in", labelVi: "Zoom in" },
+  { value: "zoom_out", labelVi: "Zoom out" },
+  { value: "dolly_in", labelVi: "Dolly in" },
+  { value: "dolly_out", labelVi: "Dolly out" },
+  { value: "handheld", labelVi: "Handheld" },
+  { value: "tracking", labelVi: "Tracking" },
+];
+
+function formatSceneDuration(secs: number): string {
+  if (secs >= 60) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return s === 0 ? `${m}m` : `${m}m${s}s`;
+  }
+  return `${secs}s`;
+}
+
+// ============================================================================
+// MAIN SECTION
+// ============================================================================
+
+export function FilmShotListSection() {
+  const project = useAppStore((s) => s.currentProject);
+  const updateProject = useAppStore((s) => s.updateCurrentProject);
+  const showToast = useAppStore((s) => s.showToast);
+
+  if (!project) return null;
+  const film = ensureFilmData(project);
+  const script = film.script;
+  const setting = (project as any).settingV2 as
+    | import("../types/project").ProjectSettingV2
+    | undefined;
+
+  const totalShots = script?.scenes
+    ? script.scenes.reduce(
+        (sum, sc) => sum + (film.shotsBySceneId?.[sc.id]?.length ?? 0),
+        0
+      )
+    : 0;
+
+  const totalScenes = script?.scenes?.length ?? 0;
+
+  return (
+    <section className="ksp-section ksp-shotlist-film">
+      <header className="ksp-section-header">
+        <span className="ksp-section-icon">🎯</span>
+        <h2 className="ksp-section-title">4. SHOT LIST</h2>
+        <span className="ksp-section-meta">
+          {totalScenes > 0
+            ? `${totalShots} shots · ${totalScenes} scenes`
+            : "chưa có script"}
+        </span>
+      </header>
+
+      {!script && (
+        <div className="ksp-shotlist-film-empty">
+          <p>
+            ⚠ Chưa có Script. Hãy generate Script ở section trên trước, rồi quay lại đây để AI sinh shot list cho từng phân cảnh.
+          </p>
+          <p style={{ fontSize: 10, color: "#888", marginTop: 6 }}>
+            ℹ Shot list = bảng text mô tả từng góc quay (type, movement, duration, action). Cheap, review trước khi tốn tiền render storyboard visual ở section dưới.
+          </p>
+        </div>
+      )}
+
+      {script &&
+        script.scenes.map((scene) => (
+          <SceneShotListCard
+            key={scene.id}
+            scene={scene}
+            shots={getShotsForScene(project, scene.id)}
+            onAIGenerate={async () => {
+              if (!setting) {
+                showToast("Project setting missing", "error");
+                return;
+              }
+              const existing = getShotsForScene(project, scene.id);
+              if (existing.length > 0) {
+                const ok = confirm(
+                  `Scene "${scene.titleVi || scene.titleEn}" đã có ${existing.length} shots. Sinh lại sẽ tốn 1 AI call và ghi đè toàn bộ shots hiện tại.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
+                );
+                if (!ok) return;
+              }
+
+              try {
+                const provider: FilmScriptProvider =
+                  (setting.aiProviders?.scriptWriter ?? "gemini-flash") as FilmScriptProvider;
+                const generated = await runShotListForScene({
+                  scene,
+                  characters: film.characters,
+                  setting,
+                  provider,
+                  // qc17: Grid + provider duration constraints (Jason Q1 + Q2)
+                  gridFormat: (scene as any).gridFormat ?? "3x3",
+                  videoProviderId: (setting as any).defaultVideoProvider ?? "seedance-2-pro",
+                });
+                // Map GeneratedShot → FilmShot
+                const newShots: FilmShot[] = generated.map((gs, idx) => ({
+                  id: `shot_${Date.now().toString(36)}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
+                  order: idx + 1,
+                  titleEn: gs.titleEn,
+                  titleVi: gs.titleVi,
+                  shotType: gs.shotType,
+                  durationSeconds: gs.durationSeconds,
+                  gridFormat: "3x3",
+                  cameraMovement: gs.cameraMovement as any,
+                  purpose: gs.purposeVi, // legacy field for downstream prompts
+                  purposeVi: gs.purposeVi,
+                  actionVi: gs.actionVi,
+                  actionEn: gs.actionEn,
+                  status: "draft",
+                }));
+                updateProject((p) => setShotsForScene(p, scene.id, newShots));
+                showToast(
+                  `Đã sinh ${newShots.length} shots cho Scene ${scene.order}`,
+                  "success"
+                );
+              } catch (err) {
+                showToast(`AI sinh shot list lỗi: ${(err as Error).message}`, "error");
+              }
+            }}
+            onAddShot={() => updateProject((p) => addShot(p, scene.id))}
+            onUpdateShot={(shotId, updates) =>
+              updateProject((p) => updateShot(p, scene.id, shotId, updates))
+            }
+            onRemoveShot={(shotId) =>
+              updateProject((p) => removeShot(p, scene.id, shotId))
+            }
+            onRegenShot={async (shotIndex) => {
+              if (!setting) {
+                showToast("Project setting missing", "error");
+                return;
+              }
+              const currentShots = getShotsForScene(project, scene.id);
+              if (shotIndex < 0 || shotIndex >= currentShots.length) {
+                showToast("Shot index không hợp lệ", "error");
+                return;
+              }
+              const targetShot = currentShots[shotIndex];
+              try {
+                const provider: FilmScriptProvider =
+                  (setting.aiProviders?.scriptWriter ?? "gemini-flash") as FilmScriptProvider;
+                const newContent = await regenSingleShot({
+                  scene,
+                  allShots: currentShots,
+                  indexToRegen: shotIndex,
+                  characters: film.characters,
+                  setting,
+                  provider,
+                  // qc17: clamp duration to provider's supported values
+                  videoProviderId: (setting as any).defaultVideoProvider ?? "seedance-2-pro",
+                });
+                // Replace content but KEEP original id (per Jason Q-A confirmation)
+                updateProject((p) =>
+                  updateShot(p, scene.id, targetShot.id, {
+                    titleEn: newContent.titleEn,
+                    titleVi: newContent.titleVi,
+                    shotType: newContent.shotType,
+                    cameraMovement: newContent.cameraMovement as any,
+                    durationSeconds: newContent.durationSeconds,
+                    purpose: newContent.purposeVi,
+                    purposeVi: newContent.purposeVi,
+                    actionVi: newContent.actionVi,
+                    actionEn: newContent.actionEn,
+                  })
+                );
+                showToast(
+                  `Đã regen shot ${scene.order}.${targetShot.order}`,
+                  "success"
+                );
+              } catch (err) {
+                showToast(`AI regen shot lỗi: ${(err as Error).message}`, "error");
+              }
+            }}
+          />
+        ))}
+
+      {script && (
+        <div className="ksp-shotlist-film-footer">
+          <span className="ksp-shotlist-film-footer-text">
+            ⓘ Shot list là TEXT planning. Sau khi review/edit xong → section <strong>STORYBOARD</strong> sẽ render hình ảnh từng shot.
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
+// SCENE CARD — collapsible, contains shots table
+// ============================================================================
+
+interface SceneShotListCardProps {
+  scene: FilmSceneScript;
+  shots: FilmShot[];
+  onAIGenerate: () => Promise<void>;
+  onAddShot: () => void;
+  onUpdateShot: (shotId: string, updates: Partial<FilmShot>) => void;
+  onRemoveShot: (shotId: string) => void;
+  onRegenShot: (shotIndex: number) => Promise<void>;
+}
+
+function SceneShotListCard({
+  scene,
+  shots,
+  onAIGenerate,
+  onAddShot,
+  onUpdateShot,
+  onRemoveShot,
+  onRegenShot,
+}: SceneShotListCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const totalShotDuration = shots.reduce((s, sh) => s + (sh.durationSeconds ?? 0), 0);
+  const durationMismatch =
+    shots.length > 0 && Math.abs(totalShotDuration - scene.durationSeconds) > 3;
+
+  async function handleAIClick() {
+    setIsGenerating(true);
+    try {
+      await onAIGenerate();
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <div className="ksp-shotlist-film-scene-card">
+      <div className="ksp-shotlist-film-scene-header" onClick={() => setExpanded(!expanded)}>
+        <span className="ksp-shotlist-film-scene-toggle">{expanded ? "▼" : "▶"}</span>
+        <strong className="ksp-shotlist-film-scene-order">Scene {scene.order}</strong>
+        <span className="ksp-shotlist-film-scene-title">
+          {scene.titleVi || scene.titleEn}
+        </span>
+        <span className="ksp-shotlist-film-scene-meta">
+          {shots.length} shots · {formatSceneDuration(scene.durationSeconds)}
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="ksp-shotlist-film-scene-body">
+          {/* Scene action preview */}
+          <div className="ksp-shotlist-film-scene-action">
+            {(scene as any).actionLinesVi || scene.actionLinesEn}
+          </div>
+
+          {shots.length === 0 ? (
+            <div className="ksp-shotlist-film-empty-shots">
+              <p>Chưa có shots cho scene này.</p>
+              <div className="ksp-shotlist-film-empty-shots-actions">
+                <button
+                  type="button"
+                  className="ksp-step-primary-btn"
+                  onClick={handleAIClick}
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? "⏳ Đang sinh..." : "✨ AI sinh shot list"}
+                </button>
+                <button
+                  type="button"
+                  className="ksp-step-secondary-btn"
+                  onClick={onAddShot}
+                >
+                  + Thêm shot manual
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Shot rows table */}
+              <div className="ksp-shotlist-film-table">
+                <div className="ksp-shotlist-film-row ksp-shotlist-film-row-head">
+                  <span className="ksp-shotlist-film-col-num">#</span>
+                  <span className="ksp-shotlist-film-col-title">Title</span>
+                  <span className="ksp-shotlist-film-col-type">Type</span>
+                  <span className="ksp-shotlist-film-col-mov">Movement</span>
+                  <span className="ksp-shotlist-film-col-dur">Dur</span>
+                  <span className="ksp-shotlist-film-col-regen" title="Regen single shot">🔄</span>
+                  <span className="ksp-shotlist-film-col-rm">×</span>
+                </div>
+
+                {shots.map((shot, idx) => (
+                  <ShotRow
+                    key={shot.id}
+                    shot={shot}
+                    sceneOrder={scene.order}
+                    onUpdate={(updates) => onUpdateShot(shot.id, updates)}
+                    onRemove={() => {
+                      if (confirm(`Xóa shot ${scene.order}.${shot.order}?`)) {
+                        onRemoveShot(shot.id);
+                      }
+                    }}
+                    onRegen={() => onRegenShot(idx)}
+                  />
+                ))}
+              </div>
+
+              <div className="ksp-shotlist-film-scene-actions">
+                <span className={`ksp-shotlist-film-duration-info ${durationMismatch ? "warn" : ""}`}>
+                  Tổng: {totalShotDuration}s
+                  {durationMismatch && ` (lệch ${totalShotDuration - scene.durationSeconds > 0 ? "+" : ""}${totalShotDuration - scene.durationSeconds}s so với scene)`}
+                </span>
+                <button
+                  type="button"
+                  className="ksp-step-secondary-btn"
+                  onClick={onAddShot}
+                >
+                  + Thêm shot
+                </button>
+                <button
+                  type="button"
+                  className="ksp-step-primary-btn ksp-step-primary-btn-sm"
+                  onClick={handleAIClick}
+                  disabled={isGenerating}
+                  title="Sinh lại toàn bộ shot list (sẽ ghi đè)"
+                >
+                  {isGenerating ? "⏳ Đang sinh..." : "✨ Sinh lại"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// SHOT ROW — single shot with editable fields
+// ============================================================================
+
+interface ShotRowProps {
+  shot: FilmShot;
+  sceneOrder: number;
+  onUpdate: (updates: Partial<FilmShot>) => void;
+  onRemove: () => void;
+  onRegen: () => Promise<void>;
+}
+
+function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps) {
+  const [showAction, setShowAction] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
+  async function handleRegenClick() {
+    const ok = confirm(
+      `Sinh lại shot ${sceneOrder}.${shot.order}?\n\nAI sẽ tạo shot mới khác với shot hiện tại (khác shotType / cameraMovement / hoặc action focus).\n\nTốn 1 AI call.\n\nClick OK để regen.`
+    );
+    if (!ok) return;
+    setIsRegenerating(true);
+    try {
+      await onRegen();
+    } finally {
+      setIsRegenerating(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="ksp-shotlist-film-row">
+        <span
+          className="ksp-shotlist-film-col-num"
+          onClick={() => setShowAction(!showAction)}
+          title={showAction ? "Ẩn action" : "Hiện action"}
+        >
+          {sceneOrder}.{shot.order}
+        </span>
+        <input
+          type="text"
+          className="ksp-shotlist-film-col-title ksp-shotlist-film-title-input"
+          value={shot.titleVi || shot.titleEn}
+          onChange={(e) => onUpdate({ titleVi: e.target.value })}
+          placeholder="Tiêu đề shot"
+        />
+        <select
+          className="ksp-shotlist-film-col-type ksp-shotlist-film-select"
+          value={shot.shotType}
+          onChange={(e) =>
+            onUpdate({ shotType: e.target.value as FilmShot["shotType"] })
+          }
+        >
+          {SHOT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.labelVi}
+            </option>
+          ))}
+        </select>
+        <select
+          className="ksp-shotlist-film-col-mov ksp-shotlist-film-select"
+          value={shot.cameraMovement as string}
+          onChange={(e) => onUpdate({ cameraMovement: e.target.value as any })}
+        >
+          {CAMERA_MOVEMENT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.labelVi}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          className="ksp-shotlist-film-col-dur ksp-shotlist-film-dur-input"
+          min={1}
+          max={30}
+          value={shot.durationSeconds}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (!isNaN(v) && v > 0 && v <= 30) onUpdate({ durationSeconds: v });
+          }}
+        />
+        <button
+          type="button"
+          className="ksp-shotlist-film-col-regen ksp-shotlist-film-regen-btn"
+          onClick={handleRegenClick}
+          disabled={isRegenerating}
+          title="🔄 Sinh lại shot này (giữ id cũ, AI tạo content khác)"
+        >
+          {isRegenerating ? "⏳" : "🔄"}
+        </button>
+        <button
+          type="button"
+          className="ksp-shotlist-film-col-rm ksp-shotlist-film-remove-btn"
+          onClick={onRemove}
+          title="Xóa shot"
+        >
+          ×
+        </button>
+      </div>
+
+      {showAction && (
+        <div className="ksp-shotlist-film-row-detail">
+          {shot.purposeVi && (
+            <div className="ksp-shotlist-film-purpose">
+              <span className="ksp-shotlist-film-detail-label">Mục đích:</span>{" "}
+              {shot.purposeVi}
+            </div>
+          )}
+          <textarea
+            className="ksp-shotlist-film-action-edit"
+            placeholder="Hành động cụ thể trong shot..."
+            value={shot.actionVi || ""}
+            onChange={(e) => onUpdate({ actionVi: e.target.value })}
+            rows={2}
+          />
+        </div>
+      )}
+    </>
+  );
+}

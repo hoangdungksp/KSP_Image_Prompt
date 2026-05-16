@@ -421,6 +421,6 @@ export interface AssembledPrompt {
 // PromptProject is augmented via intersection: PromptProject & ProjectV09Extensions
 // ============================================================================
 
-export * from "./v0_9_0";
-export * from "./photos_v091";
+export * from "./project";
+export * from "./photos";
 
