@@ -43,6 +43,10 @@ import {
   clampDurationToProvider,
   formatDurationsForUI,
 } from "../engine/providerDurations";
+import {
+  runShotReprompt,
+  type FilmScriptProvider,
+} from "../engine/filmScriptStages";
 
 const SHOT_TYPE_OPTIONS: { value: FilmShot["shotType"]; label: string }[] = [
   { value: "wide_establishing", label: "Wide / Establishing" },
@@ -83,6 +87,10 @@ export interface FilmFrameEditModalProps {
   cast: FilmCharacter[];
   /** Project setting (animation style, aspect, default video provider) */
   setting: ProjectSettingV2;
+  /** r6: All scenes (for setup-payoff cross-scene anchoring in prompt) */
+  allScenes?: FilmSceneScript[];
+  /** r6: AI-detected setup-payoff pairs (for prompt continuity anchors) */
+  setupPayoffPairs?: import("../types/project").SetupPayoffPair[];
   /** Save edits — caller updates store */
   onSave: (updates: Partial<FilmShot>) => void;
   /** Upload replace frame — caller saves dataUrl to cell */
@@ -159,6 +167,8 @@ export function FilmFrameEditModal({
   allShotsInScene,
   cast,
   setting,
+  allScenes,
+  setupPayoffPairs,
   onSave,
   onUploadReplace,
   onUploadVideo,
@@ -177,6 +187,26 @@ export function FilmFrameEditModal({
   const [videoProviderId, setVideoProviderId] = useState(
     shot.videoProviderId ?? (setting as any).defaultVideoProvider ?? "seedance-2-pro"
   );
+
+  // Sprint 1.0 r7 (Q-L): per-shot mood override state — fields editable in collapsible section
+  const [lightingHintEn, setLightingHintEn] = useState<string>((shot as any).lightingHintEn ?? "");
+  const [shotMoodOverride, setShotMoodOverride] = useState<string>(
+    (shot as any).shotMoodOverride ?? ""
+  );
+  const [shotMoodIntensity, setShotMoodIntensity] = useState<number | "">(
+    typeof (shot as any).shotMoodIntensity === "number" ? (shot as any).shotMoodIntensity : ""
+  );
+  const [moodOverrideExpanded, setMoodOverrideExpanded] = useState(false);
+
+  // Sprint 1.0 r7 (Q-E follow-up): draggable gutter for left/right pane width.
+  // Snap stops at 50px steps, persisted to localStorage.
+  const [leftPaneWidth, setLeftPaneWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 480;
+    const stored = window.localStorage?.getItem("ksp.frameEdit.leftPaneWidth");
+    const n = stored ? parseInt(stored, 10) : NaN;
+    return isFinite(n) && n >= 300 && n <= 800 ? n : 480;
+  });
+  const [gutterDragging, setGutterDragging] = useState(false);
 
   // Collapsible state
   const [imagePromptExpanded, setImagePromptExpanded] = useState(false);
@@ -198,15 +228,82 @@ export function FilmFrameEditModal({
     cell.video?.dataUrl ? "video" : "image"
   );
 
+  // Sprint 1.0 r4.1: AI re-prompt loading state (shared image + animation)
+  const [isReprompting, setIsReprompting] = useState(false);
+
+  // AI re-prompt handler — calls runShotReprompt with current shot state +
+  // applies result via onSave callback (writes to imagePromptR5 + animationPromptR5).
+  // Modal re-renders with override active. User can ↻ Reset to revert to deterministic build.
+  async function handleAiReprompt() {
+    setIsReprompting(true);
+    try {
+      const provider: FilmScriptProvider =
+        ((setting.aiProviders?.scriptWriter ?? "gemini-flash") as FilmScriptProvider);
+      const suggestion = await runShotReprompt({
+        shot: {
+          id: shot.id,
+          titleVi,
+          titleEn,
+          shotType,
+          cameraMovement: cameraMovement as string,
+          durationSeconds: duration,
+          actionVi,
+          actionEn,
+          rhythmRole: (shot as any).rhythmRole,
+          imagePromptR5: (shot as any).imagePromptR5,
+          animationPromptR5: (shot as any).animationPromptR5,
+        },
+        previousDuration: duration,
+        sceneTension: (scene as any).tensionLevel,
+        provider,
+      });
+      const stillNote = suggestion.useStillImage
+        ? `\n\n📌 Duration ${duration}s > 8s — AI suggest dùng STILL IMAGE + audio overlay (Ken Burns) thay vì AI video clip.`
+        : "";
+      const ok = confirm(
+        `🎬 AI re-prompt cho shot ${shot.order}\n\n💡 ${suggestion.rationaleVi}${stillNote}\n\n--- IMAGE PROMPT MỚI ---\n${suggestion.newImagePrompt}\n\n--- ANIMATION PROMPT MỚI ---\n${suggestion.newAnimationPrompt}\n\nÁp dụng?`
+      );
+      if (!ok) {
+        showToast?.("Bỏ qua re-prompt", "info");
+        return;
+      }
+      // Persist as override — modal re-renders with new prompts after parent updates store.
+      onSave({
+        imagePromptR5: suggestion.newImagePrompt,
+        animationPromptR5: suggestion.newAnimationPrompt,
+      } as any);
+      showToast?.(
+        `Đã áp dụng AI prompt mới${suggestion.useStillImage ? " (dùng still image)" : ""}`,
+        "success"
+      );
+    } catch (err) {
+      showToast?.(`AI re-prompt lỗi: ${(err as Error).message}`, "error");
+    } finally {
+      setIsReprompting(false);
+    }
+  }
+
+  function handleResetPrompt(field: "imagePromptR5" | "animationPromptR5") {
+    if (!confirm(`Reset ${field === "imagePromptR5" ? "image" : "animation"} prompt về auto-build?\n\nNội dung AI re-prompt sẽ bị xóa, prompt sẽ dùng default build từ shot info.`)) return;
+    onSave({ [field]: undefined } as any);
+    showToast?.("Đã reset về auto", "success");
+  }
+
   // Image prompt is PER-CELL (single shot generation), not scene-level grid.
+  // Sprint 1.0 r4.1: Prefer shot.imagePromptR5 if set (AI re-prompt override),
+  // fallback to deterministic build. User can toggle via 🎬 AI re-prompt / ↻ Reset.
   const imagePromptText = useMemo(() => {
+    if ((shot as any).imagePromptR5) return (shot as any).imagePromptR5 as string;
     return buildSingleShotImagePrompt({
       shot,
       scene,
       cast,
       setting,
+      allScenes,
+      setupPayoffPairs,
     });
-  }, [shot, scene, cast, setting]);
+  }, [shot, scene, cast, setting, allScenes, setupPayoffPairs]);
+  const imagePromptIsOverride = !!(shot as any).imagePromptR5;
 
   const provider = useMemo(() => resolveVideoProvider(videoProviderId, undefined), [videoProviderId]);
 
@@ -238,6 +335,8 @@ export function FilmFrameEditModal({
   }, [advancedFirstLast, lastFrameShotId, allShotsInScene, previewShot]);
 
   const animationPromptText = useMemo(() => {
+    // Sprint 1.0 r4.1: AI re-prompt override takes precedence
+    if ((shot as any).animationPromptR5) return (shot as any).animationPromptR5 as string;
     if (advancedFirstLast && lastFrameShot) {
       return buildAnimationPromptAdvanced({
         shot: previewShot,
@@ -257,8 +356,11 @@ export function FilmFrameEditModal({
       setting,
       provider,
       timeFormat,
+      allScenes,
+      setupPayoffPairs,
     });
-  }, [previewShot, scene, cast, setting, provider, advancedFirstLast, lastFrameShot, timeFormat, firstLastSwapped]);
+  }, [shot, previewShot, scene, cast, setting, provider, advancedFirstLast, lastFrameShot, timeFormat, firstLastSwapped, allScenes, setupPayoffPairs]);
+  const animationPromptIsOverride = !!(shot as any).animationPromptR5;
 
   // qc17 — duration validation vs provider
   const durationValid = isDurationValid(duration, videoProviderId);
@@ -276,8 +378,40 @@ export function FilmFrameEditModal({
     };
     if (actionVi !== ((shot as any).actionVi ?? "")) (updates as any).actionVi = actionVi;
     if (actionEn !== ((shot as any).actionEn ?? "")) (updates as any).actionEn = actionEn;
+    // Sprint 1.0 r7 (Q-L): per-shot mood override fields
+    const lightingTrim = lightingHintEn.trim();
+    (updates as any).lightingHintEn = lightingTrim || undefined;
+    (updates as any).shotMoodOverride = shotMoodOverride || undefined;
+    (updates as any).shotMoodIntensity =
+      shotMoodIntensity === "" ? undefined : (shotMoodIntensity as number);
     onSave(updates);
     showToast?.(`Đã lưu shot ${shot.order}`, "success");
+  }
+
+  // Sprint 1.0 r7: gutter drag handlers — snap to 50px stops, clamp 300-800
+  function onGutterMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    setGutterDragging(true);
+    const startX = e.clientX;
+    const startWidth = leftPaneWidth;
+    function onMove(ev: MouseEvent) {
+      const delta = ev.clientX - startX;
+      let next = startWidth + delta;
+      // Snap to 50px stops
+      next = Math.round(next / 50) * 50;
+      next = Math.max(300, Math.min(800, next));
+      setLeftPaneWidth(next);
+    }
+    function onUp() {
+      setGutterDragging(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      try {
+        window.localStorage?.setItem("ksp.frameEdit.leftPaneWidth", String(leftPaneWidth));
+      } catch {}
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   function handleCopyAnimation() {
@@ -371,6 +505,7 @@ export function FilmFrameEditModal({
         <div className="ksp-frame-edit-modal-body">
           {/* Frame preview — single OR split (first + last) when Advanced + last-frame picked */}
           <div
+            style={{ width: `${leftPaneWidth}px`, flexShrink: 0 }}
             className={`ksp-frame-edit-preview-wrap ${
               advancedFirstLast && lastFrameShot ? "ksp-frame-edit-preview-split" : ""
             }`}
@@ -574,6 +709,15 @@ export function FilmFrameEditModal({
             })()}
           </div>
 
+          {/* Sprint 1.0 r7: Draggable gutter for resizing left/right panes (50px snap stops) */}
+          <div
+            className={`ksp-modal-gutter-handle${gutterDragging ? " ksp-modal-gutter-active" : ""}`}
+            onMouseDown={onGutterMouseDown}
+            title="Kéo để chỉnh tỷ lệ (snap 50px)"
+            role="separator"
+            aria-orientation="vertical"
+          />
+
           {/* Editable shot info */}
           <div className="ksp-frame-edit-fields">
             <div className="ksp-frame-edit-row">
@@ -706,6 +850,96 @@ export function FilmFrameEditModal({
             </label>
           </div>
 
+          {/* Sprint 1.0 r7 (Q-L): Per-shot mood override collapsible section.
+              Default collapsed (AI auto-fills hidden). User can expand to override. */}
+          <div className="ksp-mood-override-section">
+            <div
+              className="ksp-mood-override-header"
+              onClick={() => setMoodOverrideExpanded(!moodOverrideExpanded)}
+              role="button"
+              tabIndex={0}
+            >
+              {moodOverrideExpanded ? "▼" : "▶"} 🎨 Override per-shot mood
+              <span style={{ fontSize: 11, color: "#888780", fontWeight: 400, marginLeft: "auto" }}>
+                {(lightingHintEn || shotMoodOverride || shotMoodIntensity !== "") ? "(active)" : "(default scene)"}
+              </span>
+            </div>
+            {moodOverrideExpanded && (
+              <div className="ksp-mood-override-body">
+                <div className="ksp-mood-override-field">
+                  <label>
+                    <span>Lighting hint (EN)</span>
+                    <button
+                      type="button"
+                      className="ksp-mood-override-reset"
+                      onClick={() => setLightingHintEn("")}
+                      title="Reset về scene-level lighting"
+                    >
+                      Reset
+                    </button>
+                  </label>
+                  <input
+                    type="text"
+                    value={lightingHintEn}
+                    onChange={(e) => setLightingHintEn(e.target.value)}
+                    placeholder="e.g., golden-hour rays, subtle blue accent on subject's eye"
+                    className="ksp-input"
+                  />
+                </div>
+                <div className="ksp-mood-override-field">
+                  <label>
+                    <span>Shot mood override</span>
+                    <button
+                      type="button"
+                      className="ksp-mood-override-reset"
+                      onClick={() => setShotMoodOverride("")}
+                      title="Reset về scene-level emotion"
+                    >
+                      Reset
+                    </button>
+                  </label>
+                  <select
+                    value={shotMoodOverride}
+                    onChange={(e) => setShotMoodOverride(e.target.value)}
+                    className="ksp-input"
+                  >
+                    <option value="">(use scene emotion)</option>
+                    <option value="tender">😊 Tender</option>
+                    <option value="tense">😰 Tense</option>
+                    <option value="funny">😄 Funny</option>
+                    <option value="sad">😢 Sad</option>
+                    <option value="shocking">😱 Shocking</option>
+                    <option value="triumphant">🏆 Triumphant</option>
+                    <option value="neutral">😐 Neutral</option>
+                  </select>
+                </div>
+                <div className="ksp-mood-override-field">
+                  <label>
+                    <span>Tension intensity ({shotMoodIntensity === "" ? "default" : `${shotMoodIntensity}/10`})</span>
+                    <button
+                      type="button"
+                      className="ksp-mood-override-reset"
+                      onClick={() => setShotMoodIntensity("")}
+                      title="Reset về scene-level tension"
+                    >
+                      Reset
+                    </button>
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={shotMoodIntensity === "" ? 5 : shotMoodIntensity}
+                    onChange={(e) =>
+                      setShotMoodIntensity(parseInt(e.target.value, 10))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Image Prompt block (qc22c: now per-cell single shot, not scene-level grid) */}
           <div className="ksp-frame-edit-prompt-block">
             <button
@@ -722,22 +956,46 @@ export function FilmFrameEditModal({
               <div className="ksp-frame-edit-prompt-body">
                 <div className="ksp-frame-edit-prompt-note">
                   ⓘ Prompt tạo image cho shot này. Paste vào Banana Pro / Imagen + attach cast refs từ Refs ZIP.
+                  {imagePromptIsOverride && (
+                    <span className="ksp-frame-edit-prompt-override-badge"> · 🎬 AI override</span>
+                  )}
                 </div>
                 <textarea
                   className="ksp-frame-edit-prompt-textarea"
                   readOnly
                   value={imagePromptText}
                 />
-                <button
-                  type="button"
-                  className="ksp-btn ksp-btn-ghost ksp-btn-sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(imagePromptText);
-                    showToast?.("Copied single-shot image prompt", "success");
-                  }}
-                >
-                  📋 Copy image prompt
-                </button>
+                <div className="ksp-frame-edit-prompt-actions">
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(imagePromptText);
+                      showToast?.("Copied single-shot image prompt", "success");
+                    }}
+                  >
+                    📋 Copy image prompt
+                  </button>
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                    onClick={handleAiReprompt}
+                    disabled={isReprompting}
+                    title="AI viết lại image + animation prompts theo duration intent mới"
+                  >
+                    {isReprompting ? "⏳" : "🎬"} AI re-prompt
+                  </button>
+                  {imagePromptIsOverride && (
+                    <button
+                      type="button"
+                      className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                      onClick={() => handleResetPrompt("imagePromptR5")}
+                      title="Reset image prompt về auto-build (xóa AI override)"
+                    >
+                      ↻ Reset
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -759,6 +1017,9 @@ export function FilmFrameEditModal({
               <div className="ksp-frame-edit-prompt-body">
                 <div className="ksp-frame-edit-prompt-note">
                   ⓘ Prompt cho video AI. Provider hiện tại: <strong>{provider.name}</strong> · supports {supportedLabel}.
+                  {animationPromptIsOverride && (
+                    <span className="ksp-frame-edit-prompt-override-badge"> · 🎬 AI override</span>
+                  )}
                 </div>
 
                 {/* qc22c: Advanced first/last-frame toggle */}
@@ -838,13 +1099,34 @@ export function FilmFrameEditModal({
                   readOnly
                   value={animationPromptText}
                 />
-                <button
-                  type="button"
-                  className="ksp-btn ksp-btn-primary ksp-btn-sm"
-                  onClick={handleCopyAnimation}
-                >
-                  📋 Copy → {provider.name}
-                </button>
+                <div className="ksp-frame-edit-prompt-actions">
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-primary ksp-btn-sm"
+                    onClick={handleCopyAnimation}
+                  >
+                    📋 Copy → {provider.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                    onClick={handleAiReprompt}
+                    disabled={isReprompting}
+                    title="AI viết lại image + animation prompts theo duration intent mới"
+                  >
+                    {isReprompting ? "⏳" : "🎬"} AI re-prompt
+                  </button>
+                  {animationPromptIsOverride && (
+                    <button
+                      type="button"
+                      className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                      onClick={() => handleResetPrompt("animationPromptR5")}
+                      title="Reset animation prompt về auto-build (xóa AI override)"
+                    >
+                      ↻ Reset
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

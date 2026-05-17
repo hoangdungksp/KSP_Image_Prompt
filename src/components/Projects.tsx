@@ -56,15 +56,32 @@ export function Projects() {
   };
 
   const handleDuplicate = async (project: StoredProject) => {
+    // Sprint 1.0 r4.1: When duplicating a Film project, auto-clear shotsBySceneId.
+    // Shots are tightly coupled to scene action/title content — duplicate often
+    // signals user wants to iterate the story differently, so shots from the
+    // template are stale by definition. Force regenerate via "✨ Sinh lại".
+    // Other Film data preserved: characters, script, structure, beats, etc.
+    const isFilmMode =
+      (project as any).settingV2?.mode === "film" || (project as any).filmV093 !== undefined;
+    const newFilmV093 = isFilmMode && (project as any).filmV093
+      ? { ...(project as any).filmV093, shotsBySceneId: {} }
+      : (project as any).filmV093;
+
     const newProject: StoredProject = {
       ...project,
       id: `proj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: `${project.name} (copy)`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-    };
+      ...(isFilmMode ? { filmV093: newFilmV093 } : {}),
+    } as StoredProject;
     await saveProject(newProject);
-    showToast("Đã clone project", "success");
+    showToast(
+      isFilmMode
+        ? "Đã clone project — shots cũ bị xóa, click ✨ Sinh lại trong Shot List để đồng bộ"
+        : "Đã clone project",
+      "success"
+    );
     refresh();
   };
 

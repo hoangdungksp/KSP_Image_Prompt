@@ -244,6 +244,14 @@ export interface FilmData {
    */
   defaultCropSettings?: import("./project").ShotCropSettings;
 
+  /**
+   * Sprint 1.0 r5 (Phase 2B): detected setup → payoff pairs across scenes.
+   * AI scans full script via `runSetupPayoffDetect` engine function.
+   * Pairs persisted so user doesn't re-run AI every dashboard open.
+   * UI shows pairs as labeled arcs in pacing dashboard with scene anchors.
+   */
+  setupPayoffPairs?: import("./project").SetupPayoffPair[];
+
   createdAt: number;
   updatedAt: number;
 }
@@ -540,4 +548,16 @@ export interface FilmScriptIntermediateScene {
    * produce in Storyboard.
    */
   complexityWarningDismissed?: boolean;
+
+  /**
+   * Sprint 1.0 r1 (Phase 1A): per-scene pacing annotations.
+   * AI fills when Stage 4 generates. Carries through to final FilmSceneScript
+   * via runStage5FromStages post-process copy by order.
+   * User edits via badge popup on SceneCardWithWarning.
+   *
+   * tensionLevel — 0-10 expectation density.
+   * emotionalTone — see project.ts EmotionalTone.
+   */
+  tensionLevel?: number;
+  emotionalTone?: import("./project").EmotionalTone;
 }

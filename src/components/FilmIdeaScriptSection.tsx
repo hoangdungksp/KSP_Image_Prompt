@@ -34,15 +34,22 @@ import {
   removeScriptBeat,
   setScriptTwists,
   updateScriptTwist,
+  removeScriptTwist,
+  addScriptTwist,
   lockScriptTwists,
   setScriptIntermediateScenes,
   setScriptTargetSceneCount,
+  // Sprint 1.0 r1
+  updateScriptIntermediateScene,
   revertToStage,
   clearStageData,
   // qc20
   applySceneSplit,
   dismissSceneComplexityWarning,
   lockScriptScenes,
+  // Sprint 1.0 r7
+  applyBeatsAndPhysicalLock,
+  setSceneBeats,
 } from "../store/film_actions";
 import {
   runStage1Structure,
@@ -54,6 +61,11 @@ import {
   runSplitSceneSuggestion,
   type SceneSplitSuggestion,
   type FilmScriptProvider,
+  // Sprint 1.0 r1
+  runReannotateEmotions,
+  // Sprint 1.0 r7
+  runDetectBeatsForAllScenes,
+  runDetectBeatsForScene,
 } from "../engine/filmScriptStages";
 // qc20: Scene shot count estimator + complexity classification
 import {
@@ -67,7 +79,13 @@ import {
   type FilmStoryFramework,
   type FilmData,
 } from "../types/film";
-import type { FilmScript, FilmSceneScript } from "../types/project";
+import type { FilmScript, FilmSceneScript, EmotionalTone, Beat } from "../types/project";
+import {
+  EMOTIONAL_TONE_LABELS,
+  BEAT_TYPE_LABELS,
+  clampTension,
+  getTensionColor,
+} from "../types/project";
 
 // ============================================================================
 // MAIN SECTION
@@ -85,6 +103,8 @@ export function FilmIdeaScriptSection() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Sprint 1.0 r7.1: track which scenes currently have AI re-detecting beats (Bug 3 fix)
+  const [detectingSceneIds, setDetectingSceneIds] = useState<Set<string>>(new Set());
 
   function handleSetIdea(newIdea: string) {
     updateProject({ idea: { raw: newIdea } } as any);
@@ -186,6 +206,7 @@ export function FilmIdeaScriptSection() {
                 key={scene.id}
                 scene={scene}
                 index={idx}
+                isDetectingBeats={detectingSceneIds.has(scene.id)}
                 onUpdate={(updates) =>
                   updateProject(updateSceneInScript(project, scene.id, updates))
                 }
@@ -193,6 +214,52 @@ export function FilmIdeaScriptSection() {
                   if (confirm(`Xóa scene ${scene.order}?`)) {
                     updateProject(removeScene(project, scene.id));
                   }
+                }}
+                onRedetectBeats={() => {
+                  // Sprint 1.0 r7 J3 + r7.1 (Bug 3): re-detect beats with loading state + toast feedback
+                  const sceneProvider = (film.scriptProvider ?? "gemini-flash") as FilmScriptProvider;
+                  setDetectingSceneIds((prev) => {
+                    const next = new Set(prev);
+                    next.add(scene.id);
+                    return next;
+                  });
+                  showToast(`🔄 Đang phân tích beats cho Scene ${scene.order}...`, "info");
+                  (async () => {
+                    try {
+                      const result = await runDetectBeatsForScene({
+                        scene: scene as any,
+                        provider: sceneProvider,
+                      });
+                      updateProject(
+                        applyBeatsAndPhysicalLock(project, {
+                          [scene.id]: result,
+                        })
+                      );
+                      if (result.beats.length > 0) {
+                        showToast(
+                          `✅ Scene ${scene.order}: detected ${result.beats.length} beats`,
+                          "success"
+                        );
+                      } else {
+                        showToast(
+                          `⚠ Scene ${scene.order}: AI returned 0 beats. Scene action quá ngắn?`,
+                          "info"
+                        );
+                      }
+                    } catch (err) {
+                      console.error("Re-detect failed:", err);
+                      showToast(
+                        `❌ Scene ${scene.order} detection lỗi: ${(err as Error).message}`,
+                        "error"
+                      );
+                    } finally {
+                      setDetectingSceneIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(scene.id);
+                        return next;
+                      });
+                    }
+                  })();
                 }}
               />
             ))}
@@ -204,6 +271,52 @@ export function FilmIdeaScriptSection() {
                 onClick={() => updateProject(addEmptyScene(project))}
               >
                 + Add Scene
+              </button>
+              <button
+                type="button"
+                className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                disabled={isGenerating || !film.script || film.script.scenes.length === 0}
+                onClick={async () => {
+                  if (!film.script || film.script.scenes.length === 0) return;
+                  const scriptScenes = film.script.scenes;
+                  setIsGenerating(true);
+                  try {
+                    const annotations = await runReannotateEmotions({
+                      scenes: scriptScenes.map((s) => ({
+                        id: s.id,
+                        order: s.order,
+                        titleEn: s.titleEn,
+                        titleVi: s.titleVi,
+                        actionLinesEn: s.actionLinesEn,
+                        actionLinesVi: s.actionLinesVi,
+                        durationSeconds: s.durationSeconds,
+                      })),
+                      provider:
+                        (film.scriptProvider ?? "gemini-flash") as FilmScriptProvider,
+                    });
+                    const count = Object.keys(annotations).length;
+                    if (count === 0) {
+                      showToast("AI không trả annotation nào — thử lại", "error");
+                    } else {
+                      updateProject((p) => {
+                        let next = p;
+                        for (const sceneId of Object.keys(annotations)) {
+                          const patch = updateSceneInScript(next, sceneId, annotations[sceneId]);
+                          next = { ...next, ...patch };
+                        }
+                        return next;
+                      });
+                      showToast(`Đã re-annotate ${count} phân cảnh`, "success");
+                    }
+                  } catch (err) {
+                    showToast(`Re-annotate lỗi: ${(err as Error).message}`, "error");
+                  } finally {
+                    setIsGenerating(false);
+                  }
+                }}
+                title="Sinh lại tension + cảm xúc cho tất cả phân cảnh (AI call nhỏ, ~$0)"
+              >
+                🎭 Re-annotate
               </button>
               <button
                 type="button"
@@ -248,6 +361,224 @@ export function FilmIdeaScriptSection() {
 }
 
 // ============================================================================
+// PACING BADGES (Sprint 1.0 r1 — Phase 1A)
+// Reusable component for SceneCard + SceneCardWithWarning.
+// Displays tension + emotion badges with click-to-edit popover.
+// ============================================================================
+
+interface PacingBadgesProps {
+  tensionLevel?: number;
+  emotionalTone?: EmotionalTone;
+  /** Sprint 1.0 r7: scene beats for badge display + click-popover */
+  beats?: Beat[];
+  /** Sprint 1.0 r7.1: true when AI is currently detecting beats for this scene */
+  isDetectingBeats?: boolean;
+  /** Sprint 1.0 r7.1: callback to manually re-detect beats (for failed/empty scenes) */
+  onRedetectBeats?: () => void;
+  onUpdate: (updates: { tensionLevel?: number; emotionalTone?: EmotionalTone }) => void;
+  /** Compact mode for SceneCardWithWarning (smaller header). */
+  compact?: boolean;
+}
+
+function PacingBadges({
+  tensionLevel,
+  emotionalTone,
+  beats,
+  isDetectingBeats,
+  onRedetectBeats,
+  onUpdate,
+  compact,
+}: PacingBadgesProps) {
+  const [openPopup, setOpenPopup] = useState<"tension" | "emotion" | "beats" | null>(null);
+
+  const tension = clampTension(tensionLevel);
+  const tensionColors = getTensionColor(tension);
+  const hasTension = typeof tensionLevel === "number";
+  const tone = emotionalTone ?? "neutral";
+  const toneInfo = EMOTIONAL_TONE_LABELS[tone];
+  const hasTone = emotionalTone !== undefined;
+  const hasBeats = beats && beats.length > 0;
+
+  return (
+    <span className={`ksp-pacing-badges${compact ? " ksp-pacing-badges-compact" : ""}`}>
+      <button
+        type="button"
+        className="ksp-pacing-badge ksp-pacing-tension"
+        style={{
+          background: hasTension ? tensionColors.bg : "#F1EFE8",
+          color: hasTension ? tensionColors.color : "#888780",
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpenPopup(openPopup === "tension" ? null : "tension");
+        }}
+        title={hasTension ? `Tension ${tension}/10 — click chỉnh` : "Chưa annotate — click chỉnh tension"}
+      >
+        🔥 {hasTension ? `${tension}/10` : "·"}
+      </button>
+      <button
+        type="button"
+        className="ksp-pacing-badge ksp-pacing-emotion"
+        style={{ background: toneInfo.bg, color: toneInfo.color }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpenPopup(openPopup === "emotion" ? null : "emotion");
+        }}
+        title={hasTone ? `Cảm xúc: ${toneInfo.vi} — click đổi` : "Chưa annotate — click chọn cảm xúc"}
+      >
+        {toneInfo.emoji} {hasTone ? toneInfo.vi : "·"}
+      </button>
+      {/* Sprint 1.0 r7: Beats badge — click to popover beats list.
+          r7.1: shows loading icon when AI is detecting, retry button when 0 beats. */}
+      <button
+        type="button"
+        className="ksp-pacing-badge ksp-pacing-beats"
+        style={{
+          background: isDetectingBeats ? "#534AB7" : hasBeats ? "#3B6D11" : "#F1EFE8",
+          color: isDetectingBeats ? "#EAF3DE" : hasBeats ? "#EAF3DE" : "#888780",
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isDetectingBeats) return;
+          setOpenPopup(openPopup === "beats" ? null : "beats");
+        }}
+        title={
+          isDetectingBeats
+            ? "AI đang phân tích beats..."
+            : hasBeats
+            ? `${beats!.length} beats — click xem chi tiết`
+            : "Chưa detect beats — click để xem hoặc tạo lại"
+        }
+      >
+        {isDetectingBeats
+          ? "⏳ Đang detect..."
+          : hasBeats
+          ? `🎯 ${beats!.length} beats`
+          : "🎯 ·"}
+      </button>
+
+      {openPopup === "tension" && (
+        <div
+          className="ksp-pacing-popup"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <label className="ksp-pacing-popup-label">
+            Tension level: <strong>{tension}/10</strong>
+          </label>
+          <input
+            type="range"
+            className="ksp-pacing-popup-slider"
+            min={0}
+            max={10}
+            step={1}
+            value={tension}
+            onChange={(e) => onUpdate({ tensionLevel: parseInt(e.target.value, 10) })}
+          />
+          <div className="ksp-pacing-popup-hint">
+            0-2 calm · 3-4 mild · 5-6 rising · 7-8 high · 9-10 climax
+          </div>
+          <div className="ksp-pacing-popup-actions">
+            <button type="button" className="ksp-pacing-popup-btn" onClick={() => setOpenPopup(null)}>
+              ✓ Xong
+            </button>
+          </div>
+        </div>
+      )}
+
+      {openPopup === "beats" && (
+        <div
+          className="ksp-pacing-popup ksp-pacing-popup-beats"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <label className="ksp-pacing-popup-label">
+            🎯 Atomic beats <span className="ksp-pacing-popup-sub">(scan từ scene action)</span>
+          </label>
+          {hasBeats ? (
+            <ol className="ksp-pacing-popup-beats-list">
+              {beats!.map((b) => {
+                const typeInfo = BEAT_TYPE_LABELS[b.type];
+                return (
+                  <li key={b.id} className="ksp-pacing-popup-beat-item">
+                    <span
+                      className="ksp-pacing-popup-beat-type"
+                      style={{ background: typeInfo.color + "33", color: typeInfo.color }}
+                      title={typeInfo.vi}
+                    >
+                      {typeInfo.emoji}
+                    </span>
+                    <span className="ksp-pacing-popup-beat-label">
+                      <strong>{b.order}.</strong> {b.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <div className="ksp-pacing-popup-empty">
+              Scene này chưa có beats. AI có thể đã thất bại hoặc scene action quá ngắn để phân tích.
+            </div>
+          )}
+          <div className="ksp-pacing-popup-actions">
+            {/* Sprint 1.0 r7.1: Retry button — visible for both empty AND populated scenes */}
+            {onRedetectBeats && (
+              <button
+                type="button"
+                className="ksp-pacing-popup-btn"
+                style={{ background: "#534AB7", color: "#FAF8F2", marginRight: "auto" }}
+                onClick={() => {
+                  onRedetectBeats();
+                  setOpenPopup(null);
+                }}
+                disabled={isDetectingBeats}
+              >
+                {isDetectingBeats ? "⏳ Đang detect..." : "🔄 Tạo lại beats"}
+              </button>
+            )}
+            <button type="button" className="ksp-pacing-popup-btn" onClick={() => setOpenPopup(null)}>
+              ✓ Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {openPopup === "emotion" && (
+        <div
+          className="ksp-pacing-popup"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <label className="ksp-pacing-popup-label">Cảm xúc:</label>
+          <div className="ksp-pacing-popup-emotions">
+            {(Object.keys(EMOTIONAL_TONE_LABELS) as EmotionalTone[]).map((k) => {
+              const info = EMOTIONAL_TONE_LABELS[k];
+              const isActive = tone === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  className="ksp-pacing-popup-emotion-chip"
+                  data-active={isActive}
+                  style={
+                    isActive
+                      ? { background: info.bg, color: info.color, borderColor: info.color }
+                      : undefined
+                  }
+                  onClick={() => {
+                    onUpdate({ emotionalTone: k });
+                    setOpenPopup(null);
+                  }}
+                >
+                  {info.emoji} {info.vi}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ============================================================================
 // SCENE CARD (collapsible)
 // ============================================================================
 
@@ -256,11 +587,17 @@ interface SceneCardProps {
   index: number;
   onUpdate: (updates: Partial<FilmSceneScript>) => void;
   onRemove: () => void;
+  /** Sprint 1.0 r7 (J3): re-detect beats when scene action edited. */
+  onRedetectBeats?: () => void;
+  /** Sprint 1.0 r7.1: true when AI is currently detecting beats for this scene */
+  isDetectingBeats?: boolean;
 }
 
-function SceneCard({ scene, index, onUpdate, onRemove }: SceneCardProps) {
+function SceneCard({ scene, index, onUpdate, onRemove, onRedetectBeats, isDetectingBeats }: SceneCardProps) {
   const [expanded, setExpanded] = useState(index === 0); // first scene expanded
   const [editingAction, setEditingAction] = useState(false);
+  // Sprint 1.0 r7 (J3): track if user actually changed action to avoid spurious re-detect on click-out
+  const [actionDirty, setActionDirty] = useState(false);
 
   const durationFmt = formatDuration(scene.durationSeconds);
 
@@ -289,6 +626,18 @@ function SceneCard({ scene, index, onUpdate, onRemove }: SceneCardProps) {
             <em>{scene.titleVi || scene.titleEn}</em>
           </div>
 
+          {/* Sprint 1.0 r1 (Phase 1A): pacing badges; r7: + beats badge; r7.1: + loading + retry */}
+          <div className="ksp-scene-card-pacing">
+            <PacingBadges
+              tensionLevel={scene.tensionLevel}
+              emotionalTone={scene.emotionalTone}
+              beats={(scene as any).beats}
+              isDetectingBeats={isDetectingBeats}
+              onRedetectBeats={onRedetectBeats}
+              onUpdate={(updates) => onUpdate(updates)}
+            />
+          </div>
+
           {/* Action lines (editable) */}
           <div className="ksp-scene-card-block">
             <label className="ksp-scene-card-block-label">Action:</label>
@@ -296,8 +645,19 @@ function SceneCard({ scene, index, onUpdate, onRemove }: SceneCardProps) {
               <textarea
                 className="ksp-textarea ksp-textarea-sm"
                 value={scene.actionLinesVi || scene.actionLinesEn}
-                onChange={(e) => onUpdate({ actionLinesVi: e.target.value })}
-                onBlur={() => setEditingAction(false)}
+                onChange={(e) => {
+                  onUpdate({ actionLinesVi: e.target.value });
+                  setActionDirty(true);
+                }}
+                onBlur={() => {
+                  setEditingAction(false);
+                  // Sprint 1.0 r7 J3: auto-trigger beats re-detection in background.
+                  // Only if user actually changed text (not just clicked then clicked out).
+                  if (actionDirty && onRedetectBeats) {
+                    onRedetectBeats();
+                    setActionDirty(false);
+                  }
+                }}
                 autoFocus
                 rows={3}
               />
@@ -1072,6 +1432,12 @@ function ActiveStage3({
 }: StageActiveContentProps) {
   const twists = film.scriptTwists ?? [];
   const beats = film.scriptBeats ?? [];
+  // r7.6: editable twists state — track which twist is being edited inline
+  // (click description → textarea autoFocus, blur → save + exit edit mode).
+  const [editingTwistId, setEditingTwistId] = useState<string | null>(null);
+  const [twistDraft, setTwistDraft] = useState("");
+  // r7.6: manual "add twist" form — open beat picker before creating
+  const [addBeatId, setAddBeatId] = useState<string | null>(null);
 
   async function handleRun() {
     if (!guardInputs()) return;
@@ -1105,10 +1471,33 @@ function ActiveStage3({
     }
   }
 
+  // r7.6: blur-to-save handler. Only commit if description actually changed.
+  function commitTwistEdit(twistId: string, original: string) {
+    const trimmed = twistDraft;
+    if (trimmed !== original) {
+      onUpdateProject((p) => updateScriptTwist(p, twistId, { description: trimmed }));
+    }
+    setEditingTwistId(null);
+  }
+
+  function handleRemoveTwist(twistId: string, descPreview: string) {
+    const preview = descPreview.length > 40 ? descPreview.slice(0, 40) + "…" : descPreview;
+    if (!confirm(`Xóa tình tiết "${preview || "(trống)"}" ?`)) return;
+    onUpdateProject((p) => removeScriptTwist(p, twistId));
+    if (editingTwistId === twistId) setEditingTwistId(null);
+  }
+
+  function handleAddNewTwist() {
+    if (!addBeatId || beats.length === 0) return;
+    onUpdateProject((p) => addScriptTwist(p, addBeatId, ""));
+    onShowToast("Đã thêm tình tiết mới — click vào text để viết", "success");
+    setAddBeatId(null);
+  }
+
   return (
     <div className="ksp-step-active-body">
       <p className="ksp-step-active-hint">
-        AI gợi ý 1-3 tình tiết bất ngờ để câu chuyện hấp dẫn hơn. Chấp nhận ✓ / từ chối ✗ từng cái.
+        AI gợi ý 1-3 tình tiết bất ngờ để câu chuyện hấp dẫn hơn. Click vào mô tả để chỉnh sửa (blur để lưu). Chấp nhận ✓ / từ chối ✗ / xóa ✕ từng cái.
       </p>
 
       <button
@@ -1129,6 +1518,7 @@ function ActiveStage3({
           <div className="ksp-step-twists-list">
             {twists.map((t, i) => {
               const beat = beats.find((b) => b.id === t.beatId);
+              const isEditing = editingTwistId === t.id;
               return (
                 <div
                   key={t.id}
@@ -1141,8 +1531,49 @@ function ActiveStage3({
                     <span className="ksp-step-twist-beat">
                       gắn vào Beat {beat?.order ?? "?"}: {beat?.title ?? "(?)"}
                     </span>
+                    <button
+                      type="button"
+                      className="ksp-step-twist-remove-btn"
+                      onClick={() => handleRemoveTwist(t.id, t.description)}
+                      title="Xóa tình tiết này"
+                      aria-label="Xóa tình tiết"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <p className="ksp-step-twist-desc">{t.description}</p>
+                  {isEditing ? (
+                    <textarea
+                      className="ksp-step-twist-edit"
+                      autoFocus
+                      value={twistDraft}
+                      onChange={(e) => setTwistDraft(e.target.value)}
+                      onBlur={() => commitTwistEdit(t.id, t.description)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setEditingTwistId(null); // discard draft
+                        }
+                      }}
+                      placeholder="Mô tả tình tiết bất ngờ..."
+                      rows={3}
+                    />
+                  ) : (
+                    <p
+                      className="ksp-step-twist-desc ksp-step-twist-desc-editable"
+                      onClick={() => {
+                        setTwistDraft(t.description);
+                        setEditingTwistId(t.id);
+                      }}
+                      title="Click để chỉnh sửa"
+                    >
+                      {t.description.trim() ? (
+                        t.description
+                      ) : (
+                        <em className="ksp-step-twist-desc-empty">
+                          (Trống — click để viết tình tiết)
+                        </em>
+                      )}
+                    </p>
+                  )}
                   <div className="ksp-step-twist-actions">
                     <button
                       type="button"
@@ -1163,6 +1594,50 @@ function ActiveStage3({
               );
             })}
           </div>
+
+          {/* r7.6: + Add new twist with beat picker */}
+          {beats.length > 0 && (
+            addBeatId === null ? (
+              <button
+                type="button"
+                className="ksp-step-twist-add-btn"
+                onClick={() => setAddBeatId(beats[0].id)}
+              >
+                + Thêm tình tiết mới
+              </button>
+            ) : (
+              <div className="ksp-step-twist-add-form">
+                <label className="ksp-step-twist-add-label">Gắn vào beat:</label>
+                <select
+                  className="ksp-select ksp-select-sm"
+                  value={addBeatId}
+                  onChange={(e) => setAddBeatId(e.target.value)}
+                >
+                  {beats.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Beat {b.order}: {b.title}
+                    </option>
+                  ))}
+                </select>
+                <div className="ksp-step-twist-add-actions">
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-primary ksp-btn-sm"
+                    onClick={handleAddNewTwist}
+                  >
+                    Tạo
+                  </button>
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                    onClick={() => setAddBeatId(null)}
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            )
+          )}
 
           <button
             type="button"
@@ -1323,6 +1798,50 @@ function ActiveStage4({
             </span>
             <button
               type="button"
+              className="ksp-step-secondary-btn ksp-step-secondary-btn-sm"
+              disabled={isGenerating}
+              onClick={async () => {
+                if (interScenes.length === 0) return;
+                onSetGenerating(true);
+                try {
+                  const annotations = await runReannotateEmotions({
+                    scenes: interScenes.map((s) => ({
+                      id: s.id,
+                      order: s.order,
+                      titleEn: s.titleEn,
+                      titleVi: s.titleVi,
+                      actionLinesEn: s.actionLinesEn,
+                      actionLinesVi: s.actionLinesVi,
+                      durationSeconds: s.durationSeconds,
+                    })),
+                    provider,
+                  });
+                  const count = Object.keys(annotations).length;
+                  if (count === 0) {
+                    onShowToast("AI không trả annotation nào — thử lại", "error");
+                  } else {
+                    onUpdateProject((p) => {
+                      let next = p;
+                      for (const sceneId of Object.keys(annotations)) {
+                        const patch = updateScriptIntermediateScene(next, sceneId, annotations[sceneId]);
+                        next = { ...next, ...patch };
+                      }
+                      return next;
+                    });
+                    onShowToast(`Đã re-annotate ${count} phân cảnh`, "success");
+                  }
+                } catch (err) {
+                  onShowToast(`Re-annotate lỗi: ${(err as Error).message}`, "error");
+                } finally {
+                  onSetGenerating(false);
+                }
+              }}
+              title="Sinh lại tension + cảm xúc cho tất cả phân cảnh (AI call nhỏ, ~$0)"
+            >
+              🎭 Re-annotate
+            </button>
+            <button
+              type="button"
               className="ksp-step-primary-btn ksp-step-primary-btn-sm"
               onClick={() =>
                 onUpdateProject((p) => {
@@ -1413,6 +1932,15 @@ function SceneCardWithWarning({
             ⚠ ~{estimatedShots} shots {expanded ? "▲" : "▼"}
           </button>
         )}
+      </div>
+      {/* Sprint 1.0 r1 (Phase 1A): pacing badges for intermediate scenes */}
+      <div className="ksp-step-scene-pacing">
+        <PacingBadges
+          tensionLevel={scene.tensionLevel}
+          emotionalTone={scene.emotionalTone}
+          onUpdate={(updates) => onUpdateProject((p) => updateScriptIntermediateScene(p, scene.id, updates))}
+          compact
+        />
       </div>
       <div className="ksp-step-scene-settings">{scene.settings}</div>
       <div className="ksp-step-scene-action">{scene.actionLinesVi || scene.actionLinesEn}</div>
@@ -1550,6 +2078,58 @@ function ActiveStage5({
       });
       onUpdateProject((p) => setScript(p, newScript));
       onShowToast(`Đã viết script ${newScript.scenes.length} cảnh — chuyển sang Storyboard`, "success");
+
+      // Sprint 1.0 r7 (Q-A): Auto-detect beats + physical consistency lock for all scenes.
+      // Runs in background — user can proceed without waiting. Toast notifies completion.
+      // Failure is non-blocking: beats stay undefined, UI shows "·" placeholder in badge.
+      // Sprint 1.0 r7.1 (Bug 2 fix): track failures per-scene + warn user with retry option.
+      (async () => {
+        try {
+          onShowToast(`🎯 Đang phân tích beats cho ${newScript.scenes.length} scenes...`, "info");
+          const bulkResult = await runDetectBeatsForAllScenes({
+            scenes: newScript.scenes,
+            provider,
+          });
+          onUpdateProject((p) => applyBeatsAndPhysicalLock(p, bulkResult.results));
+          const totalBeats = Object.values(bulkResult.results).reduce(
+            (sum, r) => sum + (r.beats?.length ?? 0),
+            0
+          );
+          const scenesWithLock = Object.values(bulkResult.results).filter(
+            (r) => !!r.physicalConsistencyLockEn
+          ).length;
+          const failedCount = bulkResult.failedSceneIds.length;
+          const emptyCount = bulkResult.emptySceneIds.length;
+          if (failedCount > 0 || emptyCount > 0) {
+            // Partial success — warn user with detail
+            const sceneOrderOf = (id: string) =>
+              newScript.scenes.find((s) => s.id === id)?.order ?? "?";
+            const failedOrders = bulkResult.failedSceneIds.map(sceneOrderOf).join(", ");
+            const emptyOrders = bulkResult.emptySceneIds.map(sceneOrderOf).join(", ");
+            const detail = [
+              failedCount > 0 && `${failedCount} scene lỗi (${failedOrders})`,
+              emptyCount > 0 && `${emptyCount} scene trống beats (${emptyOrders})`,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            onShowToast(
+              `⚠ Beats: ${totalBeats}/${
+                newScript.scenes.length * 8
+              } target. ${detail}. Click badge "🎯" trên Scene Card để retry.`,
+              "info"
+            );
+          } else {
+            onShowToast(
+              `✅ Đã detect ${totalBeats} beats trên ${newScript.scenes.length} scenes${
+                scenesWithLock > 0 ? ` + physical lock cho ${scenesWithLock} scenes` : ""
+              }`,
+              "success"
+            );
+          }
+        } catch (err) {
+          onShowToast(`Beats detection lỗi (không blocking): ${(err as Error).message}`, "info");
+        }
+      })();
     } catch (err) {
       onShowToast(`Stage 5 lỗi: ${(err as Error).message}`, "error");
     } finally {

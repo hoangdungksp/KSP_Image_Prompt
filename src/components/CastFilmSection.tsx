@@ -51,9 +51,12 @@ import {
   generateCharacterDescription,
   generateCharacterRefImage,
   findNextMissingLabel,
+  runGenerateCastPromptSet,
   type RefKind,
+  type CastPromptSet,
 } from "../engine/filmCastGeneration";
 import type { FilmScriptProvider } from "../engine/filmScriptStages";
+import { CastPromptModal } from "./CastPromptModal";
 
 // Role → emoji avatar mapping
 const ROLE_EMOJI: Record<FilmCharacterRole, string> = {
@@ -177,11 +180,18 @@ function CastFilmCard({
   const [editMode, setEditMode] = useState(!character.name);
   const [expandedRefs, setExpandedRefs] = useState<"face" | "body" | null>(null);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
+  // Sprint G1d (Item 6): Cast prompt modal state
+  const [promptResult, setPromptResult] = useState<CastPromptSet | null>(null);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [promptMatchedToRefs, setPromptMatchedToRefs] = useState(false);
   const project = useAppStore((s) => s.currentProject);
 
   // Avatar emoji
   const initialLetter = character.name.trim().charAt(0).toUpperCase();
   const avatarContent = ROLE_EMOJI[character.role] ?? initialLetter ?? String(character.order);
+  // r7.6: When character has uploaded face refs, show the FIRST face ref image inside
+  // the avatar circle (slot 0 = "front"). Falls back to emoji role icon when no ref.
+  const firstFaceRefUrl = character.faceRefs?.[0]?.dataUrl;
 
   async function handleAIGenerateDescription() {
     if (!project) return;
@@ -226,13 +236,71 @@ function CastFilmCard({
     }
   }
 
+  /**
+   * Sprint G1d (Item 6) — Trigger AI cast prompt generation.
+   * Pre-condition: character must have description (text VI) — engine quality drops sharply
+   * without it. Multimodal mode auto-enabled if faceRefs[0] exists.
+   */
+  async function handleGenerateCastPrompt(forceFaceRefMatch?: boolean) {
+    if (!project) return;
+    const setting = (project as any).settingV2 as import("../types/project").ProjectSettingV2 | undefined;
+    if (!setting) {
+      showToast("Project setting missing", "error");
+      return;
+    }
+    if (!character.description.trim()) {
+      showToast("Cần có mô tả character trước (click ✨ AI gen description)", "info");
+      return;
+    }
+    const film = ensureFilmData(project);
+    const idea = project.idea?.raw ?? "";
+    const provider: FilmScriptProvider =
+      (setting.aiProviders?.scriptWriter ?? "gemini-flash") as FilmScriptProvider;
+    // Default: enable multimodal if faceRefs exist (Q-ii=B confirmed).
+    // Caller can override via forceFaceRefMatch param (from modal regen toggle).
+    const useFaceRefForMatch =
+      forceFaceRefMatch !== undefined
+        ? forceFaceRefMatch
+        : (character.faceRefs?.length ?? 0) > 0;
+
+    setIsGeneratingPrompt(true);
+    try {
+      const result = await runGenerateCastPromptSet({
+        character,
+        idea,
+        script: film.script,
+        setting,
+        provider,
+        useFaceRefForMatch,
+      });
+      setPromptResult(result);
+      setPromptMatchedToRefs(useFaceRefForMatch && (character.faceRefs?.length ?? 0) > 0);
+      showToast(
+        `Đã sinh prompt: face ${result.facePrompt.length}c · body ${result.bodyPrompt.length}c`,
+        "success"
+      );
+    } catch (err) {
+      showToast(`Cast prompt lỗi: ${(err as Error).message}`, "error");
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  }
+
   return (
     <div className="ksp-cast-film-card" data-role={character.role}>
       <div className="ksp-cast-film-body">
         {/* Header row: avatar + name/role + actions */}
         <div className="ksp-cast-film-header-row">
           <div className="ksp-cast-film-avatar">
-            <span className="ksp-cast-film-avatar-emoji">{avatarContent}</span>
+            {firstFaceRefUrl ? (
+              <img
+                className="ksp-cast-film-avatar-img"
+                src={firstFaceRefUrl}
+                alt={character.name || `Character ${character.order}`}
+              />
+            ) : (
+              <span className="ksp-cast-film-avatar-emoji">{avatarContent}</span>
+            )}
           </div>
 
           {editMode ? (
@@ -338,7 +406,31 @@ function CastFilmCard({
           >
             {isGeneratingDesc ? "⏳" : "✨"}
           </button>
+          {/* Sprint G1d (Item 6) — AI sinh prompt EN cho Banana Pro / Imagen */}
+          <button
+            type="button"
+            className="ksp-cast-film-castprompt-icon-btn"
+            onClick={() => handleGenerateCastPrompt()}
+            disabled={isGeneratingPrompt}
+            title="📝 AI sinh prompt EN (Face + Body) cho Banana Pro / Imagen — paste ra ngoài để generate ảnh refs"
+            aria-label="AI sinh prompt nhân vật"
+          >
+            {isGeneratingPrompt ? "⏳" : "📝"}
+          </button>
         </div>
+
+        {/* Cast prompt modal — opens when promptResult is set */}
+        {promptResult && (
+          <CastPromptModal
+            character={character}
+            result={promptResult}
+            matchedToRefs={promptMatchedToRefs}
+            isRegenerating={isGeneratingPrompt}
+            onRegen={(useFaceRefForMatch) => handleGenerateCastPrompt(useFaceRefForMatch)}
+            onClose={() => setPromptResult(null)}
+            showToast={showToast}
+          />
+        )}
 
         {/* Expanded refs panel below button row */}
         {expandedRefs === "face" && (

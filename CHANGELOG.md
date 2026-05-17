@@ -1,5 +1,1901 @@
 # Changelog
 
+## [0.9.4-r7.8-downloads] — 2026-05-17 — Bulk download buttons (3 features)
+
+### Background
+
+Jason yêu cầu 3 nút download nhanh để export content ra ngoài KSP Image:
+1. Sau khi có Shot List → download toàn bộ mô tả phim dạng text tiếng Việt
+2. Grid header rename "Grid - Scene N" + download Animation Prompts ZIP per scene
+3. Download Image Prompts ZIP per scene (cùng pattern feature 2)
+
+### Architecture
+
+**New engine `src/engine/filmStoryOverviewExport.ts` (~340 lines):**
+
+Builder function `buildStoryOverviewTxt(input)` returns plain UTF-8 text với cấu trúc:
+- Header: title (uppercase), idea, logline, settings (animation style, aspect, framework, dialog mode)
+- Cast: per character với name + role VI + description + refs count
+- Scenes (per scene): title + duration + emotional tone + tension + setting + characters in scene + action lines + dialog + beats + shot list
+- Summary footer: total scenes, shots, duration, characters + export timestamp
+
+Format choices:
+- Plain `.txt` (NOT markdown) — Jason chốt "format văn bản rõ ràng dễ đọc"
+- Box-drawing dividers (`=`, `─`) + indentation cho hierarchy
+- Word-wrap 72 chars để readable trên Notepad/TextEdit
+- UTF-8 BOM (`\ufeff`) prefix → Windows Notepad render Vietnamese correctly
+- Vietnamese labels cho shot types + camera movements + roles (mapping dict trong engine)
+
+**Feature 1 — Shot List header download button:**
+
+`src/components/FilmShotListSection.tsx`:
+- Handler `handleDownloadStoryOverview()` calls `buildStoryOverviewTxt` → wraps in Blob → triggers download via `<a download>`
+- Filename: `{titleSafe}_overview.txt` (sanitize non-Vietnamese chars)
+- Button `.ksp-shotlist-download-overview-btn` ở góc phải header section (purple-tinted)
+- Only renders when script exists + totalScenes > 0
+- Toast success với character count, error fallback
+
+**Feature 2 — Grid header rename + Animation Prompts ZIP:**
+
+`src/components/FilmStoryboardSection.tsx`:
+- Header text: `Grid {grid.order}` → `Grid - Scene {scene.order}` (Jason chốt: 2 grids đã visual seamless 1 block, header nên reflect scene)
+- Header chỉ render lần đầu (`hideHeader=false` → first grid only) → đúng intent "1 header per scene"
+- Handler `handleDownloadAnimationPrompts()`:
+  - Reads all shots in scene via `getShotsForScene(project, scene.id)`
+  - Per shot: resolve `shot.animationPromptR5` (AI re-prompt override) → fallback `buildAnimationPrompt({shot, scene, cast, setting, provider, timeFormat, allScenes, setupPayoffPairs})`
+  - Provider resolved via `resolveVideoProvider(shot.videoProviderId)`
+  - ZIP file added: `prompt_shot_{shot.order}.txt`
+  - ZIP filename: `scene-{scene.order}_animation_prompts.zip`
+- Button `🎬 Animation` góc phải header (icon-only fluid label, ghost style)
+- Note: bulk download uses simple `buildAnimationPrompt` — NOT `buildAnimationPromptAdvanced` (first/last frame mode), since that's per-modal local state
+
+**Feature 3 — Image Prompts ZIP:**
+
+Same pattern as Feature 2:
+- Handler `handleDownloadImagePrompts()`
+- Per shot: `shot.imagePromptR5` (override) → fallback `buildSingleShotImagePrompt({shot, scene, cast, setting, allScenes, setupPayoffPairs})`
+- ZIP file naming: `prompt_shot_{shot.order}.txt` (same convention, no conflict since different ZIPs)
+- ZIP filename: `scene-{scene.order}_image_prompts.zip`
+- Button `📸 Image` góc phải header
+
+### CSS
+
+`src/components/film.css`:
+- `.ksp-storyboard-grid-header-downloads` — flex container `margin-left: auto` đẩy buttons góc phải
+- `.ksp-shotlist-download-overview-btn` — purple-tinted button (background rgba 83,74,183,0.12 + border #534AB7 + hover brighten)
+
+### Files touched
+
+- `src/engine/filmStoryOverviewExport.ts` (NEW, ~340 lines)
+- `src/components/FilmShotListSection.tsx` (+50 lines: import + handler + button)
+- `src/components/FilmStoryboardSection.tsx` (header rename + 2 handlers + button row, ~120 lines added)
+- `src/components/film.css` (+35 lines new button styles)
+- `test/film_mode.test.tsx` (+5 r7.8 tests + version bump test update)
+- `manifest.json` + `package.json` — bump 0.9.4.16 / `0.9.4-r7.8-downloads`
+
+### Build verification
+
+- ✅ TypeScript: 0 errors
+- ✅ Vite production build: 11.66s · Bundle 903KB (gzip 282KB)
+- ✅ Vitest: **406 passed | 12 skipped (418 total)** — +5 r7.8 tests
+- ✅ Photos regression: 49/49
+
+### User test workflow
+
+1. Apply r7.8 zip → reload → tooltip `KSP Image v0.9.4-r7.8 — Open Editor`
+2. **Story Overview:** Project có script + shots → vào Section 4 SHOT LIST → góc phải header có button `📥 Story Overview` (purple) → click → file `.txt` download. Mở Notepad PHẢI thấy:
+   - Header `PHIM: {TITLE UPPER}` + idea + logline + settings
+   - Cast section per character
+   - Scenes section per scene + shots indented
+   - Footer summary với total counts
+   - Vietnamese render đúng (không bị ô vuông) nhờ UTF-8 BOM
+3. **Grid header rename:** Mở storyboard scene → header PHẢI ghi `Grid - Scene 1` (KHÔNG còn `Grid 1`). Multi-grid scene cũng chỉ 1 header duy nhất phía trên cùng.
+4. **Animation Prompts ZIP:** Click button `🎬 Animation` góc phải header → ZIP `scene-1_animation_prompts.zip` download. Mở zip PHẢI có files `prompt_shot_1.txt`, `prompt_shot_2.txt`, ... (1 file per shot trong scene đó). Mỗi file là animation prompt EN ready cho Seedance/Veo3.
+5. **Image Prompts ZIP:** Click button `📸 Image` → ZIP `scene-1_image_prompts.zip` với cùng file naming. Mỗi file là single-frame image prompt cho Banana Pro/Imagen.
+6. **AI re-prompt override:** Nếu shot đã có `imagePromptR5` hoặc `animationPromptR5` (do anh đã AI re-prompt trong Edit Frame trước đó), bulk download dùng override version, KHÔNG dùng deterministic builder.
+
+### Pending (vẫn deferred)
+
+- Sprint G1c (4 items deferred từ G1ab): AI auto-gen shot cho missing beat, AI suggest more shots banner, Physical lock editable, Refs ZIP filename convention
+- Regen prompt button trong Grid prompt panel (dead-code từ r6) — chờ Jason chốt A/B/C cho fix
+
+---
+
+## [0.9.4-r7.7-castprompt] — 2026-05-17 — Sprint G1d (Item 6) + UI tweaks
+
+### Background
+
+Jason batch ship combining:
+- 2 small r7.7 UI tweaks reported after r7.6 apply
+- **Sprint G1d (Item 6)**: AI character prompt generation feature
+
+### r7.7 UI tweaks
+
+**Fix 1 — Twist add button gap:** `.ksp-step-twist-add-btn` + `.ksp-step-twist-add-form` thiếu margin-bottom → dính sát button cam "Tiếp: ④ Phân cảnh →". Added `margin-bottom: 10px` cho cả 2.
+
+**Change 2 — Multi-grid tabs default Grid 1 active:** `MultiGridPromptTabs` activeIdx default `null` → `0` (Grid 1 active when scene first opens with multi-grid). User vẫn click active tab để collapse hoàn toàn nếu muốn. Better UX vì 90% scene multi-grid là dài thì user thường mở Grid 1 trước.
+
+### Sprint G1d — Item 6 AI Cast Prompt Generation
+
+**3 chốt với Jason:**
+- Q-i = B: 2 prompts riêng (face portrait 1:1 + full body 3:4)
+- Q-ii = B: Multimodal Gemini call khi character có faceRefs (AI đọc ảnh thật → match appearance, không invent)
+- Q-iii = A: Button per-card trong từng Cast item (icon 📝)
+
+**Engine — `src/engine/filmCastGeneration.ts`:**
+
+New function `runGenerateCastPromptSet(input)` returning `CastPromptSet = {facePrompt, bodyPrompt, anchorTokens}`:
+- Reads character description (VI) + idea + script context (max 3 scenes character xuất hiện) + project setting
+- Style hint resolved from `setting.animationStyle` — `anime_2d` / `cgi_3d_cinematic` / `film_noir` / default photorealistic
+- AI Gemini Flash với strict JSON output (anchorTokens[] + facePrompt + bodyPrompt)
+- **Multimodal path** when `useFaceRefForMatch=true` AND `character.faceRefs[0].dataUrl` exists:
+  - Calls new helper `callGeminiMultimodal({systemPrompt, userPromptText, imageDataUrl})`
+  - Sends inline_data part (mime_type + base64) to Gemini 2.5 Flash multimodal endpoint
+  - AI sees actual face → describes ACTUAL appearance (no invention drift)
+- **Text-only fallback** when no refs or user disables: standard `callAi` text-only
+
+System prompt instructs AI to:
+- Anchor tokens are consistency LOCK — must appear identically in face+body
+- Concrete visual only (no plot, no emotion narrative)
+- Animal character → describe as animal (NOT anthropomorphic)
+- If refs exist → anchor on visible features, don't invent
+- Sentence prose not bullets
+
+**Modal — `src/components/CastPromptModal.tsx` (new file, ~180 lines):**
+
+- Fullscreen backdrop (z-index 9000) + centered card (max-width 560px, 90vh max-height)
+- Header: title `📝 Prompt cho {name}` + optional `✓ Matched to refs` badge + ✕ close
+- 2 tabs: `👤 Face portrait` / `🧍 Full body` với char counts
+- Body: readonly textarea (~10 rows monospace) + action row + anchor tokens + workflow guide
+- Action row: `📋 Copy` (clipboard + toast) · `🔄 Regen` (re-runs engine with current toggle state) · `[✓ Match refs]` checkbox (only visible when faceRefs exist) right-aligned
+- Anchor tokens panel collapsible — `▶ 🔒 Anchor tokens (N)` → expands bullet list
+- Workflow footer: `1. Copy → 2. Paste vào Banana Pro/Imagen → 3. Upload back vào Face/Body refs`
+- Backdrop click closes · card click `stopPropagation` to keep open
+
+**Wire-up — `src/components/CastFilmSection.tsx`:**
+
+CastFilmCard:
+- New state: `promptResult: CastPromptSet | null`, `isGeneratingPrompt: boolean`, `promptMatchedToRefs: boolean`
+- New handler `handleGenerateCastPrompt(forceFaceRefMatch?: boolean)`:
+  - Validates `setting` + `character.description` (toast hint if missing description)
+  - Default `useFaceRefForMatch` = true if faceRefs exist (Q-ii=B)
+  - Calls `runGenerateCastPromptSet` → sets result + flags
+- New button `.ksp-cast-film-castprompt-icon-btn` (📝 icon) sibling của `.ksp-cast-film-aigen-icon-btn` (✨)
+  - Linear gradient `#3f5a8a → #5f3f7a` (blue-purple, distinct from ✨ pink-purple)
+  - Disabled during regen, shows ⏳ loading
+- Conditional `<CastPromptModal/>` render when `promptResult` set
+- Modal `onRegen` callback delegates back to `handleGenerateCastPrompt(useFaceRefForMatch)` with toggle override
+
+**CSS — `src/components/film.css`:**
+
+- `.ksp-cast-film-castprompt-icon-btn` 32×28 blue-purple gradient button
+- `.ksp-cast-prompt-modal-backdrop` fixed inset:0 with rgba overlay
+- `.ksp-cast-prompt-modal` card với border-radius 8px, max-height 90vh scroll
+- `.ksp-cast-prompt-modal-header` + `.ksp-cast-prompt-modal-title` + `.ksp-cast-prompt-modal-badge` (green Match refs indicator) + `.ksp-cast-prompt-modal-close`
+- `.ksp-cast-prompt-modal-tabs` + `.ksp-cast-prompt-modal-tab` (gap 0, no border-radius) + `.ksp-cast-prompt-modal-tab-active` (purple accent + border-bottom 2px #534AB7)
+- `.ksp-cast-prompt-modal-textarea` monospace font with 140px min-height vertical resize
+- `.ksp-cast-prompt-modal-actions` flex row + `.ksp-cast-prompt-modal-match-toggle` right-aligned auto
+- `.ksp-cast-prompt-modal-anchor` + `.ksp-cast-prompt-modal-anchor-toggle` + `.ksp-cast-prompt-modal-anchor-list` purple-tinted panel
+- `.ksp-cast-prompt-modal-workflow` numbered list guide
+
+### Files touched
+
+- `src/engine/filmCastGeneration.ts` — `runGenerateCastPromptSet` + `callGeminiMultimodal` (~200 lines added)
+- `src/components/CastPromptModal.tsx` — NEW (~180 lines)
+- `src/components/CastFilmSection.tsx` — state + handler + button + modal wire (~60 lines added)
+- `src/components/FilmStoryboardSection.tsx` — Item r7.7 change 2 (activeIdx default 0)
+- `src/components/film.css` — castprompt button + modal styles + twist add gap (~200 lines added)
+- `test/film_mode.test.tsx` — +6 tests (r7.7 + G1d)
+- `manifest.json` + `package.json` — bump 0.9.4.15 / `0.9.4-r7.7-castprompt`
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 9.66s · Bundle 895KB (gzip 280KB)
+- ✅ Vitest runtime: **401 passed | 12 skipped (413 total)** — +5 r7.7 tests
+- ✅ Photos regression: 49/49
+
+### User test workflow
+
+**r7.7 quick fixes:**
+1. Apply r7.7 zip → reload extension → tooltip `KSP Image v0.9.4-r7.7 — Open Editor`
+2. Script → Stage 3 Twists → "+ Thêm tình tiết mới" PHẢI có khoảng cách hợp lý với button cam "Tiếp: ④ Phân cảnh →" (10px gap)
+3. Mở scene 12+ shots → Storyboard → MULTI-GRID PHẢI có tab Grid 1 ACTIVE mặc định (purple highlight, body open) thay vì cả 2 collapsed
+
+**Sprint G1d Item 6 test:**
+1. Project có idea + script + 1 character với description (đã viết hoặc AI gen)
+2. Cast section → click button **📝** (xanh-tím, kế bên ✨) → loading ⏳
+3. Modal mở với 2 tabs `[👤 Face portrait] [🧍 Full body]` + textarea EN prompt
+4. Click `📋 Copy` → paste thử ra notepad verify content
+5. Click `▶ 🔒 Anchor tokens (N)` → expand list các tokens consistency lock
+6. **Multimodal test:** Upload 1 face ref vào character → close modal → click 📝 lại → modal mở với badge `✓ Matched to refs` + checkbox `Match refs` checked. AI prompt giờ should describe actual uploaded face.
+7. Bỏ tick `Match refs` → click `🔄 Regen` → re-call text-only mode (cheaper, no image input).
+8. Click backdrop hoặc ✕ → modal đóng.
+
+### Sprint G1c (vẫn deferred — chưa code)
+
+4 items deferred từ G1ab vẫn nguyên scope cho Sprint G1c sau khi r7.7 test stable:
+- AI auto-generate shot cho missing beat
+- AI suggest more shots banner
+- Physical lock user editable trong Scene Card
+- Refs ZIP filename convention update
+
+---
+
+## [0.9.4-r7.6-ui-batch] — 2026-05-17 — UI batch fixes (5 items)
+
+### Background
+
+Jason batch report 5 UI items sau test r7.5:
+1. Multi-grid CSS tweaks (padding, gap, border-radius, sibling tab border)
+2. `.ksp-pacing-dashboard-section` thiếu border bọc
+3. Stage 3 Twists chưa edit/xóa/thêm được
+4. Cast: nút "+" nằm giữa header thay vì góc phải, avatar không hiển thị face ref khi đã upload
+5. Voice + Music sections không default collapsed
+
+### Item 1 — Multi-grid CSS adjustments
+
+**Changes in `src/components/film.css`:**
+- `.ksp-storyboard-multigrid-container > .ksp-storyboard-grid-block:not(:first-child)`: bỏ `background: transparent`, đổi `padding: 0 10px` (giữ block bg thay vì invisible).
+- `.ksp-storyboard-multigrid-prompts`: `margin-top: 0` (tabs flush dưới cells).
+- `.ksp-storyboard-prompt-tabs`: `gap: 0` (tabs flush với nhau).
+- `.ksp-storyboard-prompt-tab`: `border-radius: 0` (square corners).
+- Added `.ksp-storyboard-prompt-tab + .ksp-storyboard-prompt-tab { border-left: none }` để avoid duplicate border giữa tabs cạnh nhau.
+- Added **`:has()` selector** cho non-active tab: khi 1 tab active, tab còn lại có `border-bottom: 1px solid #534AB7` để align với purple accent của active tab + body. Yêu cầu Chrome 105+ (Chrome extension OK).
+
+### Item 2 — Pacing dashboard section border
+
+`.ksp-pacing-dashboard-section` dùng class `ksp-section-v09` (không phải `ksp-section`) nên không được hưởng border styling chuẩn. Fix: thêm explicit border + radius + background + box-shadow match `.ksp-section`, giữ nguyên `border-color: #534AB7` accent.
+
+### Item 3 — Stage 3 Twists editable
+
+**Hướng A confirmed** — inline edit + blur-save + ✕ delete + "+ Thêm tình tiết" với beat picker.
+
+**Store actions mới (`src/store/film_actions.ts`):**
+- `removeScriptTwist(project, twistId)` — xóa 1 twist by id, không touch `scriptTwistsLocked` (small edit).
+- `addScriptTwist(project, beatId, description="")` — thêm twist mới attached vào beat, description empty default, accepted undefined.
+
+**UI rewrite trong `ActiveStage3`:**
+- State mới: `editingTwistId` + `twistDraft` + `addBeatId`.
+- Click description → setEditingTwistId + setTwistDraft → render `<textarea autoFocus>` thay cho `<p>`.
+- Blur textarea → `commitTwistEdit` (only commit nếu actually changed) → updateScriptTwist.
+- Escape key → discard draft + exit edit mode.
+- ✕ button per twist (header right) → confirm → removeScriptTwist.
+- "+ Thêm tình tiết mới" button → toggle beat picker form (select dropdown + Tạo/Hủy buttons) → addScriptTwist với empty description → user click vào card để viết.
+
+**CSS mới (`src/components/film.css`):**
+- `.ksp-step-twist-remove-btn` — 20×20 ghost button, hover red.
+- `.ksp-step-twist-desc-editable` — cursor text + hover dashed outline (visual hint clickable).
+- `.ksp-step-twist-desc-empty` — italic muted khi description trống.
+- `.ksp-step-twist-edit` — textarea purple border focus.
+- `.ksp-step-twist-add-btn` — dashed button.
+- `.ksp-step-twist-add-form` + `.ksp-step-twist-add-label` + `.ksp-step-twist-add-actions` — purple-tinted form panel.
+
+### Item 4 — Cast: "+" button right corner + face ref avatar
+
+**CSS fix:** `.ksp-cast-film-add-corner` đổi `margin-left: 8px` → `margin-left: auto` (flex push-right pattern). Button giờ nằm sát góc phải header.
+
+**JSX fix in `CastFilmSection.tsx`:**
+- Compute `firstFaceRefUrl = character.faceRefs?.[0]?.dataUrl`.
+- Render conditional: nếu có `firstFaceRefUrl` → `<img className="ksp-cast-film-avatar-img"/>`; else giữ `<span>` emoji fallback.
+- Memory note ("Avatar circles permanently removed") — Jason chốt override lock cũ: avatar circles được khôi phục + face ref đầu (slot 0 "front") hiển thị làm avatar.
+
+**CSS mới:** `.ksp-cast-film-avatar-img` — `width: 100%; height: 100%; object-fit: cover; border-radius: 50%` để fit perfectly trong circle.
+
+### Item 5 — Voice + Music sections default collapsed
+
+**Approach:** Add `useRef` + `useEffect` trên mỗi section. On first mount, add class `ksp-section-collapsed` to section element. Editor's click handler (`section.classList.toggle("ksp-section-collapsed")`) handles expand/collapse from there.
+
+Why ref + DOM manipulation thay vì React state: existing collapse mechanism trong `Editor.tsx` already operates on DOM via `classList.toggle`. State approach would conflict với external toggle. DOM-only approach preserves single source of truth.
+
+Files: `FilmVoiceSection.tsx` + `FilmMusicSfxSection.tsx`. Import added: `useRef, useEffect`.
+
+Note: Jason said "Section Video AI" — em interpret là `FilmVoiceSection` ("6. VOICE AI") vì r5 đã xóa standalone Video AI section (moved to per-shot inline trong Storyboard).
+
+### Files touched
+
+- `src/components/film.css` — Items 1, 2, 3 (twist CSS), 4 ("+" button + avatar img)
+- `src/components/FilmIdeaScriptSection.tsx` — Item 3 (ActiveStage3 rewrite + new action imports)
+- `src/store/film_actions.ts` — Item 3 (+removeScriptTwist, +addScriptTwist)
+- `src/components/CastFilmSection.tsx` — Item 4 (avatar conditional render)
+- `src/components/FilmVoiceSection.tsx` — Item 5 (useRef + useEffect collapse)
+- `src/components/FilmMusicSfxSection.tsx` — Item 5 (same pattern)
+- `test/film_mode.test.tsx` — +7 r7.6 tests
+- `manifest.json` + `package.json` — bump 0.9.4.14 / `0.9.4-r7.6-ui-batch`
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 12.21s · Bundle 885KB (gzip 276KB)
+- ✅ Vitest runtime: **396 passed | 12 skipped (408 total)** — +7 r7.6 tests
+- ✅ Photos regression: 49/49
+
+### User test workflow
+
+1. Apply r7.6 zip → reload extension → tooltip phải đọc `KSP Image v0.9.4-r7.6 — Open Editor`
+2. **Item 1:** Mở scene 12+ shots → Storyboard → 2 tabs square corners flush dưới cells, no gap. Click 1 tab → tab kia có purple bottom border align với active.
+3. **Item 2:** Scroll xuống section Pacing Dashboard (Stage ⑥) → PHẢI thấy border khung bao (purple accent) giống các sections khác.
+4. **Item 3:** Script → Stage 3 Twists → click vào description → textarea autoFocus. Type → blur → save. Click ✕ → confirm dialog → xóa. Click "+ Thêm tình tiết mới" → select beat → Tạo → twist mới empty → click vào card để viết.
+5. **Item 4:** Cast section → nút "+" PHẢI nằm sát góc phải (không chính giữa). Upload 1 face ref cho 1 character → avatar circle PHẢI hiển thị ảnh thay vì emoji 🤖.
+6. **Item 5:** Mở project mới → scroll xuống → sections **6. VOICE AI** + **7. MUSIC + SFX** PHẢI default collapsed (chỉ thấy header). Click header → expand. Click lại → collapse.
+
+### Pending (Item 6 — discussed but not coded)
+
+Jason raised AI character prompt generation. Em đề xuất 3 hướng (A/B/C). Defer Sprint riêng sau r7.6 stable. Hướng A recommend: engine `runGenerateCastPrompt` build EN photo prompt từ script context, user copy → paste Banana Pro → upload back.
+
+---
+
+## [0.9.4-r7.5-multigrid-tabs] — 2026-05-17 — Multi-grid prompts refactor (Hướng A)
+
+### Background
+
+Sau r7.4 ship, Jason phát hiện multi-grid storyboard vẫn không thực sự seamless:
+- ❌ DOM order: `[Grid 1 cells][Grid 1 prompt][Grid 2 cells][Grid 2 prompt]` — prompt Grid 1 CHEN GIỮA 2 grid's cells
+- ❌ CSS strip chrome chỉ làm tàng hình border của block Grid 2 nhưng prompt-collapsible vẫn render giữa → visual break không thể fix bằng CSS alone
+
+### Discussion → chốt Hướng A
+
+3 hướng đề xuất:
+- A. Tách prompts ra ngoài grid-block, render tabs side-by-side dưới cùng, 1 panel expand at a time → textarea full-width readable
+- B. Tabs + body side-by-side luôn (2 cột song song) → textarea hẹp 150px khó đọc
+- C. Stacked vertical sau tất cả cells, không "kế bên" nhưng layout sạch
+
+Jason chốt **Hướng A** với 3 detail:
+- Q-a: Tab style như mockup (background + border-top accent #534AB7)
+- Q-b: Default cả 2 tabs collapsed (không auto-expand tab nào)
+- Single-grid scenes (≤9 shots): giữ behavior cũ (inline collapsible, không có tabs)
+
+### Architecture refactor
+
+**Components rebalanced:**
+
+| Component | Before (r7.4) | After (r7.5) |
+|---|---|---|
+| `GridDisplay` | Render header + cells + prompt collapsible + GridCropPreviewModal + FrameEditModal | Render header + cells + FrameEditModal only |
+| `GridPromptPanel` | (didn't exist) | NEW — own all prompt logic + handlers + pendingUpload + GridCropPreviewModal |
+| `MultiGridPromptTabs` | (didn't exist) | NEW — manages `activeIdx` state, renders tab bar + body for active tab |
+
+**Render branching trong SceneBlock:**
+
+```tsx
+<div className="ksp-storyboard-multigrid-container">
+  {grids.map(g => <GridDisplay grid={g} hideHeader={idx>0}/>)}
+  {grids.length === 1 ? (
+    <GridPromptPanel grid={grids[0]} hideToggleRow={false}/>
+  ) : grids.length > 1 ? (
+    <MultiGridPromptTabs grids={grids} scene={scene}/>
+  ) : null}
+</div>
+```
+
+**`GridPromptPanel` props:**
+- `hideToggleRow=false` (default): self-managed `internalExpanded`, renders toggle row with inline action buttons → single-grid path
+- `hideToggleRow=true` + `expanded` controlled: parent owns toggle (MultiGridPromptTabs), action buttons move INSIDE body (top, `.ksp-storyboard-prompt-tab-actions`) → multi-grid path
+
+**`MultiGridPromptTabs` behavior:**
+- State `activeIdx: number | null` default `null` (Q-b chốt)
+- Click tab → `setActiveIdx(isActive ? null : idx)` — click active tab collapses it
+- Char counts pre-computed in useMemo for tab labels
+- Renders `<GridPromptPanel hideToggleRow={true} expanded={true}/>` for active tab
+
+### DOM result (12-shot scene = 2 grids 3×3)
+
+**Before (r7.4) — broken seamless:**
+```
+.ksp-storyboard-multigrid-container
+├── .ksp-storyboard-grid-block (Grid 1)
+│   ├── .ksp-storyboard-grid-header
+│   ├── .ksp-storyboard-grid (cells 1-9)
+│   └── .ksp-storyboard-prompt-collapsible  ← chen giữa cells
+└── .ksp-storyboard-grid-block (Grid 2)
+    ├── .ksp-storyboard-grid (cells 10-18)
+    └── .ksp-storyboard-prompt-collapsible
+```
+
+**After (r7.5) — true seamless:**
+```
+.ksp-storyboard-multigrid-container
+├── .ksp-storyboard-grid-block (Grid 1)
+│   ├── .ksp-storyboard-grid-header
+│   └── .ksp-storyboard-grid (cells 1-9)
+├── .ksp-storyboard-grid-block (Grid 2)
+│   └── .ksp-storyboard-grid (cells 10-18)
+└── .ksp-storyboard-multigrid-prompts
+    ├── .ksp-storyboard-prompt-tabs
+    │   ├── tab Grid 1
+    │   └── tab Grid 2
+    └── .ksp-storyboard-prompt-collapsible (body for active tab)
+```
+
+### Files touched
+
+- `src/components/FilmStoryboardSection.tsx` — split GridDisplay; add GridPromptPanel + MultiGridPromptTabs components; render branching in SceneBlock body
+- `src/components/film.css` — remove stale `:not(:first-child) > .ksp-storyboard-prompt-collapsible` rule (no longer applies since prompts lifted out); add `.ksp-storyboard-prompt-tabs`, `.ksp-storyboard-prompt-tab`, `.ksp-storyboard-prompt-tab-active`, `.ksp-storyboard-prompt-tab-actions`, `.ksp-storyboard-multigrid-prompts` styles
+- `test/film_mode.test.tsx` — +5 new tests for r7.5 architecture
+- `manifest.json` + `package.json` — bump 0.9.4.13 / `0.9.4-r7.5-multigrid-tabs`
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 9.98s · Bundle 882KB (gzip 275KB)
+- ✅ Vitest runtime: **389 passed | 12 skipped (401 total)** — +5 r7.5 tests
+- ✅ Photos regression: 49/49
+- ✅ Sprint F/G regression: 100% (no test broken)
+
+### User test workflow
+
+1. Apply r7.5 zip → reload extension → tooltip phải đọc `KSP Image v0.9.4-r7.5 — Open Editor`
+2. Mở scene 12 shots (e.g. Scene 2 "Người Bạn Mới, Nhiệm Vụ Cũ") → Storyboard
+3. PHẢI THẤY: 18 cells (12 filled + 6 empty đỏ) flow liền mạch thành 1 khối 3×6 — KHÔNG có prompt panel chen giữa
+4. Dưới cùng: 2 tabs side-by-side `[▶ 📝 Grid 1 · 9 shots · 9186 chars] [▶ 📝 Grid 2 · 3 shots · 6575 chars]`
+5. Mặc định cả 2 tabs collapsed (không có body render)
+6. Click tab Grid 1 → tab active (background tím + border-top accent), body expand full-width với action buttons (📤📥) row trên + Copy/Regen + textarea
+7. Click tab Grid 2 → tab Grid 1 collapse, Grid 2 active, body swap nội dung
+8. Click lại tab Grid 2 (đang active) → collapse hoàn toàn
+9. **Single-grid scene** (≤9 shots): KHÔNG có tabs — vẫn render inline collapsible như cũ
+10. Single-grid scene: click toggle ▶ expand → body với inline action buttons như r7.4
+
+### Sprint G1c (deferred — vẫn next sprint sau r7.5)
+
+4 items deferred từ G1ab vẫn còn nguyên scope cho G1c sau khi user test r7.5 stable:
+- AI auto-generate shot cho missing beat
+- AI suggest more shots banner
+- Physical lock user editable trong Scene Card
+- Refs ZIP filename convention update
+
+---
+
+## [0.9.4-r7.4-inline-buttons-final] — 2026-05-17 — Inline buttons + warning removal (Hướng C + C3)
+
+### Background
+
+Sau ship r7.2-seamless-ui (Multi-grid container CSS strips block chrome), Jason test screenshot phát hiện UI vẫn chưa đúng mockup chốt cuối:
+- ❌ UPLOAD GRID + Refs ZIP buttons vẫn render giữa Grid 1 cells và prompt panel
+- ❌ Warning box "⚠ Chưa upload grid PNG" vẫn render giữa header và cells
+- ❌ Grid 2 KHÔNG thấy UPLOAD GRID + Refs ZIP buttons đâu cả
+
+Em ship r7.3 internal (component fix) nhưng version_name confusing. r7.4 là rebuild đầy đủ Hướng C + C3 Jason chốt.
+
+### Discussion với Jason (chốt)
+
+Em propose 3 hướng:
+- A. Buttons trong prompt panel BODY (chỉ thấy khi expand)
+- B. Buttons row riêng PHÍA TRÊN prompt panel toggle
+- C. Buttons gom vào HEADER toggle row (inline RIGHT side)
+
+3 hướng cho warning:
+- C1. Inline trong row toggle: `▶ Image Prompt — Grid 1 (9 shots) ⚠ chưa upload`
+- C2. Hiển thị dưới row khi panel collapsed
+- C3. Bỏ warning hoàn toàn (cells background đỏ tự explain)
+
+Jason chốt **Hướng C + C3**.
+
+Plus 2 details:
+- Q1: 4 buttons cùng row khi uploaded `[Re-upload] [Re-crop] [Refs ZIP] [Clear]` (compact, all visible)
+- Q2: Icon-only mode trên narrow viewport (sidebar 380px) — emoji-only với tooltip
+
+### Changes (Hướng C + C3)
+
+**1. Remove warning boxes between cells (C3)** — Bỏ hoàn toàn `<div className="ksp-storyboard-no-upload-warning">`. Cells background đỏ (`.ksp-storyboard-cell-empty-state`) tự indicate "chưa upload" — user self-explanatory. KHÔNG còn duplicate text "⚠ Chưa upload grid PNG".
+
+**2. Remove action button row between cells** — Bỏ hoàn toàn `<div className="ksp-storyboard-grid-actions">`. Cells flow trực tiếp xuống prompt panel.
+
+**3. Inline buttons trong prompt toggle row (Hướng C)** — Toggle row layout flex: `[▶ 📝 Image Prompt — Grid N (X shots) · Y chars] [📤 Upload Grid] [📥 Refs ZIP] [...optional]`
+- Chưa upload: `[📤 Upload Grid] [📥 Refs ZIP]`
+- Đã upload: `[📤 Re-upload] [🔧 Re-crop] [📥 Refs ZIP] [✕ Clear]`
+- Click button có `e.stopPropagation()` để không trigger expand toggle
+- Refactor: `<button>` toggle wrapped trong `<div className="ksp-storyboard-prompt-toggle-row">` flex container
+
+**4. Icon-only mode trên narrow viewport (Q2=A)** — CSS `@media (max-width: 480px)` hides `.ksp-btn-label-fluid` text. Sidebar 380px → emoji-only buttons. Title attribute provides full label tooltip on hover.
+
+**5. Multi-grid seamless display final** — Grid 1 + Grid 2+ cells flow liền mạch. CSS `.ksp-storyboard-multigrid-container > .ksp-storyboard-grid-block:not(:first-child)` strips background/border/padding để merge visually. Each grid có riêng row + riêng buttons below all cells.
+
+### Files touched
+
+- `src/components/FilmStoryboardSection.tsx` — Removed `ksp-storyboard-grid-actions` div + `ksp-storyboard-no-upload-warning` divs. Added inline buttons trong `ksp-storyboard-prompt-toggle-row` wrapper. Toggle row refactored to `<div>` with separate `<button>` toggle + buttons inline with stopPropagation.
+- `src/components/film.css` — `.ksp-storyboard-prompt-toggle-row` flex layout, `.ksp-storyboard-prompt-actions-inline` button group flex-shrink-0, `.ksp-btn-icon-only .ksp-btn-label-fluid` media query for narrow viewport.
+
+### Build verification
+
+- ✅ TypeScript: 0 errors
+- ✅ Vite build: 8.61s · Bundle 877KB
+- ✅ Tests: 384/396 PASS + 12 skipped (vitest parallel runs 2x → 768 effective)
+
+### User test workflow
+
+1. Apply r7.4 zip → reload extension → tooltip phải đọc `KSP Image v0.9.4-r7.4 — Open Editor`
+2. Mở scene 12 shots (e.g. Scene 2 "Người Bạn Mới, Nhiệm Vụ Cũ") → Storyboard
+3. PHẢI KHÔNG có UPLOAD GRID + Refs ZIP buttons giữa Grid 1 cells và prompt panel
+4. PHẢI KHÔNG có warning box "⚠ Chưa upload" giữa cells
+5. Grid 1 (9 cells) → Grid 2 (3 filled + 6 empty) flow liền mạch
+6. Bên dưới TẤT CẢ cells:
+   - `▶ 📝 Image Prompt — Grid 1 (9 shots) · 9186 chars   [📤 Upload Grid] [📥 Refs ZIP]`
+   - `▶ 📝 Image Prompt — Grid 2 (3 shots) · 6575 chars   [📤 Upload Grid] [📥 Refs ZIP]`
+7. Click ▶ expand → thấy Copy + Regen buttons + textarea bên trong
+8. Sidebar 380px width → buttons icon-only mode (chỉ thấy 📤 📥), hover tooltip hiện full label
+
+---
+
+## [0.9.4-r7.2-seamless-ui] — 2026-05-17 — Multi-grid UI seamless fix
+
+Jason reported UI Storyboard chưa đúng mockup chốt cuối — Grid 2 vẫn có visual separator giữa cells của 2 grids.
+
+### Bug — Multi-grid not truly seamless
+
+**Mockup chốt cuối (Sprint G1ab discussion)**: 2 grids 3×3 stack vertical = visual 3×6 monolithic, KHÔNG có header/warning/buttons giữa cells. Action buttons + warning → moved INTO prompt panel below Grid 2.
+
+**UI thực tế r7.1**: Em chỉ hide `ksp-storyboard-grid-header` cho Grid 2+ nhưng:
+- ❌ Warning box `⚠ Grid 2: chưa upload PNG` vẫn render giữa Grid 1 cells và Grid 2 cells
+- ❌ `ksp-storyboard-grid-actions` (Upload + Refs ZIP + Clear buttons) của Grid 1 vẫn render giữa
+- ❌ `ksp-storyboard-grid-block` của Grid 2 có background/border/padding default → tạo visual border-box quanh Grid 2 cells
+
+**Fix**:
+1. **Component fix**: Hide warning box completely for Grid 2+ (was using inline marginTop=0 workaround, now removed entirely)
+2. **Component fix**: Wrap `ksp-storyboard-grid-actions` (Upload/Refs/Clear buttons) với `{!hideHeader && ...}` — chỉ render giữa cells nếu Grid 1 / single-grid
+3. **Component fix**: Move action buttons INTO prompt panel body for Grid 2+ (label "📤 Upload Grid 2") with inline upload warning text "⚠ chưa upload PNG" 
+4. **CSS fix**: New selectors strip block chrome for Grid 2+ in multi-grid:
+   - `.ksp-storyboard-multigrid-container > .ksp-storyboard-grid-block:not(:first-child)` → strip background/border/padding/margin
+   - Grid 1 in multi-grid: remove bottom margin/padding/border-radius để cells flow trực tiếp xuống Grid 2 cells
+   - Prompt panel inside Grid 2+: re-add block chrome (background/border/padding/margin-top) để vẫn distinct
+
+**Result**: Grid 1 cells flow trực tiếp xuống Grid 2 cells, no visual break. Cell numbering (Shot 1 → Shot 12) distinguishes. Action buttons + upload control của Grid 2 nằm trong prompt panel "Image Prompt — Grid 2" below cùng với Copy/Regen buttons.
+
+### Files touched
+
+- `src/components/FilmStoryboardSection.tsx` — Hide warning + action buttons for `hideHeader=true`, add same action buttons inside `promptExpanded` body
+- `src/components/film.css` — Multi-grid container CSS: strip block chrome on Grid 2+, collapse Grid 1 bottom margins
+
+### Build verification
+
+- ✅ TypeScript: 0 errors
+- ✅ Vite build: 8.43s
+- ✅ Tests: 384 passed / 12 skipped (396 total)
+
+---
+
+## [0.9.4-r7.1-hotfix] — 2026-05-17 — Sprint G1ab Hotfix (4 user-reported bugs)
+
+Hotfix sau test Sprint G1ab → 4 bugs Jason report.
+
+### Bug 5 (P0) — Coverage modal text trắng chữ mờ (Dark mode CSS missing)
+
+**Root cause**: Extension chạy trong dark mode (page background đen, text trắng default). Sprint G CSS đặt `background: #FAF8F2` (cream) cho coverage modal + beats popover nhưng KHÔNG set explicit text color → child elements inherit white từ dark mode parent → text white trên cream/pink = invisible.
+
+**Fix**: Explicit `color: #2D2A24` cho `.ksp-coverage-modal`, `.ksp-coverage-beat`, `.ksp-pacing-popup-beats`. Use `* { color: inherit }` để force all descendants. Per-state colors:
+- `.ksp-coverage-beat-covered`: `color: #2D5016` (dark green) on `#EAF3DE` (light green) bg
+- `.ksp-coverage-beat-missing`: `color: #6B2410` (dark red) on `#FBE5DC` (light red) bg
+
+Applies to coverage modal + beats popover + migration warning + mood override section.
+
+### Bug 5 part 2 (P0) — "Sinh lại" sinh 7 shots dù beats = 10 (Coverage 0/N)
+
+**Root cause**: Shot list AI prompt có 2 conflicting instructions:
+- "🎬 SHOT COUNT GUIDANCE: SWEET SPOT 4-9 shots/scene"
+- "🎯 BEAT COVERAGE RULES: Aim shot count ≈ beats count"
+
+AI default về sweet spot (4-9) khi conflict → bỏ qua beats. Plus AI sometimes returns shots WITHOUT `coveredBeatIds` field → 0/N coverage even with 10 shots.
+
+**Fix 1** — Strengthen prompt: when beats provided, override default shot count rule:
+- "HARD MINIMUM: ${Math.max(4, Math.ceil(beats.length * 0.8))} shots"
+- "HARD MAXIMUM: ${beats.length + 2} shots"
+- "Beat coverage takes priority over the 4-9 sweet spot rule"
+- Example beat ID copied directly into prompt to anchor AI to exact format
+
+**Fix 2** — Add fallback heuristic `autoFillCoveredBeatIds`:
+- If AI returns shots with empty/invalid coveredBeatIds, post-process do fuzzy keyword match
+- Tokenize shot actionEn + titleEn (Vietnamese + English stopwords skipped)
+- Score against beat label + sourcePhrase keywords
+- Assign shot to top 2 beats with highest overlap (≥1 keyword match)
+- Fallback to nearest beat by position if no keyword match
+- Skip auto-fill if AI already provided valid coverage
+
+### Bug 2 (P1) — Beats detection partial: some scenes empty
+
+**Root cause**: `runDetectBeatsForAllScenes` runs parallel Promise.all with silent .catch returning `{beats: []}`. If AI call fails (rate limit, network), scene silently has empty beats. No user feedback to retry.
+
+**Fix**:
+- New `BulkBeatsResult` interface: `{ results, failedSceneIds, emptySceneIds }`
+- Stage 5 finalize toast now shows partial success detail: "⚠ Beats: X/Y target. 2 scene lỗi (3, 5) · 1 scene trống beats (4). Click badge 🎯 trên Scene Card để retry."
+- Per-scene retry button in beats popover (visible for both empty AND populated scenes)
+- Click "🔄 Tạo lại beats" → triggers `runDetectBeatsForScene` for that specific scene
+
+### Bug 3 (P1) — J3 auto re-detect silent (no loading indicator)
+
+**Root cause**: Edit scene action + blur → AI re-detects in background without any visual feedback. User wonders if something is happening.
+
+**Fix**:
+- Track `Set<sceneId>` of scenes currently detecting via parent component state
+- Beats badge during detection: changes background to purple (#534AB7) + text "⏳ Đang detect..."
+- Badge becomes non-clickable while detecting (prevents double-trigger)
+- Toast feedback per scene: "🔄 Đang phân tích beats cho Scene N..." → "✅ Scene N: detected K beats" hoặc error toast
+
+Applies to BOTH:
+- J3 auto re-detect when action edited (on blur if dirty)
+- Manual "🔄 Tạo lại beats" button click trong popover
+
+### Files touched
+
+- `src/engine/filmShotListGeneration.ts` — Strengthen beats block instructions + `autoFillCoveredBeatIds` fallback heuristic
+- `src/engine/filmScriptStages.ts` — `BulkBeatsResult` interface + `runDetectBeatsForAllScenes` tracks failures + emptyScenes
+- `src/components/FilmIdeaScriptSection.tsx` — `detectingSceneIds` state Set, `PacingBadges` extends with `isDetectingBeats` + `onRedetectBeats` props, beats badge loading icon, popover retry button, Stage 5 toast shows partial failure detail
+- `src/components/film.css` — Explicit text colors on `.ksp-coverage-modal`, `.ksp-coverage-beat-*`, `.ksp-pacing-popup-beats` + `* { color: inherit }` pattern
+- `manifest.json` + `package.json` — bump 0.9.4.9 / `0.9.4-r7.1-hotfix`
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 8.80s
+- ✅ Vitest runtime: **384 passed | 12 skipped (396 total)** — all r7 tests still pass
+- ✅ Photos regression: 49/49
+- ✅ Sprint F regression: 11/11
+
+### Test workflow (user verification)
+
+1. **Dark mode text fix:** Open Shot List → expand any scene with beats → click "🎯 View beats" → modal text MUST be readable (dark on light, not white on white)
+2. **Sinh lại with beats:** Scene có 10 beats → click "✨ Sinh lại" → check shot list now has 8-10 shots (was 7). Coverage banner should show X/10 covered (was 0/10)
+3. **Partial detection retry:** After Stage 5 finalize, if some scenes show "🎯 ·" (empty) → click that badge → click "🔄 Tạo lại beats" → toast "🔄 Đang phân tích..." → badge becomes "⏳ Đang detect..." → completes
+4. **J3 loading indicator:** Edit scene action textarea → blur → badge should change to "⏳ Đang detect..." color purple, then back to "🎯 N beats" after completion
+
+---
+
+## [0.9.4-r7-beats-prompt-quality] — 2026-05-16 — Sprint 1.0 r7: Sprint G1ab (Beats + Per-shot mood + Multi-grid + Physical lock)
+
+**Major sprint** addressing 3 vấn đề Jason raise sau khi test Sprint F:
+1. Tiếng Việt vẫn leak vào EN prompt (`SETUP for "Cảm biến quang học"` + `Narrative purpose: <Vietnamese>`)
+2. 7 animation prompts giống y hệt nhau (chỉ khác SHOT title + Narrative purpose)
+3. Scene description giàu beats nhưng AI chỉ sinh 7 shots → missing beats (wide sweep, tilt down, dappled sunlight)
+
+Plus user discussion → 4 new features (Beats panel + Coverage indicator + Per-shot mood override + Multi-grid seamless display + Physical consistency lock).
+
+### 🎯 Feature 1 — Beats Panel (Stage 2)
+
+**Schema:** New `Beat` type (`{ id, order, label, type, sourcePhrase?, coveredByShotIds?, detectedAt }`). 5 beat types with emoji + color: `camera` 🎥 / `subject` 👤 / `action` ⚡ / `sensory` 🌿 / `state-change` ✨.
+
+**Detection:** Auto-trigger khi Stage 5 finalize (NO user click). Engine `runDetectBeatsForScene` + bulk `runDetectBeatsForAllScenes` (parallel calls per scene). AI Gemini Flash scans scene action lines + returns atomic beats. Aim 6-12 beats per scene.
+
+**UI:** `🎯 N beats` badge on Scene Card (Stage 2 Phân cảnh). Click → popover with numbered list of beats + type emoji. Auto re-detect when user edits `actionLinesVi` (J3 background re-detection on textarea blur if dirty).
+
+**Sample output** for "Robot Thức tỉnh" Scene 1:
+```
+🎯 10 beats:
+1. 🎥 Wide forest sweep
+2. 🌿 Dappled sunlight through trees
+3. 🎥 Tilt down reveals robot
+4. 🌿 Moss/vines/rust detail
+5. 👤 Optical sensor obscured by ivy
+6. 👤 Woodpecker lands on head
+7. ⚡ Tiny claws on rough surface
+8. ⚡ Pecking rhythm (3 + pause + 5)
+9. ✨ Blue light flicker
+10. ✨ Light fades
+```
+
+### 🎯 Feature 2 — Beat Coverage Indicator (Stage 4 Shot List)
+
+**Banner trên Shot List section:** `📊 Beat coverage: 7/10 (3 missing) | 🎯 View beats`. Click "View beats" → modal hiển thị beats list với checkmark ✓ (covered) hoặc ✗ (missing). Click missing beat → AI generate shot for beat (stubbed cho Sprint G1c).
+
+**AI mapping:** Shot list generation nhận beats list + sinh `coveredBeatIds[]` per shot. G2 soft mapping (1 shot có thể cover 1-2 beats nhỏ tương tự, max merge 2:1).
+
+### 🎨 Feature 3 — Per-shot Mood Override (Edit Frame modal)
+
+**Schema:** FilmShot extends with `lightingHintEn?`, `shotMoodOverride?` (EmotionalTone), `shotMoodIntensity?` (0-10).
+
+**Resolution priority trong prompt builders:**
+1. `shot.lightingHintEn` (user manual or AI auto-fill) — highest
+2. `shot.shotMoodOverride` + `shotMoodIntensity` — middle
+3. `scene.emotionalTone` + `scene.tensionLevel` — fallback
+
+**UI:** Collapsible "🎨 Override per-shot mood" section in Edit Frame modal. Default collapsed (AI auto-fill hidden). User expands → 3 fields with Reset buttons:
+- Lighting hint (EN) — text input
+- Shot mood override — EmotionalTone dropdown
+- Tension intensity — 0-10 slider
+
+**Why:** Sprint F output had 7 animation prompts identical — all "neutral 2/10 balanced lighting · observational" because scene-level emotion applied to all shots. Now each shot has unique `lightingHintEn` from AI generation, varying across rhythm roles. User can manually tweak.
+
+### 🖼️ Feature 4 — Physical Consistency Lock
+
+**Schema:** `FilmSceneScript.physicalConsistencyLockEn?` (multi-line English text).
+
+**Detection:** Same AI call as beats (1 call sinh cả 2 outputs). AI scans scene description → extracts appearance details that must remain identical across all shots:
+- Character body coverage (moss, outfit, distinctive marks)
+- Environment markers (ivy curtain over sensor, fern bed)
+- Coloration + scale locks
+
+**Sample** for Scene 1:
+```
+- G.N.U.D body: completely covered by thick green moss, hanging ivy, weathered rust patches
+- Left optical sensor: obscured by ivy curtain
+- Coloration: weathered grey-green with patches of orange rust
+- Scale: massive 3-4m humanoid, prone among ferns
+- Environment: ancient forest with dappled sunlight, fern bed, mossy trees
+```
+
+**Injection:** PHYSICAL CONSISTENCY LOCK block in ALL 3 prompts (grid image + single shot + animation). For animation prompt, additional directive "must hold across entire shot duration".
+
+**Why:** Jason's test image showed Cell 1 robot không có dây leo, Cells 3-6 có, Cell 7 không → inconsistent. Now AI nhận explicit lock + per-shot reminder.
+
+### 📐 Feature 5 — Lock 3×3 Grid for Film mode (Q-E)
+
+**Change:** `ensureSceneGrids` now forces `"3x3"` cho Film mode regardless of shot count (legacy `pickOptimalGridFormat` skipped). Non-Film modes (Photos, TVC) preserve legacy auto-pick behavior.
+
+**Rationale:** Banana Pro / Imagen / Nano Banana sinh cleanest output at 3×3. Multi-grid auto handles >9 shots.
+
+**User override:** Manual `gridFormat` dropdown still works (gridFormatManual flag preserved).
+
+### 🖼️ Feature 6 — Multi-grid Seamless Display + Grid 2 References Grid 1
+
+**UI:** When scene has >9 shots → 2 grids of 3×3 each. Display renders both grids stacked vertically with NO separator line between (user-confirmed final design). Cell numbering continues across grids (Grid 1 shots 1-9, Grid 2 shot 10+). Empty cells in Grid 2 show grey placeholders.
+
+**Prompt panels:** 2 separate collapsible "Image Prompt — Grid N" panels below. Grid 2 panel has annotation: `ⓘ Grid 2 auto-references Grid 1 result for consistency. Attach grid-01-generated.png from Refs ZIP.`
+
+**Prompt builder:** Grid 2+ prompt detects Grid 1 was uploaded (cells have dataUrl) → automatically inserts:
+- "GRID 2 of 2" header
+- `Image #2 — grid-01-generated.png — GRID 1 previously generated. USE AS VISUAL STYLE ANCHOR`
+- MULTI-GRID CONTINUITY DIRECTIVES block instructing AI to match moss/ivy/rust pattern, lighting, color grade from Grid 1 exactly
+
+**Why:** Jason asked if Grid 2 có cách sync visual với Grid 1. Solution: tham chiếu Grid 1 generated image như visual anchor.
+
+### 🔧 Feature 7 — Per-cell prompt enrichment
+
+**Old per-cell format (Sprint F):**
+```
+Cell 1: [medium, static, 6s, role=build] G.N.U.D Body
+  ACTION: Medium shot focusing on G.N.U.D...
+  COMPOSITION: medium framing...
+```
+
+**New per-cell format (r7):**
+```
+Cell 1: [wide_establishing, pan_right, 6s, role=establish]
+  SHOT TITLE: Forest sweep reveal
+  ACTION: Wide pan revealing ancient forest with towering moss-draped trees, dappled sunlight piercing through canopy
+  LIGHTING HINT: Wide golden-hour rays through canopy, atmospheric depth, mist
+  COMPOSITION: wide context establishing, show the SPACE
+```
+
+Per-cell now has unique LIGHTING HINT from AI shot list generation. Combined with PHYSICAL CONSISTENCY LOCK above + CINEMATIC INTENT block, AI image gen gets explicit per-cell direction.
+
+### 🧹 Cast refs filter (cleanup)
+
+**Old behavior:** Always list all characters in cast block (even with 0 refs), format `[0 face refs + 0 body refs]`.
+
+**New behavior (r7):**
+- Skip characters with 0 face refs AND 0 body refs entirely
+- Format adapts: `[2 face refs]` (no body) hoặc `[1 face ref + 2 body refs]` (both kinds)
+- If ALL characters have 0 refs → omit cast subblock entirely, only show grid template reference
+
+### 🇻🇳 Q1 VI leak fixes
+
+**SetupPayoffPair.labelEn:** AI now sinh cả `labelVi` + `labelEn`. Prompt builders prefer `labelEn`. Legacy pairs without `labelEn` → fallback to `labelVi` (user warned via UI).
+
+**FilmShot.purposeEn:** Same dual-language pattern. AI shot list generation requires both. Old shots với only `purpose` (Vietnamese) → migration warning badge in Shot List: "⚠ Shot này có 'purpose' tiếng Việt từ phiên bản cũ. Click ✨ Sinh lại để AI sinh lại với purposeEn."
+
+### 🎬 Q3 Shot list quality
+
+**System prompt updates:**
+- "DO NOT default to static for every shot" — CAMERA MOVEMENT VARIETY directive
+- "EVERY beat MUST be covered" — BEAT COVERAGE RULES (when beats provided)
+- Per-shot lightingHintEn requirement: "REQUIRED — never empty. Vary across shots to match action context."
+- Camera vary rules per shot type (establishing wide pan/tilt, peak static or slow dolly_in, action handheld/tracking, etc.)
+
+### 📱 Edit Frame modal: Draggable gutter (Q-E follow-up)
+
+**Implementation:** Gutter handle between left pane (image preview) and right pane (fields + prompts). Mouse drag with snap to 50px stops. Width clamped 300-800px. Persisted to `localStorage` as `ksp.frameEdit.leftPaneWidth`.
+
+### Files touched
+
+- `src/types/project.ts` — Beat type, BEAT_TYPE_LABELS, FilmShot.purposeEn + lightingHintEn + shotMoodOverride + shotMoodIntensity, FilmSceneScript.beats + physicalConsistencyLockEn, SetupPayoffPair.labelEn
+- `src/engine/filmScriptStages.ts` — runDetectBeatsForScene + runDetectBeatsForAllScenes, setup-payoff prompt updated with labelEn
+- `src/engine/filmShotListGeneration.ts` — Shot list prompt with beats injection + camera variety rules + new fields (purposeEn, lightingHintEn, coveredBeatIds), sanitizeShot handles all
+- `src/engine/sceneImagePromptBuilder.ts` — Rewrite with PHYSICAL CONSISTENCY LOCK + BEATS COVERAGE + per-cell SHOT TITLE/LIGHTING HINT/COMPOSITION + cast refs filter (castRefsBlockFiltered) + Grid 2 ref Grid 1 multi-grid logic
+- `src/engine/filmShotPromptBuilder.ts` — buildSingleShotImagePrompt + buildAnimationPrompt: purposeEn priority, per-shot mood resolution order, physical lock injection
+- `src/store/film_actions.ts` — Lock 3x3 for Film mode in ensureSceneGrids, applyBeatsAndPhysicalLock + setSceneBeats + setScenePhysicalLock
+- `src/components/FilmIdeaScriptSection.tsx` — Beats badge + popover, auto beats detection on Stage 5 finalize, J3 auto re-detect on action edit
+- `src/components/FilmShotListSection.tsx` — Coverage banner + modal, beats passed to AI generation, migration warning for VI-only purpose, new shot fields mapped
+- `src/components/FilmFrameEditModal.tsx` — Per-shot mood override section (collapsible), draggable gutter with 50px snap, allScenes + setupPayoffPairs props for prompt context
+- `src/components/FilmStoryboardSection.tsx` — Multi-grid seamless container, GridDisplay accepts cellNumberOffset + hideHeader + allGrids, Grid 2 auto-detect previous grid generated for ref
+- `src/components/film.css` — All r7 styles (beats badge, popover, coverage banner, coverage modal, mood override section, gutter handle, multi-grid container)
+- `test/film_mode.test.tsx` — 29 new Sprint G tests + 4 existing tests updated for r7 changes
+- `manifest.json` + `package.json` — version bump
+
+Total: ~1500 lines net.
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 8.88s
+- ✅ Vitest runtime: **384 passed | 12 skipped (396 total)** — +29 Sprint G tests
+- ✅ Photos regression: 49/49 xanh
+- ✅ Sprint F regression: 11/11 xanh
+
+### Expected user experience after r7
+
+**Workflow Stage 2 → Stage 5 → Storyboard:**
+1. User completes Stage 5 (finalize script)
+2. Toast: "🎯 Đang phân tích beats cho mỗi scene..."
+3. ~3-5s later: Toast "✅ Đã detect 60 beats trên 6 scenes + physical lock cho 5 scenes"
+4. Each Scene Card now shows `🎯 N beats` badge — click to verify
+5. Edit scene action → background re-detect (no user action needed)
+
+**Storyboard prompts:**
+- Each cell has unique camera movement (no more all-static)
+- Each cell has explicit LIGHTING HINT (no more all "balanced three-point")
+- PHYSICAL CONSISTENCY LOCK appears in every prompt
+- BEATS COVERAGE list shows which beats each grid captures
+- Cast refs only list characters with uploaded refs
+- Grid 2 prompt references Grid 1 generated image automatically
+
+**Animation prompts:**
+- 7 prompts in same scene now visibly different (camera, motion intent, lighting)
+- No more Vietnamese leak (`Narrative purpose: <Vietnamese>` gone)
+- PHYSICAL CONSISTENCY LOCK enforced frame-to-frame
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.8`
+- `manifest.json` `version_name` → `0.9.4-r7-beats-prompt-quality`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r7 — Open Editor`
+- `package.json` `version` → `0.9.4-r7-beats-prompt-quality`
+
+### Sprint G1c (deferred — next sprint)
+
+Following items moved to Sprint G1c for separate ship after G1ab stable:
+- AI auto-generate shot for missing beat (Coverage modal click handler currently stubbed)
+- Suggest more shots banner when beats > shots
+- AI suggest more shots button → analyzes uncovered beats + generates additional shots
+- Refs ZIP filename convention update to align with new Image #N numbering
+- Physical lock user editable in Scene Card (currently AI-fill only)
+
+---
+
+## [0.9.4-r6-prompt-pipeline-fix] — 2026-05-16 — Sprint 1.0 r6: Prompt pipeline fix (6 bugs)
+
+**Hotfix** sau khi Jason test Sprint E generate image trên Nano Banana → 2 ảnh trả về toàn đen. Audit code path tìm ra **6 bugs** trong prompt pipeline (Scene Image Prompt, per-cell Image Prompt, Animation Prompt).
+
+### BUG #1 (P0 critical) — Stale grid shotId references sau khi shot list regen
+
+**Root cause**: `patchShotsForScene` (helper trong `film_actions.ts`) chỉ update `shotsBySceneId`, KHÔNG re-pack `scene.grids[i].cells[j].shotId`. Khi user click ✨ Sinh lại trong Shot List → shot ids mới → grid.cells vẫn giữ id cũ → `shots.find(s => s.id === cell.shotId)` returns undefined → render "EMPTY — shot reference missing" cho TẤT CẢ cells.
+
+**Symptom prompt anh share:**
+```
+(0 filled, 6 empty)
+Cell 1: EMPTY — shot reference missing.
+... × 6
+```
+→ Banana Pro nhận yêu cầu "6 ô đen" → output đúng prompt: ảnh toàn đen.
+
+**Fix**: `patchShotsForScene` giờ auto-call `packShotsIntoGrids` (đã có sẵn engine) khi shots mutate. `sceneGridPacker.cellsMatchShots()` preserve cropped dataUrls khi shot ids match → an toàn cho case shot order swap. Khi shot ids đổi hoàn toàn (regen), cells reset đúng → user upload grid mới.
+
+**Cũng clear cached `grid.imagePrompt`** trong cùng patch để prompt rebuild với data mới.
+
+### BUG #2 (P1) — Vietnamese leak vào EN prompt
+
+**Root cause**: Architecture lock "AI prompts EN", nhưng `sceneImagePromptBuilder.ts` line 94 ưu tiên Vi: `actionLinesVi || actionLinesEn || ""`.
+
+**Symptom prompt anh share:**
+```
+Scene action overview: CẬN CẢNH một cảm biến quang học đã ngừng hoạt động...
+```
+→ Banana Pro nhận VI mix với cấu trúc EN → confuse, output kém.
+
+**Fix**: Reverse priority everywhere — `actionLinesEn?.trim() || actionLinesVi?.trim() || ""`. Áp dụng cho cả scene-level action và per-cell action.
+
+### BUG #3 (P1) — Pacing data hoàn toàn không vào prompts
+
+**Root cause**: 5 sprints pacing (A→E) chỉ feed Dashboard visualization, KHÔNG flow xuống prompt builders. User chỉnh kéo drag tension, AI Director rewrite, multi-character emotion, setup-payoff detect → tất cả vô ích cho Banana Pro / Veo.
+
+**Fix**: Inject pacing thành **CINEMATIC INTENT block** trong tất cả 3 prompts (scene grid + single shot + animation):
+
+- `scene.emotionalTone` → lighting + color palette + atmosphere (7 emotions × 3 hints = 21 cinematic phrases)
+  - `tender` → warm golden-hour key light, warm amber+pink palette, intimate atmosphere
+  - `tense` → cool blue key light, desaturated teal+grey, claustrophobic
+  - `shocking` → harsh top-light, monochromatic+accent, frozen moment
+  - `triumphant` → backlit silhouette, gold+bronze, expansive sky-dominant
+  - + 3 more (funny / sad / neutral)
+- `scene.tensionLevel` (0-10) → framing intensity (5 tiers from "wide breathing room" → "extreme close intensity, frame-crushing")
+- `shot.rhythmRole` → composition direction per cell (establish=wide context · build=medium energy · peak=tight close emotional weight · release=pulled-back resolution)
+- `scene.characterEmotions` → per-character emotion phrase: "Robot feels tense; Bird feels tender"
+- `film.setupPayoffPairs` → SETUP/PAYOFF anchor markers: "SETUP for 'Mật mã 3-5 nhịp' — visually anchor this element so payoff in scene 5 can callback"
+
+For Animation prompt, also adds **Motion Intent** per rhythm role:
+- `establish` → "calm, deliberate motion. Let the eye absorb the space."
+- `build` → "motion ramps gradually, energy accumulates"
+- `peak` → "intense, focused motion. Every gesture must land with weight."
+- `release` → "motion winds down, releases tension"
+
+### BUG #4 (P1) — Shot action quá ngắn, prompts generic
+
+**Root cause**: Cinematic prompt chuẩn cần Subject+action / Camera / Lighting / Atmosphere / Color palette / Composition. Code cũ chỉ có 3/6 → Banana Pro tự đoán 4 elements còn lại → output generic.
+
+**Fix**: 4 elements thiếu (lighting, atmosphere, palette, composition) giờ DERIVED từ pacing data trong CINEMATIC INTENT block. Per-cell ACTION + COMPOSITION pair rendered side-by-side cho mỗi shot trong grid.
+
+### BUG #5 (P0) — Cached `grid.imagePrompt` không invalidate
+
+**Root cause**: `FilmStoryboardSection.tsx` line 318: `if (grid.imagePrompt) return grid.imagePrompt;` — cache forever, no invalidation.
+
+**Fix**: BỎ cache hoàn toàn. UI textarea readonly → no user edit data risk. Rebuild cost ~3-5ms negligible.
+
+### BUG #6 (P2) — Reference image numbering confusing
+
+**Root cause**: Prompt có 2 dòng "REFERENCE IMAGES" duplicate header. Cast labeled "Image #1" trong instructions nói cast bắt đầu "Image #2+".
+
+**Fix**: Single REFERENCE IMAGES block. Image #1 = grid template explicitly. Cast refs start at Image #2+ matching instructions. Khoảng cách giữa numbering trong instructions vs cast labels giờ aligned.
+
+### Files touched
+
+- `src/store/film_actions.ts` (+45 lines: `patchShotsForScene` auto-repack logic, import reorg)
+- `src/engine/sceneImagePromptBuilder.ts` (rewrite ~290 lines: pacing injection, EN priority, mood block, ref numbering, exports shared helpers)
+- `src/engine/filmShotPromptBuilder.ts` (+150 lines: `buildSingleShotImagePrompt` + `buildAnimationPrompt` inject pacing via shared helpers from sceneImagePromptBuilder)
+- `src/components/FilmStoryboardSection.tsx` (-2 lines cache check, +6 lines pass pacing context to builders)
+- `src/components/FilmFrameEditModal.tsx` (+12 lines: new `allScenes` + `setupPayoffPairs` props, pass through to builders)
+- `test/film_mode.test.tsx` (+11 new Sprint F tests, 3 existing tests updated for new format, 1 relaxed)
+- `manifest.json` + `package.json` version bump
+
+Total: ~500 lines net.
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 8.17s
+- ✅ Vitest runtime: **355 passed | 12 skipped (367 total)** — +11 Sprint F tests
+- ✅ Photos regression: 49/49 xanh
+
+### Expected user experience after r6
+
+When user opens "Robot Thức tỉnh" project (or any Film project with pacing annotated):
+
+**Old prompt (r5 and prior):**
+```
+Cinematic storyboard grid: 3×2 cells (0 filled, 6 empty).
+[Vietnamese action leak]
+Cell 1: EMPTY — shot reference missing.
+... × 6
+```
+→ Banana Pro outputs all-black image.
+
+**New prompt (r6):**
+```
+Cinematic storyboard grid: 3 columns × 2 rows = 6 cells (6 filled).
+Style: 3D CGI cinematic, Pixar-grade rendering, soft global illumination.
+
+REFERENCE IMAGES (attach in this exact order):
+- Image #1 — image-01_grid-template.png — blank 3×2 layout reference
+- Image #2+ — cast references:
+  Image #2: G.N.U.D (protagonist) [1 face ref + 0 body refs] — Ancient war robot...
+
+SCENE: A New Beginning
+Setting: EXT. FOREST - DAWN
+Scene action overview: A dormant optical sensor covered in moss and vines...
+
+CINEMATIC INTENT (derived from pacing analysis):
+- Dominant emotion: tender · Tension: 3/10
+- Lighting: warm soft golden-hour key light, low-angle backlight rim
+- Color palette: warm amber + soft pink + cream highlights
+- Atmosphere: intimate, contemplative, breathing room around subject
+- Framing intensity: comfortable medium framing, gentle subject focus
+- Per-character emotional state: G.N.U.D feels neutral; Bird feels tender
+
+NARRATIVE CONTINUITY:
+- SETUP for "Mật mã 3-5 nhịp" — visually anchor this element so payoff in scene 4 can callback.
+
+SHOTS IN THIS GRID (left-to-right, top-to-bottom):
+  Cell 1: [insert, static, 6s, role=establish] Dormant optical sensor
+    ACTION: Close-up of moss-covered sensor, dust motes drifting...
+    COMPOSITION: wide context establishing shot — show the SPACE
+  Cell 2: [medium, static, 6s, role=build] Bird arrives
+    ACTION: Small woodpecker lands nearby, tilts head curiously
+    COMPOSITION: medium framing with subject focus, energy ramping
+  ... × 4 more cells with rich per-cell intent
+```
+→ Banana Pro nhận prompt rich, sinh ra 6 ô filled với mood thống nhất matching tension+emotion+rhythm.
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.7`
+- `manifest.json` `version_name` → `0.9.4-r6-prompt-pipeline-fix`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r6 — Open Editor`
+- `package.json` `version` → `0.9.4-r6-prompt-pipeline-fix`
+
+### Out of scope / future work
+
+- Refs ZIP filename convention still uses `image-{N}_cast-...` numbered from #1 ignoring grid template at #1 (small mismatch with prompt that now puts grid template at #1, cast at #2+). Fix when packaging Refs ZIP — not blocking.
+- AI re-prompt override (`shot.imagePromptR5` / `animationPromptR5` from Sprint D) does NOT yet integrate pacing data — Sprint G work if needed.
+- Per-shot lighting/atmosphere override (advanced user) — defer until requested.
+
+---
+
+## [0.9.4-r5-multi-char-payoff] — 2026-05-16 — Sprint 1.0 r5: Multi-character emotion + Setup-payoff (Phase 2B FINAL)
+
+Sprint **cuối** roadmap pacing (5/5 sprints). Hai feature mới:
+1. **Multi-character emotion arcs** — per-character emotion track, multi-line SVG curve riêng cho từng nhân vật trong cast 2+
+2. **Setup → Payoff detection** — AI scan toàn film, phát hiện cặp gài cắm → trả nợ (vật thể, kỹ năng, lời hứa, bí ẩn, tính cách, thế giới)
+
+Roadmap pacing **COMPLETE**. 5 sprints (A-E) shipped trong 1 ngày 16/5/2026.
+
+Builds on `v0.9.4-r4.1-dx-polish`. All 331 pre-existing tests pass; 13 new tests added (344/356 total).
+
+### Schema additions
+
+**`src/types/project.ts`**:
+- New type `SetupPayoffPair` with 6 categories: `object | skill | promise | mystery | character | world`
+- New const `SETUP_PAYOFF_TYPE_LABELS` — vi + emoji + color per type
+- Extended `FilmSceneScript` with `characterEmotions?: Record<string, EmotionalTone>` — map characterId → tone per scene
+
+**`src/types/film.ts`**:
+- Extended `FilmData` with `setupPayoffPairs?: SetupPayoffPair[]` — persisted AI detection results
+
+All fields optional + backward-compat. r4.1 projects load unchanged.
+
+### Engine — `runReannotateCharacterEmotions`
+
+In `src/engine/filmScriptStages.ts` (+90 lines):
+- Input: scenes (with dialog + action) + characters
+- Skips entirely if cast has fewer than 2 characters (single-char film falls back to scene-level emotion)
+- AI scans each scene, infers emotion per character based on dialog presence + action lines
+- Output: `CharacterEmotionsMap` (sceneId → characterId → EmotionalTone)
+- Cost: 1 Gemini Flash call (~$0)
+- System prompt instructs AI: "Different characters in same scene often feel DIFFERENT emotions"
+
+### Engine — `runSetupPayoffDetect`
+
+In `src/engine/filmScriptStages.ts` (+135 lines):
+- Input: scenes
+- AI scans full script, identifies setup → payoff pairs
+- 6 categories with rules per type
+- **Order constraint enforced post-AI**: payoff scene MUST be later than setup scene (sceneOrderMap check); time-paradox pairs discarded
+- **Confidence filter**: pairs with `confidence < 0.4` rejected (avoid noisy speculation)
+- Returns `SetupPayoffDetectResult`: pairs + summaryVi + danglingSetupsVi (setups with no matching payoff)
+- Cost: 1 Gemini Flash call (~$0)
+
+### Store actions (`src/store/film_actions.ts`)
+
+4 new actions (+65 lines):
+- `applyCharacterEmotions(project, emotionsBySceneId)` — bulk update scenes with characterEmotions
+- `setSetupPayoffPairs(project, pairs)` — persist AI result
+- `clearSetupPayoffPairs(project)` — user dismisses analysis
+- `removeSetupPayoffPair(project, pairId)` — remove one pair (false-positive)
+
+### UI — `MultiCharacterCurve` component
+
+In `FilmPacingDashboardSection.tsx` (+170 lines):
+- Renders only when cast has 2+ characters
+- 3 states (idle / annotating / displayed)
+- **Idle**: empty state card + "🎭 AI annotate per-character" button
+- **Displayed**: character legend pills (click to toggle visibility) + multi-line SVG curve
+- Each character gets distinct color from `CHAR_COLORS` palette (6 hues cycled): `#D85A30, #534AB7, #3B6D11, #0C447C, #993C1D, #854F0B`
+- Lines plotted at Y positions per emotion using `TONE_TO_Y` mapping (Pixar emotional valence × arousal): shocking=9, triumphant=8, tense=7, funny=6, neutral=5, sad=4, tender=3
+- Per-character polyline SKIPS scenes where character not present (renders as gaps with multiple segments — not stretched lines)
+- Y-axis grid lines at tones 3/5/7/9 with emoji labels
+- Data point circles with `<title>` tooltip "Character name — emotion"
+- "🎭 Re-annotate" button to refresh
+
+### UI — `SetupPayoffPanel` component
+
+In same file (+125 lines):
+- 2 states (empty / list)
+- **Empty**: explanation card + "🎯 Detect setup-payoff" button
+- **List state**:
+  - AI summary card (italic)
+  - Pairs list — each row has:
+    - Type badge (emoji + vi label, colored)
+    - Pair label (truncated with ellipsis)
+    - Confidence chip (`mạnh` green / `khá` amber / `yếu` grey)
+    - × Remove button
+    - Setup→Payoff arc visualization: purple `S<setup#>` badge + gradient line with arrowhead + orange `S<payoff#>` badge
+    - Rationale text below
+  - Dangling setups card (amber warning) — setups detected without matching payoff
+  - "🎯 Re-scan" button
+
+### CSS (`src/components/film.css`)
+
+Appended ~240 lines under `/* SPRINT 1.0 r5 — MULTI-CHARACTER + SETUP-PAYOFF */`:
+- `.ksp-pacing-block-sub` — small grey subtitle next to block title
+- `.ksp-multichar-empty / -legend / -pill / -pill-dot / -actions` — character legend with toggle state
+- `.ksp-setup-payoff-empty / -summary / -list / -row / -head / -type / -label / -conf / -rm`
+- `.ksp-setup-payoff-arc` — Setup → Payoff visualization with gradient line + arrowhead pseudo-element
+- `.ksp-setup-payoff-anchor-setup` (purple `#534AB7`) + `-payoff` (orange `#D85A30`)
+- `.ksp-setup-payoff-dangling` — amber warning card for unfulfilled setups
+
+### Tests
+
+13 new tests under "Sprint 1.0 r5":
+- `runReannotateCharacterEmotions is exported`
+- `runSetupPayoffDetect is exported`
+- `CharacterEmotionsMap + SetupPayoffDetectResult types exist`
+- `SetupPayoffPair type has 6 categories`
+- `FilmSceneScript.characterEmotions field is optional`
+- `FilmData.setupPayoffPairs field is optional`
+- `applyCharacterEmotions store action bulk updates scenes` (with seeded script + verify per-scene per-char data)
+- `setSetupPayoffPairs + removeSetupPayoffPair + clearSetupPayoffPairs` (combo store test)
+- `Setup-payoff detection enforces payoffSceneId > setupSceneId (no time-paradox)` (verifies engine filter logic)
+- `MultiCharacterCurve + SetupPayoffPanel components exist in dashboard`
+- `MultiCharacterCurve hidden when fewer than 2 characters`
+- `CSS has Sprint 1.0 r5 multi-character + setup-payoff styles`
+- `manifest bumped to 0.9.4.6 with version_name 0.9.4-r5`
+
+Test counter: **344/356 PASS** (12 skipped, +13 over Sprint D.1 baseline 331).
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 9.32s (final bundle 851 KB JS / 264 KB gzipped)
+- ✅ Vitest runtime: 344 passed | 12 skipped
+- ✅ Photos regression: 49/49 xanh
+
+### Roadmap status (FINAL)
+
+| Sprint | Phase | Scope | Status |
+|---|---|---|---|
+| A | 1A + 1B | Schema + AI fill + badges + pill | ✅ shipped |
+| B | 2A | Stage ⑥ dashboard basic | ✅ shipped |
+| C | 3 | AI Director button | ✅ shipped |
+| D | 4 | Drag tension + drag shot duration | ✅ shipped |
+| D.1 | polish | Column fix + duplicate auto-clear + re-prompt move | ✅ shipped |
+| **E** | **2B** | **Multi-char + setup-payoff** | **✅ shipped (this)** |
+
+Pacing roadmap 100% delivered.
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.6`
+- `manifest.json` `version_name` → `0.9.4-r5-multi-char-payoff`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r5 — Open Editor`
+- `package.json` `version` → `0.9.4-r5-multi-char-payoff`
+
+### Files touched
+
+- `src/types/project.ts` (+45 lines: SetupPayoffPair + SETUP_PAYOFF_TYPE_LABELS + characterEmotions field)
+- `src/types/film.ts` (+8 lines: setupPayoffPairs field)
+- `src/engine/filmScriptStages.ts` (+225 lines: runReannotateCharacterEmotions + runSetupPayoffDetect + types)
+- `src/store/film_actions.ts` (+65 lines: applyCharacterEmotions + setSetupPayoffPairs + removeSetupPayoffPair + clearSetupPayoffPairs)
+- `src/components/FilmPacingDashboardSection.tsx` (+295 lines: MultiCharacterCurve + SetupPayoffPanel + integration + imports)
+- `src/components/film.css` (+240 lines under Sprint 1.0 r5 section)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+160 lines: 13 new tests)
+
+Total: +1040 lines net. No deletions, no breaking changes.
+
+### Suggested next ship anchor
+
+After user testing confirms Sprint E stable, recommend committing tag `v0.9.4-stable` and starting fresh sprint cycle for next feature (TBD by Jason).
+
+---
+
+## [0.9.4-r4.1-dx-polish] — 2026-05-16 — Sprint 1.0 r4.1: DX polish (column width + duplicate auto-clear + AI re-prompt move)
+
+3 user-reported fixes after Sprint 1.0 r4 testing:
+1. **Auto-clear shots khi duplicate project Film** (Jason workflow: duplicate "Thỏ bị lạc" → sửa thành "Robot Thức tỉnh" → shots cũ stale).
+2. **Shot list column width** — title cột quá rộng đẩy buttons xuống dòng dưới (screenshot bug).
+3. **🎬 AI re-prompt button** move khỏi Shot List section sang Storyboard's FilmFrameEditModal — vì user chỉ đọc prompts trong Storyboard, không phải Shot List.
+
+Builds on `v0.9.4-r4-drag-rewrite`. All 327 pre-existing tests pass; 4 new tests added (331/343 total).
+
+### Fix 1 — Auto-clear shots khi duplicate Film project
+
+In `src/components/Projects.tsx`, `handleDuplicate` now:
+- Detects Film mode (`settingV2.mode === "film"` OR `filmV093 !== undefined`)
+- Resets `filmV093.shotsBySceneId = {}` in the cloned project
+- Preserves all other Film data: characters, script, structure, beats, twists, scenes
+- Toast message: "Đã clone project — shots cũ bị xóa, click ✨ Sinh lại trong Shot List để đồng bộ"
+
+**Rationale**: Shots are tightly coupled to scene action/title content. Duplicate signals user wants to iterate the story → shots from template are stale by definition. Force regenerate via "✨ Sinh lại" button per scene. Non-Film projects (Photos/TVC) get plain "Đã clone project" toast and full data copy as before.
+
+### Fix 2 — Shot list column width
+
+Root cause: Sprint A added rhythm-pill column + Sprint D added 🎬 reprompt column, but `grid-template-columns` still had 7 columns from qc10. 2-3 extra elements wrapped to a new row. Title input also had no `min-width: 0` so long titles pushed other columns off.
+
+Fix in `src/components/film.css`:
+- `.ksp-shotlist-film-row` → 8 columns: `22px minmax(0, 1fr) 80px 78px 30px 62px 20px 16px`
+  (num · title · type · movement · dur · rhythm · regen · remove)
+- `minmax(0, 1fr)` for title allows shrinking instead of pushing other columns
+- `.ksp-shotlist-film-title-input` → `min-width: 0` + `text-overflow: ellipsis; overflow: hidden; white-space: nowrap` — long titles truncate with "..."
+- `.ksp-shotlist-film-rhythm.ksp-rhythm-pill` → `width: 100%; max-width: 100%; min-width: 0` + ellipsis (was fixed 100px which exceeded the 62px column)
+- Reprompt column removed entirely from grid (moved to Storyboard).
+
+All 8 elements now fit on a single row in 380px sidebar viewport. Title text truncates at end of column when long; user can still edit full text (input is editable, just visually clipped).
+
+### Fix 3 — Move 🎬 AI re-prompt to Storyboard modal
+
+**Old location (Sprint D, now removed):**
+- `FilmShotListSection` ShotRow had `🎬` button next to `🔄 regen`
+- Confirm dialog showed `imagePromptR5` + `animationPromptR5` output
+- **Problem**: Shot List section là TEXT planning — không có nơi nào hiển thị `imagePromptR5`/`animationPromptR5`. User click 🎬 nhưng không thấy kết quả ở đâu (dead-write).
+
+**New location (Storyboard modal):**
+- `FilmFrameEditModal` (opens when user clicks a cell in Storyboard grid) has Image Prompt + Animation Prompt blocks where prompts are visible/copyable
+- Added `🎬 AI re-prompt` button next to existing `📋 Copy` buttons in both blocks
+- Added `↻ Reset` button conditional on override existing
+- Added `🎬 AI override` badge in block header note when override active
+
+**Modal prompt resolution logic refactor:**
+```ts
+imagePromptText = useMemo(() => {
+  if (shot.imagePromptR5) return shot.imagePromptR5; // AI override wins
+  return buildSingleShotImagePrompt({...});          // fallback: deterministic build
+}, [shot, ...]);
+animationPromptText = useMemo(() => {
+  if (shot.animationPromptR5) return shot.animationPromptR5;
+  return buildAnimationPrompt({...}) | buildAnimationPromptAdvanced({...});
+}, [shot, ...]);
+```
+
+UX flow:
+1. User uploads cell or clicks cell in Storyboard → modal opens
+2. Expands Image Prompt block → sees auto-built prompt
+3. Wants AI to rewrite for new duration intent → clicks `🎬 AI re-prompt`
+4. AI call (~$0) → confirm dialog with rationale + new image prompt + new animation prompt
+5. OK → `onSave({ imagePromptR5, animationPromptR5 })` → store updates → modal re-renders with override
+6. Both blocks show `🎬 AI override` badge + `↻ Reset` button appears
+7. User can copy override prompt to Banana Pro / Veo3
+8. To revert: click `↻ Reset` → confirm → fields cleared → back to default build
+
+This fixes the dead-write problem from Sprint D — `imagePromptR5`/`animationPromptR5` are now actually read by the rendering path.
+
+### Engine + store actions
+
+No engine changes — `runShotReprompt` from Sprint D is reused as-is. `applyShotReprompt` store action still exists but is no longer called directly from a UI button; instead `onSave({ imagePromptR5, animationPromptR5 })` writes the same fields via the modal's existing save path. This means `applyShotReprompt` is currently unused in the UI but kept in the codebase for potential future direct-call usage.
+
+### Tests
+
+4 new tests under "Sprint 1.0 r4 — drag rewrite":
+- `ShotRow does NOT render 🎬 reprompt button (moved to Storyboard modal in r4.1)` — verifies clean removal
+- `FilmFrameEditModal renders 🎬 AI re-prompt button + ↻ Reset (moved here from Shot List)`
+- `FilmFrameEditModal prefers imagePromptR5/animationPromptR5 override if set` — verifies dead-write fix
+- `handleDuplicate auto-clears shotsBySceneId when duplicating Film project`
+- `Shot list grid template uses minmax(0, 1fr) for title to allow shrink (r4.1 fix)`
+
+2 Sprint D tests removed (ShotRow reprompt button, reprompt CSS class). Version test relaxed to prefix match.
+
+Test counter: **331/343 PASS** (12 skipped, +4 over Sprint D baseline 327).
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 10.64s
+- ✅ Vitest runtime: 331 passed | 12 skipped
+- ✅ Photos regression: 49/49 xanh
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.5`
+- `manifest.json` `version_name` → `0.9.4-r4.1-dx-polish`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r4.1 — Open Editor`
+- `package.json` `version` → `0.9.4-r4.1-dx-polish`
+
+### Files touched
+
+- `src/components/Projects.tsx` (+15 lines: Film mode detection + shots clear logic)
+- `src/components/FilmShotListSection.tsx` (−85 lines: removed all reprompt code paths, prop chain, handler block)
+- `src/components/FilmFrameEditModal.tsx` (+90 lines: runShotReprompt import, isReprompting state, handleAiReprompt + handleResetPrompt handlers, override-aware useMemo logic, badge + button JSX in both prompt blocks)
+- `src/components/film.css` (+25 lines: override badge + prompt-actions row; updated grid template + title ellipsis + rhythm pill width inline)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+50 lines new tests, -15 lines removed obsolete tests, version test relaxed)
+
+Total: +80 lines net (cleaner code overall — moved logic to correct location instead of duplicating).
+
+### Out of scope
+
+- Storyboard modal opens per-cell, so AI re-prompt is per-cell. If user has same shot in multiple grids (rare), each modal instance is independent — no auto-sync. Acceptable for now.
+- `applyShotReprompt` store action exists but unused. Kept for completeness; not removed to avoid touching engine in a polish patch.
+
+---
+
+## [0.9.4-r4-drag-rewrite] — 2026-05-16 — Sprint 1.0 r4: Drag rewrite (curve + shot duration)
+
+Sprint 1.0 r4 — the **drag-to-rewrite headline** lands. User has direct gestures now:
+- **Kéo điểm tension trên curve** → AI rewrite cảnh đó (description + duration + emotion)
+- **Click 🎬 nút trên shot row** → AI re-prompt image + animation prompts theo duration intent mới
+
+Đây là layer touch quyền lực nhất trong roadmap pacing. Unlike AI Director (auto-apply), drag rewrite **luôn preview-first** vì destructive — touches description text + dialogue context.
+
+Builds on `v0.9.4-r3-ai-director`. All 315 pre-existing tests still pass; 12 new tests added (327/339 total).
+
+### Engine — `runDragRewriteSuggest` + `runShotReprompt`
+
+Two new AI calls in `src/engine/filmScriptStages.ts` (+250 lines):
+
+**`runDragRewriteSuggest({ scene, newTension, provider })`** → `DragRewriteSuggestion`
+- AI nhận: scene hiện tại + target tension user drag tới
+- AI propose: new actionLinesVi/En, new durationSeconds, new emotion, rationaleVi
+- Snapshot `before` (tension + emotion + duration + actionLines) included for undo
+- System prompt:
+  - UP direction → add stakes, conflict, urgency, extend duration 10-25% if delta ≥3
+  - DOWN direction → ease, reflection beats, compress duration 10-20%
+  - PRESERVE: setting, characters, location, key plot beats
+  - CHANGE: stakes, intensity, pace, sensory detail
+
+**`runShotReprompt({ shot, previousDuration, sceneTension, provider })`** → `ShotRepromptSuggestion`
+- AI nhận: shot hiện tại + duration mới + scene tension context
+- AI propose: new imagePromptR5, new animationPromptR5, useStillImage flag
+- `useStillImage: true` khi duration > 8s (vượt cap AI video provider Veo/Kling/Sora 5-8s) → suggest Ken Burns slow zoom + audio overlay
+- Cost: 1 Gemini Flash call (~$0)
+
+### Store — `applyDragRewrite` + `applyShotReprompt`
+
+New actions in `src/store/film_actions.ts` (+70 lines):
+
+**`applyDragRewrite(project, sceneId, rewrite)`** — atomic update 5 fields:
+- tensionLevel + emotionalTone + durationSeconds + actionLinesVi + actionLinesEn
+- Caller archives via `setScript` BEFORE for undo via `revertScriptToVersion(0)`
+- Other scene fields (titleVi, dialog, sfx, musicBrief, shotIds) untouched
+
+**`applyShotReprompt(project, sceneId, shotId, reprompt)`** — updates 2 fields:
+- imagePromptR5 + animationPromptR5
+- `useStillImage` flag passed through but not persisted to schema (yet)
+
+### UI Part 1 — Draggable `TensionCurve`
+
+Refactored in `src/components/FilmPacingDashboardSection.tsx`:
+- Added `onDragRelease?: (sceneId, newTension) => void` prop — if undefined, curve renders static (backward-compat)
+- React refs for SVG element + state for `draggingId` + `dragTension`
+- Global mouse+touch event listeners via `useEffect` cleanup pattern
+- `clientYToTension(clientY)` helper converts client coordinates to tension via SVG bounding rect
+- **Larger 11px invisible hit target** circle per data point for easier mobile tap
+- **Ghost polyline** (dashed purple) shows original positions during drag for reference
+- **Live tension number** rendered above dragged point in #D85A30
+- Threshold: drag must change tension by ≥1 unit to trigger AI suggest (prevents accidental tiny drags)
+- `cursor: grab` → `grabbing` styling
+- Touch: `e.preventDefault()` on `touchmove` để stop page scrolling during drag
+
+### UI Part 2 — `DragRewriteModal` + `DragRewritePreview`
+
+New sub-components in same file (+200 lines):
+- **Backdrop**: fixed overlay `rgba(0,0,0,0.7)`, click-to-close, animated fade-in
+- **Modal**: 440px max-width, max 80vh height, slide-up animation
+- **Header**: ✨ sparkle icon + title "AI rewrite — Cảnh N" + × close button
+- **Loading state**: spinner + "AI đang đề xuất rewrite cho tension mới..."
+- **Error state**: ❌ message + Close button
+- **Preview state** (when AI returns):
+  - 💡 Rationale card (italic purple-accented)
+  - **3-cell meta diff** grid (tension / cảm xúc / duration) — each cell shows before→after
+  - **Action block before** (`text-decoration: line-through` grey)
+  - **Action block after** (orange-bordered, white text on amber bg)
+  - ⚠ Warning banner: "Mô tả + lời thoại cũ sẽ bị OVERWRITE. Script snapshot được archive trước — anh có thể revert qua Versions panel"
+  - Bottom actions: "✕ Bỏ qua" (ghost) + "✓ Áp dụng rewrite" (purple primary)
+
+UX flow:
+1. User drags tension point on curve → release → modal opens in loading state
+2. AI returns 3-8s → modal flips to preview state
+3. User reads rationale + diff + warning
+4. Click "Áp dụng rewrite" → script archived to versions + 5 fields update + toast
+5. Click "Bỏ qua" → modal closes, tension reverts visually (no AI call billed already)
+
+### UI Part 3 — 🎬 Re-prompt button per shot row
+
+In `src/components/FilmShotListSection.tsx`:
+- Added `onReprompt: () => Promise<void>` to `ShotRowProps`
+- Added `🎬` button right after existing `🔄` regen
+- State `isRepromptingDur` (loading spinner) + `lastDuration` (track changes since last reprompt)
+- Click → confirm dialog with current duration → AI call → confirm dialog with new prompts → apply or skip
+- Confirm uses native `confirm()` since output is multi-paragraph text (no separate modal — keeps code lean)
+- Tooltip dynamic: ">8s" warning if duration exceeds AI video provider cap
+- Toast on apply: includes "(dùng still image)" suffix when `useStillImage: true`
+- Wired via `SceneShotListCard` → `onRepromptShot(shotIndex)` callback in main component
+
+### CSS (`src/components/film.css`)
+
+Appended ~260 lines under `/* SPRINT 1.0 r4 — DRAG INTERACTIONS */`:
+- `.ksp-pacing-curve-drag-hint` — small purple "kéo điểm để chỉnh nhịp" label next to curve title
+- `.ksp-pacing-curve-svg-dragging` — grabbing cursor on whole SVG during drag
+- `.ksp-shotlist-film-reprompt-btn` — 🎬 button matching regen styling
+- **Modal stack**: `.ksp-drag-rewrite-backdrop` (fixed overlay) + `-modal` (440px slide-up) + `-header` + `-close` + `-loading/-spinner/-error/-preview`
+- **Animations**: `ksp-drag-rewrite-backdrop-in` (fade), `ksp-drag-rewrite-modal-in` (slide-up), `ksp-drag-rewrite-spin` (spinner loop)
+- **Diff display**: `.ksp-drag-rewrite-meta-row` (3-col grid) + cell styles with arrow + before strikethrough + after bold
+- **Action blocks**: `-before` (greyed strikethrough) + `-after` (orange-bordered amber bg)
+- **Warning**: amber background card with "OVERWRITE" emphasis
+- **Buttons**: ghost + primary variants matching app palette
+
+### Tests (`test/film_mode.test.tsx`)
+
+12 new tests under "Sprint 1.0 r4 — drag rewrite":
+- `runDragRewriteSuggest is exported`
+- `runShotReprompt is exported`
+- `DragRewriteSuggestion + ShotRepromptSuggestion types exist` (with before snapshot, rationaleVi, useStillImage)
+- `applyDragRewrite store action updates 5 scene fields atomically` (test with seeded script + verify all 5 fields + verify untouched fields preserved)
+- `applyShotReprompt updates imagePromptR5 + animationPromptR5`
+- `Drag rewrite prompt preserves stakes + compresses/extends duration` (system prompt check)
+- `Shot reprompt prompt mentions still image when duration > 8s`
+- `TensionCurve component accepts onDragRelease prop` (source check)
+- `DragRewriteModal + DragRewritePreview components exist`
+- `ShotRow renders 🎬 re-prompt button alongside 🔄 regen`
+- `CSS has Sprint 1.0 r4 drag rewrite modal styles`
+- `manifest bumped to 0.9.4.4 with version_name 0.9.4-r4`
+
+Sprint C's "0.9.4.3" test relaxed to prefix match.
+
+Test counter: **327/339 PASS** (12 skipped, +12 over Sprint C baseline 315).
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 10.86s
+- ✅ Vitest runtime: 327 passed | 12 skipped
+- ✅ Photos regression: 49/49 xanh
+
+### Safety & design philosophy
+
+- **Preview-first, not auto-apply**: drag rewrite touches description text (destructive). Modal always shows diff before commit.
+- **Atomic snapshot**: archived via `setScript` before applying → Versions panel can revert if user changes mind later.
+- **Threshold protection**: ≥1 unit tension delta required to trigger AI call (avoids accidental tiny drags).
+- **Mobile-friendly hit target**: 11px invisible circle around each data point — much easier than 4px visible dot on touch.
+- **No animation on AI video > 8s**: AI explicitly tells user to use still image + audio overlay (Ken Burns) for hold beats — avoids broken video gen.
+- **Layer separation maintained**: drag rewrite touches description + duration + emotion + tension. NEVER touches dialogue, character details, shots layer.
+
+### Out of scope for Sprint D (deferred)
+
+- Drag X-axis (reorder scenes) — separate gesture, defer Sprint E
+- Multi-character emotional curves overlay → **Sprint E**
+- Setup-payoff arc tracking → **Sprint E** (may defer further)
+- Confirm dialog → dedicated modal for shot re-prompt (current native confirm is functional but less polished)
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.4`
+- `manifest.json` `version_name` → `0.9.4-r4-drag-rewrite`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r4 — Open Editor`
+- `package.json` `version` → `0.9.4-r4-drag-rewrite`
+
+### Files touched
+
+- `src/engine/filmScriptStages.ts` (+250 lines: runDragRewriteSuggest + runShotReprompt + types)
+- `src/store/film_actions.ts` (+70 lines: applyDragRewrite + applyShotReprompt)
+- `src/components/FilmPacingDashboardSection.tsx` (TensionCurve refactor +120 lines, DragRewriteModal +90 lines, DragRewritePreview +75 lines, main section state + handler +50 lines)
+- `src/components/FilmShotListSection.tsx` (+90 lines: onReprompt callback, button, handler chain)
+- `src/components/film.css` (+260 lines under Sprint 1.0 r4 section)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+150 lines: 12 new tests, 1 Sprint C test relaxed)
+
+Total: +1155 lines net. No deletions, no breaking changes.
+
+---
+
+## [0.9.4-r3-ai-director] — 2026-05-16 — Sprint 1.0 r3: AI Director (Phase 3 auto-apply pacing)
+
+Sprint 1.0 r3 — **AI Director button** ra mắt. Đây là sprint headline của roadmap pacing: 1 nút bấm → AI phân tích toàn film + áp dụng các chỉnh tốt nhất ngay → user review/undo sau. Đúng philosophy "AI nhiều quyền, anh review sau" Jason chốt 16/5/2026.
+
+Builds on `v0.9.4-r2-pacing-dashboard`. All 304 pre-existing tests still pass; 11 new tests added (315/327 total).
+
+### Bonus polish — C → S labels in dashboard
+
+Jason feedback (16/5/2026): "C1→C6 đổi thành S1→S6 cho đồng bộ với 'Scene'". Fix 3 places:
+- Tension curve X-axis labels: `C{order}` → `S{order}`
+- Emotion strip axis ticks: `C{order}` → `S{order}`
+- Beat coverage scene anchor: `C${order}` → `S${order}`
+
+Vietnamese sentences ("cảnh 5") trong anomaly hints + tooltip giữ nguyên (natural language).
+
+### Engine — `runAiDirector` function
+
+New AI call in `src/engine/filmScriptStages.ts` (+170 lines):
+
+Input — scenes (with current tension + emotion + duration), target duration, framework, provider.
+
+Output — `AiDirectorResult`:
+- `changes: AiDirectorSceneChange[]` — only scenes that need adjustment
+- `summaryVi` — overall what AI did (1-2 sentences)
+- `strengthsVi[]` — điểm mạnh nhịp phim hiện tại
+- `weaknessesVi[]` — lo ngại (chỗ chùng, peak sai vị trí, climax yếu)
+- `totalDurationBefore / totalDurationAfter` — for over/under target warning
+
+Per-scene change shape:
+- `before` snapshot (tension + emotion + duration) for per-scene undo
+- `after` proposed values
+- `rationaleVi` — 1 câu giải thích vì sao AI chỉnh
+- `fieldsChanged: ("tension" | "emotion" | "duration")[]` — UI filter to show only diff rows
+
+System prompt instructs AI per Walter Murch's Rule of Six + Pixar emotional valence + Hitchcock suspense theory:
+- Phim hay có curve climbing với 1-2 peak phụ trước climax chính
+- Avoid flat midpoint, early peak, weak climax
+- Compress low-tension scenes (<3/10) if total exceeds target
+- Extend climax scene 10-25% if tension change dramatic
+- **NEVER touch description / action lines / dialogue / character details** — only tension + emotion + duration (3 layer, dễ kiểm tra, không destroy user content)
+
+Duration clamped to safe range 5-600 seconds per scene to avoid AI hallucinations.
+
+### Store — `applyAiDirectorChanges` + `revertSceneAiDirector`
+
+New actions in `src/store/film_actions.ts` (+85 lines):
+
+`applyAiDirectorChanges(project, changes[])`:
+- Bulk-update all scenes in one pass
+- Updates `scenes.updatedAt` timestamp
+- Returns merged FilmData patch (pure function)
+- Caller responsible for archiving snapshot via `setScript` BEFORE calling — this enables "Undo all" via `revertScriptToVersion(0)`
+
+`revertSceneAiDirector(project, sceneId, beforeSnapshot)`:
+- Restore one scene's tension + emotion + duration to snapshot
+- Used by per-scene "Undo" button in review panel
+
+### UI — `AiDirectorPanel` sub-component
+
+In `FilmPacingDashboardSection.tsx` (+265 lines):
+
+Inserted as **first block** of dashboard body (above tension curve). Component has 3 states:
+
+**Idle** — hero button gradient orange→amber `linear-gradient(135deg, #D85A30, #BA7517)`:
+- Big circular icon (🎬), 38×38px
+- Title "AI Director · tự động chỉnh nhịp"
+- Subtitle 10px: "Phân tích toàn phim và áp dụng các chỉnh tốt nhất... Mặc định áp dụng ngay — anh review/undo sau."
+- Disabled if `!film.script`
+- Below button: optional no-op message if AI just ran and found nothing to fix
+
+**Scanning** — animated state during AI call:
+- Sparkle icon + "AI Director đang phân tích..."
+- Animated progress bar (CSS keyframe 30%→80% pulse, 1.6s loop)
+- 4-item task list with green ✓ / amber loading ⏳ / grey ○ pending
+- Tasks: read scenes / compare with theory / propose adjustments / check duration target
+
+**Applied** — report panel after AI returns:
+- Check icon + report title "AI Director đã áp dụng N chỉnh"
+- **4-column stat grid**: cảnh sửa / tension changes / cảm xúc changes / duration changes (each shows count + uppercase label)
+- AI summary card (1-2 sentence overall)
+- Optional duration warning if total film off target by >30s
+- **Strengths card** (green left-border) — list of điểm mạnh
+- **Weaknesses card** (amber left-border) — list of lo ngại
+- **Per-scene review tabs**: chip pills `S1 ✏ · S2 ✏ ...` showing only changed scenes
+  - Click chip → expand `AiDirectorSceneDiff` sub-component below tabs
+  - Diff panel shows: 💡 rationale + 3 diff rows (tension / emotion / duration) before→after + "↶ Undo cảnh này" button
+  - Per-scene undo removes change from result + auto-advances to next change
+- **Bottom action row**: "↶ Undo all" (ghost) + "✓ Giữ" (purple primary)
+
+UX flow recap:
+1. User clicks hero → scanning 8-15s
+2. AI returns → automatically applies changes (no confirm dialog — fast UX)
+3. Snapshot pushed to script.versions array (revertScriptToVersion(0) restores)
+4. Report panel renders, user reads summary + strengths + weaknesses
+5. Optionally click each S* chip to inspect diff per scene
+6. Per-scene undo for individual rejection, or Undo all to bail out entirely
+7. Keep ✓ accepts everything → panel resets to idle
+
+### CSS (`src/components/film.css`)
+
+Appended ~310 lines under `/* SPRINT 1.0 r3 — AI DIRECTOR PANEL */`:
+- `.ksp-ai-director-hero` — orange→amber gradient button
+- `.ksp-ai-director-progress` + animated `-fill` with keyframe `ksp-ai-director-progress-anim`
+- `.ksp-ai-director-tasks` + `-task` (ok/load/wait states), `ksp-ai-director-task-pulse` keyframe
+- `.ksp-ai-director-stat-grid` — 4-column purple-numbered cards
+- `.ksp-ai-director-review-grp` — strengths (green border) / weaknesses (amber border) cards
+- `.ksp-ai-director-tabs` — pill chips with active state (purple bg #534AB7)
+- `.ksp-ai-director-diff` — diff card with before (strikethrough) → after (white bold) rows
+- `.ksp-ai-director-btn` + `-primary` / `-ghost` / `-sm` variants
+
+All dark-theme tuned. Uses existing app palette (#534AB7 purple, #D85A30 orange, #97C459 green, #E5AE5A amber).
+
+### Tests (`test/film_mode.test.tsx`)
+
+11 new tests under "Sprint 1.0 r3 — AI Director":
+- `runAiDirector is exported from filmScriptStages`
+- `AiDirectorResult + AiDirectorSceneChange types exist`
+- `applyAiDirectorChanges store action updates multiple scenes` (with multi-scene seed + verify untouched scenes preserved)
+- `revertSceneAiDirector restores one scene to snapshot`
+- `AI Director system prompt includes pacing principles + JSON schema` (Walter Murch / Pixar / Hitchcock mentioned)
+- `AiDirectorPanel UI component exists in dashboard`
+- `AiDirectorPanel has Undo all + Keep + per-scene undo buttons`
+- `Dashboard renders S1/S2/Sn labels (not C1/C2)` — verifies the C→S rename
+- `CSS has AI Director section styles`
+- `AI Director sanitizes scene durations to safe range (5-600s)`
+- `manifest bumped to 0.9.4.3 with version_name 0.9.4-r3`
+
+Sprint B's "version 0.9.4.2" test relaxed to prefix `^0\.9\.4\.` to avoid breaking on future bumps.
+
+Test counter: **315/327 PASS** (12 skipped, +11 over Sprint B baseline 304).
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 11.18s
+- ✅ Vitest runtime: 315 passed | 12 skipped
+- ✅ Photos regression: 49/49 xanh
+
+### Safety & guarantees
+
+- **Description / dialogue / shots layer untouched**: AI Director instruction explicitly forbids modifying these. User's narrative content preserved verbatim.
+- **Atomic snapshot**: script archived BEFORE applying — Undo all is guaranteed to restore exact pre-state.
+- **Per-scene granular control**: each change has explicit before snapshot in component state; per-scene undo doesn't affect other scenes.
+- **No "preview-first" mode in r3**: per Jason's chốt "default auto-apply, anh review sau". If anh wants preview-first toggle in future, can add easily without schema change.
+- **Cost**: 1 Gemini Flash call (~$0 free tier). Input ~scene count × 200 tokens; output ~scene count × 100 tokens.
+
+### Out of scope for Sprint C (deferred)
+
+- Drag tension on curve → AI rewrite scene description + duration → **Sprint D**
+- Drag shot duration in shot list → AI re-prompt animation prompt → **Sprint D**
+- Multi-character emotional curves overlay → **Sprint E**
+- Setup-payoff arc tracking → **Sprint E**
+- "Preview-first" mode toggle (review before apply) — possible future enhancement
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.3`
+- `manifest.json` `version_name` → `0.9.4-r3-ai-director`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r3 — Open Editor`
+- `package.json` `version` → `0.9.4-r3-ai-director`
+
+### Files touched
+
+- `src/engine/filmScriptStages.ts` (+170 lines: runAiDirector + types + clampTension import)
+- `src/store/film_actions.ts` (+85 lines: applyAiDirectorChanges + revertSceneAiDirector + types)
+- `src/components/FilmPacingDashboardSection.tsx` (+265 lines: AiDirectorPanel + AiDirectorSceneDiff + integration; +3 lines C→S relabel)
+- `src/components/film.css` (+310 lines under Sprint 1.0 r3 section)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+115 lines: 11 new tests, 1 Sprint B test relaxed)
+
+Total: +945 lines net. No deletions, no breaking changes.
+
+---
+
+## [0.9.4-r2-pacing-dashboard] — 2026-05-16 — Sprint 1.0 r2: Pacing Dashboard basic (Phase 2A — Stage ⑥ read-only)
+
+Sprint 1.0 r2 of the 5-sprint pacing roadmap. **Stage ⑥ Pacing Dashboard** mới ra, đặt giữa Stage 5 Script và Shot List trong Film pipeline. Read-only visualization — Sprint C sẽ thêm AI Director button, Sprint D thêm drag interactions.
+
+Builds on `v0.9.4-r1-pacing-1A1B`. All 293 pre-existing tests still pass; 11 new tests added (304/316 total).
+
+### New component — `FilmPacingDashboardSection.tsx` (~350 lines)
+
+4 sub-blocks, all SVG/HTML inline (no external chart libs):
+
+**TensionCurve** — single-line tension chart:
+- SVG 320×130 viewBox (fits 380px sidebar)
+- X axis: scenes evenly spaced (handles n=1 edge case)
+- Y axis: 0-10 tension (3 grid lines at 0/5/10)
+- Orange line (`#D85A30` matching app accent) with circles per data point
+- Peak circle highlighted larger + bordered
+- `<title>` tooltip per circle shows "Scene N (title) — tension X/10"
+- Legend below: "peak: cảnh N (X/10)"
+
+**EmotionStrip** — categorical color blocks:
+- Flexbox row, each scene = 1 equal-width block
+- Block color drawn from `EMOTIONAL_TONE_LABELS[tone]` (bg + color pair)
+- Emoji + Vietnamese label inside each block
+- X-axis scene number ticks below (C1, C2, ...)
+- Handles missing emotionalTone gracefully (renders "neutral" grey)
+
+**BeatCoverage** — framework beats → which scene covers them:
+- Title shows current framework name (3-Act / Hero's Journey / Save the Cat / Kishōtenketsu)
+- For each beat: order + title + scene anchor + tension badge
+- Mapping heuristic: linear position match (beat N of M → scene `floor(N/(M-1) * (scenes.length-1))`)
+- Tension badge color from `getTensionColor()` 3-tier palette (green/amber/red)
+- Empty state when no beats (Quick path skip Stage 2): "Multi-stage wizard chưa được dùng"
+
+**AnomalyHints** — 3 heuristic detectors:
+- **Flat midpoint**: middle 35-65% of scenes all `< 5/10` tension → warn (phim hay thường có peak phụ giữa phim)
+- **No peak**: max tension `< 7/10` → warn (climax should reach ≥7)
+- **Early peak**: highest tension scene is in first 50% AND ≥7/10 → warn (climax thường đặt 70%+ tổng phim)
+- If no anomalies → green "✓ Curve nhịp phim ổn — không phát hiện điểm bất thường"
+- If any → amber "⚠ Phát hiện N điểm cần chú ý" + bullet list
+
+### Pipeline integration (`Editor.tsx`)
+
+Pipeline order Film mode bây giờ:
+1. FilmIdeaScriptSection (Idea + Script)
+2. **FilmPacingDashboardSection** ← NEW Stage ⑥
+3. FilmShotListSection
+4. FilmStoryboardSection
+5. FilmVoiceSection
+6. FilmMusicSfxSection
+7. FilmBundleExportSection
+
+Connector colors updated: Script `#f0a677` → Dashboard `#534AB7` (purple) → ShotList `#D4537E`.
+
+Dashboard only renders when `setting.mode === "film"` (Photos / TVC / Product modes ignore). Defensive guard built into component.
+
+### Empty states (3 stages)
+
+1. **No script yet** — "Sinh script ở phần ② trước, sau đó dashboard sẽ hiển thị curve nhịp phim"
+2. **Script exists but no annotations** — "Chưa có scene nào được annotate. Vào phần ② Script và click 🎭 Re-annotate để AI fill tension + cảm xúc cho tất cả scenes"
+3. **Script + annotations both present** — render 4 blocks
+
+User dropping in từ Quick path (skip Stage 1-4 wizard) sẽ ở state 2 — họ nhấn Re-annotate trong Script section để fill, sau đó dashboard hiển thị đầy đủ.
+
+### CSS (`src/components/film.css`)
+
+Appended ~180 lines dưới `/* SPRINT 1.0 r2 — PACING DASHBOARD */`:
+- Section-level: `.ksp-pacing-dashboard-section` (purple border), `.ksp-pacing-dashboard-header`, `.ksp-pacing-dashboard-num`, `.ksp-pacing-dashboard-title`
+- Block-level: `.ksp-pacing-block` (dark card wrapper), `.ksp-pacing-block-title` (uppercase mini header)
+- Curve: `.ksp-pacing-curve-svg`, `.ksp-pacing-curve-legend`
+- Strip: `.ksp-pacing-strip`, `.ksp-pacing-strip-block`, `.ksp-pacing-strip-emoji`, `.ksp-pacing-strip-label`, `.ksp-pacing-strip-axis`, `.ksp-pacing-strip-axis-tick`
+- Beats: `.ksp-pacing-beat-list`, `.ksp-pacing-beat-row` (grid 22px / 1fr / 32px / 50px), `.ksp-pacing-beat-tension` (badge)
+- Anomaly: `.ksp-pacing-anomaly` + `-ok` / `-warn` variants
+- Empty state: `.ksp-pacing-dashboard-empty`
+
+Dark theme tuned to match existing app aesthetic (background `#1c1c1c`, borders `rgba(255,255,255,0.06)`).
+
+### Tests (`test/film_mode.test.tsx`)
+
+11 new tests under "Sprint 1.0 r2 — pacing dashboard":
+- `FilmPacingDashboardSection component file exists`
+- `FilmPacingDashboardSection exports main component`
+- `Editor.tsx wires FilmPacingDashboardSection between Script and ShotList` (verifies render order via string index check)
+- `FilmPacingDashboardSection has TensionCurve + EmotionStrip + BeatCoverage + AnomalyHints`
+- `Dashboard renders empty state when no script`
+- `Dashboard suggests Re-annotate when script exists but no annotations`
+- `TensionCurve renders SVG with proper viewBox 320x130`
+- `AnomalyHints detects flat midpoint, no peak, early peak`
+- `BeatCoverage uses framework label from FRAMEWORK_LABELS`
+- `manifest bumped to 0.9.4.2 with version_name 0.9.4-r2`
+- `film.css has Sprint 1.0 r2 dashboard styles`
+
+Sprint A version test relaxed to prefix match (`^0\.9\.4\.` + `^0\.9\.4-r`) so future bumps within the 0.9.4 series don't break it.
+
+Test counter: **304/316 PASS** (12 skipped, +11 over Sprint A baseline 293).
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 8.78s
+- ✅ Vitest runtime: 304 passed | 12 skipped (316 total)
+- ✅ Photos regression: 49/49 xanh
+
+### Out of scope for Sprint B (deferred)
+
+- AI Director auto-apply button + scanning state + report → **Sprint C**
+- Drag tension on curve + AI rewrite scene modal → **Sprint D**
+- Drag shot duration → AI re-prompt animation → **Sprint D**
+- Multi-character curve overlay (multiple lines per character) → **Sprint E**
+- Setup-payoff arc tracking → **Sprint E**
+
+### Version sync
+
+- `manifest.json` `version` → `0.9.4.2`
+- `manifest.json` `version_name` → `0.9.4-r2-pacing-dashboard`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r2 — Open Editor`
+- `package.json` `version` → `0.9.4-r2-pacing-dashboard`
+
+### Files touched
+
+- `src/components/FilmPacingDashboardSection.tsx` (NEW, ~350 lines: 4 sub-components + main)
+- `src/components/Editor.tsx` (+3 lines: import + 2-line pipeline insertion with connector)
+- `src/components/film.css` (+180 lines under Sprint 1.0 r2 section)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+95 lines: 11 new tests, 1 Sprint A test relaxed)
+
+Total: +625 lines net. No deletions, no breaking changes.
+
+---
+
+## [0.9.4-r1-pacing-1A1B] — 2026-05-16 — Sprint 1.0 r1: Pacing foundation (Phase 1A scene badges + Phase 1B shot rhythm)
+
+**Sprint 1.0 kickoff** — first of 5 sprints (A-E) delivering pacing & emotional curve feature for Film mode. This release is **foundation only**: schema additions + AI auto-fill + manual edit UI. NO dashboard, NO AI Director button, NO drag interactions — those land in Sprints B-E.
+
+Builds on stable `v0.9.3-qc24` (commit 205250a, tag `v0.9.3-qc24-stable`). All 277 pre-existing tests still pass; 16 new tests added (293/305 total, 12 skipped).
+
+### Why this feature
+
+Jason chốt 5-sprint roadmap (16/5/2026) for pacing — feature was 4-phase originally, expanded to 5 sprints after deep design discussion covering filmmaking domain (Walter Murch's Rule of Six, Hitchcock tension/suspense scale, Pixar emotional valence/arousal model). Sprint A is the data layer that subsequent sprints visualize + manipulate.
+
+### Phase 1A — Scene-level pacing annotations
+
+**Schema** (`src/types/project.ts` + `src/types/film.ts`):
+- New type `EmotionalTone` — 7 values: `tender | tense | funny | sad | shocking | triumphant | neutral`. `melancholy` intentionally omitted (overlap with `sad` — Jason chốt).
+- New const `EMOTIONAL_TONE_LABELS` — { vi, en, emoji, color, bg } per value. Color/bg pair drawn from existing 4-status-badge palette to match app aesthetic.
+- New helpers `clampTension(v)` (0-10 clamp) + `getTensionColor(level)` (3-tier green/amber/red).
+- Extended `FilmSceneScript` (final scene from Stage 5) with `tensionLevel?: number` (0-10) + `emotionalTone?: EmotionalTone`.
+- Extended `FilmScriptIntermediateScene` (Stage 4 output) with same 2 fields.
+
+All fields **optional + backward-compat** — qc24 projects load unchanged, undefined treated as "not annotated" in UI.
+
+**AI auto-fill** (`src/engine/filmScriptStages.ts`):
+- `runStage4Scenes` prompt extended — AI fills `tensionLevel` (with Hitchcock 0-10 expectation density scale guidance) + `emotionalTone` (with 7-value definitions in Vietnamese) per intermediate scene.
+- Output JSON schema includes both fields; `sanitizeTension` + `sanitizeEmotion` validators clamp invalid AI returns to safe defaults (0 / "neutral").
+- `runStage5FromStages` post-processes: after legacy `generateFilmScript()` returns, copies `tensionLevel + emotionalTone` from intermediate scenes to final scenes **by order index**. Stage 5 (legacy scriptWriter) is unchanged — we propagate annotations rather than modifying the legacy prompt (lower risk).
+- **New function** `runReannotateEmotions({ scenes, provider })` — lightweight AI call (~$0 Gemini Flash) that re-annotates tension + emotion for existing scenes without regenerating script. Used by the "🎭 Re-annotate" button when user edits action lines and wants to refresh annotations.
+
+**UI** (`src/components/FilmIdeaScriptSection.tsx`):
+- New `PacingBadges` component — 2 clickable pill badges (tension 🔥 + emotion emoji). Click opens inline popup:
+  - Tension popup: 0-10 range slider with live label + hint strip (calm → mild → rising → high → climax)
+  - Emotion popup: 7 chip buttons (active chip border-highlighted with tone color)
+- Wired into both `SceneCard` (Stage 5 final scene, badges below title) and `SceneCardWithWarning` (Stage 4 intermediate, compact badges below header).
+- "🎭 Re-annotate" buttons added in:
+  - Stage 4 footer row (between summary and "Tiếp: ⑤ Lời thoại →")
+  - Stage 5 actions row (alongside Add Scene / Versions / Export)
+- Edits go through new store action `updateScriptIntermediateScene` (Stage 4) or existing `updateSceneInScript` (Stage 5). Stage 4 action does NOT reset `scriptScenesLocked` — small edit, not regen.
+
+### Phase 1B — Shot-level rhythm role
+
+**Schema** (`src/types/project.ts`):
+- New type `RhythmRole` — 4 values: `establish | build | peak | release` (cinematic micro-arc within scene per Walter Murch theory).
+- New const `RHYTHM_ROLE_LABELS` — { vi, en, emoji, color, bg } per value.
+- Extended `FilmShot` with `rhythmRole?: RhythmRole`. Optional, backward-compat.
+
+**AI auto-fill** (`src/engine/filmShotListGeneration.ts`):
+- `runShotListForScene` prompt extended — AI assigns rhythm role per shot based on position + scene tension. Prompt rule: shot 1 = "establish", 60% middle = "build", 1-2 shots near end = "peak", final shot = "release".
+- `regenSingleShot` prompt also requests rhythmRole field.
+- `sanitizeRhythmRole(v, index, total)` validator — falls back by shot position if AI returns invalid (first → "establish", last → "release", 60%+ → "peak", middle → "build").
+- `sanitizeShot` signature extended with `totalCount` param.
+- `GeneratedShot` interface gains `rhythmRole: RhythmRole` (required in AI output).
+
+**UI** (`src/components/FilmShotListSection.tsx`):
+- New `RHYTHM_ROLE_OPTIONS` constant with 4 dropdown entries (vi label + emoji).
+- `ShotRow` gets a new `<select>` between duration input and regen button — `ksp-rhythm-pill` with `data-role` attribute for color theming (4 distinct backgrounds matching role intent).
+- `GeneratedShot → FilmShot` mapping in main component carries `rhythmRole: gs.rhythmRole`.
+- `regenSingleShot` callback's `updateShot` patch also carries `rhythmRole`.
+
+### CSS (`src/components/film.css`)
+
+Appended ~180 lines under `/* SPRINT 1.0 r1 — PACING */` section:
+- `.ksp-pacing-badges` + `.ksp-pacing-badge` (with `-compact` variant) — pill-shaped buttons with role-derived bg/color
+- `.ksp-pacing-popup` — absolute-positioned dropdown panel with slider + emotion chips
+- `.ksp-pacing-popup-slider` — accent-colored range input
+- `.ksp-pacing-popup-emotion-chip` — chip button with active state
+- `.ksp-scene-card-pacing` + `.ksp-step-scene-pacing` — wrapper rows in scene cards
+- `.ksp-shotlist-film-rhythm.ksp-rhythm-pill` — 100px wide select with `data-role` color theming (establish=grey, build=amber, peak=red, release=green — dark theme variants)
+
+Existing CSS unchanged. All new selectors namespaced under `ksp-pacing-*` and `ksp-rhythm-*` to avoid collision.
+
+### Store (`src/store/film_actions.ts`)
+
+- New action `updateScriptIntermediateScene(project, sceneId, updates)` — patches one intermediate scene without resetting `scriptScenesLocked`. Used by Stage 4 PacingBadges popup.
+
+### Tests (`test/film_mode.test.tsx`)
+
+15 new tests added under "Sprint 1.0 r1 — pacing schema + actions + AI sanitizers":
+- `EmotionalTone enum has exactly 7 values, melancholy excluded`
+- `RhythmRole enum has exactly 4 values establish/build/peak/release`
+- `clampTension clamps to 0-10 range and handles invalid input`
+- `getTensionColor returns 3-tier color palette` (green 0-3 / amber 4-6 / red 7-10)
+- `updateSceneInScript persists tensionLevel + emotionalTone`
+- `updateScriptIntermediateScene patches single intermediate scene`
+- `updateShot persists rhythmRole`
+- `FilmShot.rhythmRole is optional + 4 valid values`
+- `FilmSceneScript.tensionLevel + emotionalTone are optional`
+- `FilmScriptIntermediateScene also has tensionLevel + emotionalTone`
+- `Stage 4 AI prompt requests tension + emotion fields`
+- `Shot list AI prompt requests rhythmRole field`
+- `runReannotateEmotions is exported from filmScriptStages`
+- `PacingBadges component exists in FilmIdeaScriptSection source`
+- `ShotRow renders rhythm role select`
+- `manifest version bumped to 0.9.4.1 with version_name 0.9.4-r1`
+
+Test counter: **293/305 PASS (12 skipped)**, up from 277/289 in qc24.
+
+### Build verification
+
+- ✅ TypeScript compile: 0 errors
+- ✅ Vite production build: 9.22s, dist/manifest.json shows v0.9.4.1
+- ✅ Vitest runtime: 293 passed | 12 skipped (305 total) — no regressions in Photos (49/49) or Film mode (228/240, 12 pre-existing skips)
+
+### Out of scope for Sprint A (deferred to B-E)
+
+- Stage 6 pacing dashboard (curve, strip, beat coverage) — **Sprint B**
+- AI Director auto-apply button — **Sprint C**
+- Drag-to-rewrite (curve + shot duration) — **Sprint D**
+- Multi-character emotional curves overlay + setup-payoff arc tracking — **Sprint E** (may be deferred further)
+
+### Backward compatibility
+
+All schema fields are optional. Loading a qc24 project shows badges with "·" placeholder (not annotated). User can click "🎭 Re-annotate" to retroactively fill via AI, or manually pick values per scene/shot.
+
+Stage 4 regen still resets `scriptScenesLocked` (qc20 pattern). New `updateScriptIntermediateScene` action does NOT reset lock — small edits to a single scene don't invalidate the lock.
+
+### Version sync (3 manifest fields)
+
+- `manifest.json` `version` → `0.9.4.1`
+- `manifest.json` `version_name` → `0.9.4-r1-pacing-1A1B`
+- `manifest.json` `action.default_title` → `KSP Image v0.9.4-r1 — Open Editor`
+- `package.json` `version` → `0.9.4-r1-pacing-1A1B`
+
+### Files touched
+
+- `src/types/project.ts` (+85 lines: enums, labels, helpers, schema extensions)
+- `src/types/film.ts` (+9 lines: FilmScriptIntermediateScene extensions)
+- `src/engine/filmScriptStages.ts` (+90 lines: prompt updates, post-process, runReannotateEmotions, sanitizers)
+- `src/engine/filmShotListGeneration.ts` (+45 lines: RhythmRole import, prompt rule, sanitizer, GeneratedShot extension, signature change)
+- `src/components/FilmIdeaScriptSection.tsx` (+170 lines: PacingBadges component, 2 Re-annotate buttons, wiring)
+- `src/components/FilmShotListSection.tsx` (+30 lines: rhythm select in ShotRow, options const, mapping)
+- `src/components/film.css` (+180 lines under Sprint 1.0 r1 section)
+- `src/store/film_actions.ts` (+18 lines: updateScriptIntermediateScene)
+- `manifest.json` (3 field bumps)
+- `package.json` (1 field bump)
+- `test/film_mode.test.tsx` (+165 lines: 15 new tests)
+
+Total: +795 lines net. No deletions, no breaking changes.
+
+---
+
 ## [0.9.3-qc24] — 2026-05-15 — Click-cell-direct + Video upload per cell + Time format + Drag swap + Unified filenames
 
 5 features/fixes shipped in 1 sprint.

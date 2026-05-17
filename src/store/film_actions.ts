@@ -20,6 +20,7 @@ import {
   MAX_BODY_REFS,
 } from "../types/film";
 import type { PromptProject, ProjectV09Extensions } from "../types";
+import { packShotsIntoGrids } from "../engine/sceneGridPacker";
 
 type ProjWithFilm = PromptProject & ProjectV09Extensions;
 
@@ -415,8 +416,43 @@ function patchShotsForScene(
   sceneId: string,
   shots: FilmShot[]
 ): FilmData {
+  // Sprint 1.0 r6 (BUG #1 fix): auto-repack scene.grids whenever shots mutate.
+  // Without this, scene.grids[i].cells[j].shotId references stale ids after
+  // shot list regen → Storyboard prompt shows "EMPTY — shot reference missing"
+  // for every cell → Banana Pro generates all-black image.
+  //
+  // sceneGridPacker.cellsMatchShots() already preserves cropped dataUrls/locks
+  // when shot ids still match (e.g., shot order swap), so this re-pack is safe
+  // for the common case. Only when shot ids ENTIRELY change (e.g., AI ✨ Sinh lại)
+  // does it correctly clear stale cropped frames that no longer reference any shot.
+  let nextScript = data.script;
+  if (nextScript) {
+    const sceneIdx = nextScript.scenes.findIndex((s) => s.id === sceneId);
+    if (sceneIdx >= 0) {
+      const scene = nextScript.scenes[sceneIdx];
+      if (scene.grids && scene.grids.length > 0) {
+        // Re-pack only if scene has grids (storyboard initialized)
+        const aspectRatio = "16:9"; // safe default; correct value resolved at render
+        const newGrids = packShotsIntoGrids(
+          shots,
+          scene.gridFormat,
+          scene.grids,
+          aspectRatio as any
+        );
+        // Also clear cached imagePrompt so next render rebuilds with new shots
+        const cleanedGrids = newGrids.map((g) => ({ ...g, imagePrompt: undefined }));
+        nextScript = {
+          ...nextScript,
+          scenes: nextScript.scenes.map((s, i) =>
+            i === sceneIdx ? { ...s, grids: cleanedGrids } : s
+          ),
+        };
+      }
+    }
+  }
   return {
     ...data,
+    script: nextScript,
     shotsBySceneId: {
       ...(data.shotsBySceneId ?? {}),
       [sceneId]: shots,
@@ -871,6 +907,40 @@ export function updateScriptTwist(
   return patch({ ...data, scriptTwists: twists });
 }
 
+/**
+ * Sprint 1.0 r7.6: remove a single twist by id. User-initiated delete.
+ * Does NOT clear scriptTwistsLocked — small edit, not regen.
+ */
+export function removeScriptTwist(
+  project: PromptProject,
+  twistId: string
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  const twists = (data.scriptTwists ?? []).filter((t) => t.id !== twistId);
+  return patch({ ...data, scriptTwists: twists });
+}
+
+/**
+ * Sprint 1.0 r7.6: add a new manual twist attached to a beat.
+ * Description starts empty — user types via blur-to-save inline editor.
+ * Accepted state starts undefined (no decision yet).
+ */
+export function addScriptTwist(
+  project: PromptProject,
+  beatId: string,
+  description = ""
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  const existing = data.scriptTwists ?? [];
+  const newTwist: FilmScriptTwist = {
+    id: `twist_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    beatId,
+    description,
+    accepted: undefined,
+  };
+  return patch({ ...data, scriptTwists: [...existing, newTwist] });
+}
+
 export function setScriptIntermediateScenes(
   project: PromptProject,
   scenes: FilmScriptIntermediateScene[]
@@ -879,6 +949,26 @@ export function setScriptIntermediateScenes(
   // qc20 parallel qc18 Twist pattern: AI regen → reset lock to false.
   // User must re-confirm via "Tiếp: ⑤ Lời thoại →" button before stage becomes done.
   return patch({ ...data, scriptIntermediateScenes: scenes, scriptScenesLocked: false });
+}
+
+/**
+ * Sprint 1.0 r1 (Phase 1A): patch one intermediate scene without resetting lock.
+ * Used by PacingBadges popup to edit tension/emotion in Stage 4.
+ * Does NOT clear scriptScenesLocked (small edit, not regen).
+ */
+export function updateScriptIntermediateScene(
+  project: PromptProject,
+  sceneId: string,
+  updates: Partial<FilmScriptIntermediateScene>
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.scriptIntermediateScenes) return {};
+  return patch({
+    ...data,
+    scriptIntermediateScenes: data.scriptIntermediateScenes.map((s) =>
+      s.id === sceneId ? { ...s, ...updates } : s
+    ),
+  });
 }
 
 /**
@@ -1059,7 +1149,6 @@ export function clearStageData(
 // ============================================================================
 
 import {
-  packShotsIntoGrids,
   parseGridFormat,
   getShotsInGrid,
 } from "../engine/sceneGridPacker";
@@ -1176,13 +1265,19 @@ export function ensureSceneGrids(
 
   const shots = getShotsForScene(project, sceneId);
   const aspectRatio = (project as any).settingV2?.aspectRatio ?? "16:9";
+  // Sprint 1.0 r7 (Q-E): Film mode locks default grid format to "3x3".
+  // Rationale: 3x3 is the standard AI image gen prefers (Banana Pro / Imagen / Nano Banana
+  // all output cleanest at 3x3); multi-grid handled via packShotsIntoGrids when shots > 9.
+  // User can still override manually via gridFormat dropdown.
+  const isFilmMode = (project as any).settingV2?.mode === "film";
+  const desiredFormat = scene.gridFormat ?? (isFilmMode ? "3x3" : undefined);
   // qc19: pass undefined → packShotsIntoGrids auto-picks via pickOptimalGridFormat.
   // If scene.gridFormat already set (legacy or manual override), honor it.
-  const newGrids = packShotsIntoGrids(shots, scene.gridFormat, scene.grids, aspectRatio);
-  const resolvedFormat = newGrids[0]?.gridFormat ?? scene.gridFormat ?? "3x3";
+  // r7: Film mode forces 3x3 unless user manually picked something else.
+  const newGrids = packShotsIntoGrids(shots, desiredFormat, scene.grids, aspectRatio);
+  const resolvedFormat = newGrids[0]?.gridFormat ?? desiredFormat ?? "3x3";
   // qc21: If gridFormat was undefined before this call, auto-pick happened → mark as auto.
-  // If gridFormat was already set, preserve gridFormatManual as-is (legacy = undefined,
-  // explicit qc21 override = true, explicit qc21 auto = false).
+  // r7: Film mode 3x3 default still counted as "auto" (user can change).
   const isAutoPickNow = scene.gridFormat === undefined;
   return patchScene(project, sceneId, (s) => ({
     ...s,
@@ -1453,4 +1548,326 @@ export function regenerateSceneGridImagePrompt(
     setting,
   });
   return setSceneGridImagePrompt(project, sceneId, gridId, prompt);
+}
+
+// ============================================================================
+// SPRINT 1.0 r3 — AI DIRECTOR (Phase 3 auto-apply pacing adjustments)
+// ============================================================================
+
+/**
+ * AI Director scene change shape (mirror of engine's AiDirectorSceneChange,
+ * duplicated here to avoid engine→store circular import).
+ */
+export interface AiDirectorChangeApply {
+  sceneId: string;
+  after: {
+    tensionLevel: number;
+    emotionalTone: import("../types/project").EmotionalTone;
+    durationSeconds: number;
+  };
+}
+
+/**
+ * Apply AI Director changes to the script — bulk update multiple scenes.
+ * Each change patches tensionLevel + emotionalTone + durationSeconds on one scene.
+ *
+ * Snapshot archiving: caller is responsible for calling setScript(project, script)
+ * BEFORE applyAiDirectorChanges to push a snapshot to the versions array — that
+ * way "Undo all" can use revertScriptToVersion(0).
+ *
+ * Pure: returns merged FilmData patch.
+ */
+export function applyAiDirectorChanges(
+  project: PromptProject,
+  changes: AiDirectorChangeApply[]
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  if (changes.length === 0) return {};
+
+  const changeMap = new Map(changes.map((c) => [c.sceneId, c.after]));
+
+  const nextScenes = data.script.scenes.map((s) => {
+    const after = changeMap.get(s.id);
+    if (!after) return s;
+    return {
+      ...s,
+      tensionLevel: after.tensionLevel,
+      emotionalTone: after.emotionalTone,
+      durationSeconds: after.durationSeconds,
+    };
+  });
+
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: nextScenes,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+/**
+ * Revert a single scene's pacing fields back to a snapshot.
+ * Used by per-scene "Undo" button in AI Director review panel.
+ */
+export function revertSceneAiDirector(
+  project: PromptProject,
+  sceneId: string,
+  beforeSnapshot: {
+    tensionLevel?: number;
+    emotionalTone?: import("../types/project").EmotionalTone;
+    durationSeconds: number;
+  }
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) =>
+        s.id === sceneId
+          ? {
+              ...s,
+              tensionLevel: beforeSnapshot.tensionLevel,
+              emotionalTone: beforeSnapshot.emotionalTone,
+              durationSeconds: beforeSnapshot.durationSeconds,
+            }
+          : s
+      ),
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+// ============================================================================
+// SPRINT 1.0 r4 — DRAG REWRITE (Phase 4: drag tension → AI rewrite scene)
+// ============================================================================
+
+/**
+ * Apply AI-suggested drag rewrite to a scene.
+ * Updates: tensionLevel + emotionalTone + durationSeconds + actionLinesVi + actionLinesEn.
+ *
+ * Caller should snapshot script via setScript(project, script) BEFORE calling
+ * this if undo is desired.
+ */
+export function applyDragRewrite(
+  project: PromptProject,
+  sceneId: string,
+  rewrite: {
+    newTension: number;
+    newEmotion: import("../types/project").EmotionalTone;
+    newDurationSeconds: number;
+    newActionLinesVi: string;
+    newActionLinesEn: string;
+  }
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) =>
+        s.id === sceneId
+          ? {
+              ...s,
+              tensionLevel: rewrite.newTension,
+              emotionalTone: rewrite.newEmotion,
+              durationSeconds: rewrite.newDurationSeconds,
+              actionLinesVi: rewrite.newActionLinesVi,
+              actionLinesEn: rewrite.newActionLinesEn,
+            }
+          : s
+      ),
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+/**
+ * Apply AI-suggested shot re-prompt — update imagePromptR5 + animationPromptR5.
+ * Optionally sets a "useStillImage" flag stored as metadata in the shot's purpose field
+ * (no schema change — just a marker user can read).
+ */
+export function applyShotReprompt(
+  project: PromptProject,
+  sceneId: string,
+  shotId: string,
+  reprompt: {
+    newImagePrompt: string;
+    newAnimationPrompt: string;
+    useStillImage: boolean;
+  }
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.shotsBySceneId) return {};
+  const shots = data.shotsBySceneId[sceneId];
+  if (!shots) return {};
+  return patch({
+    ...data,
+    shotsBySceneId: {
+      ...data.shotsBySceneId,
+      [sceneId]: shots.map((sh) =>
+        sh.id === shotId
+          ? {
+              ...sh,
+              imagePromptR5: reprompt.newImagePrompt,
+              animationPromptR5: reprompt.newAnimationPrompt,
+            }
+          : sh
+      ),
+    },
+  });
+}
+
+// ============================================================================
+// SPRINT 1.0 r5 — MULTI-CHARACTER + SETUP-PAYOFF (Phase 2B)
+// ============================================================================
+
+import type { SetupPayoffPair, EmotionalTone } from "../types/project";
+
+/**
+ * Apply AI-detected per-character emotions to scenes in script.
+ * Bulk update — patches characterEmotions field on multiple scenes at once.
+ * Caller passes the map sceneId → characterId → EmotionalTone.
+ */
+export function applyCharacterEmotions(
+  project: PromptProject,
+  emotionsBySceneId: Record<string, Record<string, EmotionalTone>>
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) => {
+        const charEmotions = emotionsBySceneId[s.id];
+        if (!charEmotions) return s;
+        return { ...s, characterEmotions: charEmotions };
+      }),
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+/**
+ * Persist AI-detected setup-payoff pairs to FilmData.
+ * Replaces existing pairs (caller decides whether to merge or replace via prior read).
+ */
+export function setSetupPayoffPairs(
+  project: PromptProject,
+  pairs: SetupPayoffPair[]
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  return patch({ ...data, setupPayoffPairs: pairs });
+}
+
+/**
+ * Clear all setup-payoff pairs (user dismisses analysis).
+ */
+export function clearSetupPayoffPairs(project: PromptProject): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  return patch({ ...data, setupPayoffPairs: [] });
+}
+
+/**
+ * Remove one specific setup-payoff pair (user marks as false-positive).
+ */
+export function removeSetupPayoffPair(
+  project: PromptProject,
+  pairId: string
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  const pairs = data.setupPayoffPairs ?? [];
+  return patch({
+    ...data,
+    setupPayoffPairs: pairs.filter((p) => p.id !== pairId),
+  });
+}
+
+// ============================================================================
+// SPRINT 1.0 r7 — BEATS + PHYSICAL CONSISTENCY LOCK (Phase 3)
+// ============================================================================
+
+import type { Beat } from "../types/project";
+
+/**
+ * Apply AI-detected beats + physicalConsistencyLockEn to scenes in script.
+ * Bulk update — patches beats field + physicalConsistencyLockEn on multiple scenes.
+ *
+ * Auto-called when Stage 5 finalizes (Q-A) and J3 auto-re-detect when scene edited.
+ */
+export function applyBeatsAndPhysicalLock(
+  project: PromptProject,
+  resultsBySceneId: Record<
+    string,
+    { beats: Beat[]; physicalConsistencyLockEn?: string }
+  >
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) => {
+        const result = resultsBySceneId[s.id];
+        if (!result) return s;
+        return {
+          ...s,
+          beats: result.beats,
+          physicalConsistencyLockEn: result.physicalConsistencyLockEn,
+        };
+      }),
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+/**
+ * Update user-edited beats for a single scene (manual add/remove via popover).
+ */
+export function setSceneBeats(
+  project: PromptProject,
+  sceneId: string,
+  beats: Beat[]
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) =>
+        s.id === sceneId ? { ...s, beats } : s
+      ),
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+/**
+ * Update user-edited physical consistency lock for a single scene.
+ */
+export function setScenePhysicalLock(
+  project: PromptProject,
+  sceneId: string,
+  lockEn: string | undefined
+): Partial<ProjWithFilm> {
+  const data = ensureFilmData(project);
+  if (!data.script) return {};
+  return patch({
+    ...data,
+    script: {
+      ...data.script,
+      scenes: data.script.scenes.map((s) =>
+        s.id === sceneId ? { ...s, physicalConsistencyLockEn: lockEn?.trim() || undefined } : s
+      ),
+      updatedAt: Date.now(),
+    },
+  });
 }

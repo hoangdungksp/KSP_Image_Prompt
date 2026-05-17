@@ -22,6 +22,7 @@ import type {
   FilmShot,
   FilmSceneScript,
   ProjectSettingV2,
+  RhythmRole,
 } from "../types/project";
 import {
   formatDurationsForPrompt,
@@ -54,6 +55,26 @@ const CAMERA_MOVEMENT_VALUES = [
   "tracking",
 ] as const;
 
+/**
+ * Sprint 1.0 r1 (Phase 1B): valid rhythm role values for AI prompt + sanitizer.
+ * Keep in sync with RHYTHM_ROLE_LABELS in project.ts.
+ */
+const RHYTHM_ROLE_VALUES: RhythmRole[] = ["establish", "build", "peak", "release"];
+
+/**
+ * Sanitize AI-returned rhythm role.
+ * Default by position if invalid: first → "establish", last → "release", middle → "build".
+ */
+function sanitizeRhythmRole(v: any, index: number, total: number): RhythmRole {
+  if (typeof v === "string" && (RHYTHM_ROLE_VALUES as string[]).includes(v)) {
+    return v as RhythmRole;
+  }
+  if (index === 0) return "establish";
+  if (index === total - 1) return "release";
+  if (index >= Math.floor(total * 0.6) && index < total - 1) return "peak";
+  return "build";
+}
+
 // ============================================================================
 // PER-SCENE GENERATION
 // ============================================================================
@@ -76,6 +97,12 @@ export interface RunShotListForSceneInput {
    * If undefined, AI uses default 1-15s range freely.
    */
   videoProviderId?: string;
+  /**
+   * Sprint 1.0 r7: Scene's atomic beats (auto-detected at Stage 5 finalize).
+   * If provided, AI shot list MUST cover ALL beats (1 shot can cover 1-2 beats
+   * via G2 soft mapping). AI returns coveredBeatIds per shot for Coverage indicator.
+   */
+  beats?: import("../types/project").Beat[];
 }
 
 export interface GeneratedShot {
@@ -85,8 +112,18 @@ export interface GeneratedShot {
   cameraMovement: string;
   durationSeconds: number;
   purposeVi: string;
+  /** Sprint 1.0 r7 (Q1 VI leak fix): EN equivalent of purposeVi. AI MUST sinh both. */
+  purposeEn: string;
   actionVi: string;
   actionEn: string;
+  /** Sprint 1.0 r1 (Phase 1B): cinematic micro-arc role within scene. */
+  rhythmRole: RhythmRole;
+  /** Sprint 1.0 r7 (Q2 per-shot mood): English lighting hint specific to this shot.
+   *  AI auto-fills based on action + rhythm role. User can manually override. */
+  lightingHintEn?: string;
+  /** Sprint 1.0 r7: AI maps this shot to beat IDs in scene.beats (D2 mapping).
+   *  Used for Coverage indicator in Shot List section. */
+  coveredBeatIds?: string[];
 }
 
 /**
@@ -107,7 +144,7 @@ export interface GeneratedShot {
 export async function runShotListForScene(
   input: RunShotListForSceneInput
 ): Promise<GeneratedShot[]> {
-  const { scene, characters, setting, provider = "gemini-flash", videoProviderId } = input;
+  const { scene, characters, setting, provider = "gemini-flash", videoProviderId, beats } = input;
   // qc19 note: input.gridFormat still exists in type for backward-compat but is NO LONGER used.
   // Storyboard auto-picks grid format from shot count (see sceneGridPacker.pickOptimalGridFormat).
 
@@ -115,6 +152,24 @@ export async function runShotListForScene(
     characters
       .map((c) => `- ${c.name || `Character ${c.order}`}: ${c.description || "(no description)"}`)
       .join("\n") || "(no cast)";
+
+  // Sprint 1.0 r7: Beats injection if available
+  // Sprint 1.0 r7.1 (Bug fix): Strengthen instructions — AI was producing 7 shots
+  // for 10 beats by defaulting to "sweet spot 4-9". Now beat count drives shot count.
+  const beatsBlock = beats && beats.length > 0
+    ? `\n\n🎯 SCENE BEATS (${beats.length} atomic narrative units AI MUST cover):
+${beats.map((b) => `[${b.id}] Beat ${b.order} [${b.type}]: ${b.label}${b.sourcePhrase ? ` — quote: "${b.sourcePhrase}"` : ""}`).join("\n")}
+
+⚠️ CRITICAL BEAT COVERAGE RULES (override any other shot count guidance):
+- This scene has ${beats.length} beats. Target shot count = ${beats.length} (1 shot per beat ideal).
+- HARD MINIMUM: ${Math.max(4, Math.ceil(beats.length * 0.8))} shots (no fewer, even if "sweet spot" rules suggest less).
+- HARD MAXIMUM: ${beats.length + 2} shots (avoid over-coverage).
+- EVERY beat MUST be covered by at least 1 shot — DO NOT skip beats.
+- 1 shot CAN cover 1-2 ADJACENT beats only if they are tightly similar (e.g., merge "claws on moss" + "tiny grip texture"). DO NOT merge across rhythm changes.
+- DO NOT merge beats of different types (camera + state-change = always separate shots).
+- For EACH shot, return "coveredBeatIds": NON-EMPTY array of beat IDs (copy exact beat IDs from list above like "${beats[0].id}"). EVERY beat ID must appear in at least one shot's coveredBeatIds.
+- If you cannot cover all ${beats.length} beats, you MUST sinh more shots. Beat coverage takes priority over the 4-9 "sweet spot" rule.`
+    : "";
 
   // qc19 Hướng F-9: narrative-driven shot count guidance.
   // Sweet spot 4-9 shots/scene (per AI filmmaking 2026 industry data + Jason intuition).
@@ -152,7 +207,7 @@ Storyboard sẽ TỰ ĐỘNG pick grid format optimal theo shot count (3×3 cho 
 - 1-2 EMOTION shots — show character feelings (close_up)
 - 1 REVEAL/PAYOFF shot — final moment that resolves the scene
 
-${gridConstraint}
+${gridConstraint}${beatsBlock}
 
 Adjust shot count based on:
 - Scene complexity (more events/locations → more shots)
@@ -163,26 +218,45 @@ KHÔNG bị giới hạn bởi durationSeconds — đó chỉ là tham khảo t�
 Mỗi shot có thể chỉ 0.5-3 giây trong final cut.
 Mục tiêu: kể chuyện CINEMATIC, truyền cảm xúc, rõ hành động.
 
+⚡ Sprint 1.0 r7 — CAMERA MOVEMENT VARIETY (CRITICAL):
+- DO NOT default to "static" for every shot — visual variety is essential
+- ESTABLISHING shots: use pan/tilt to reveal SPACE (pan_right reveal, tilt_down reveal)
+- BUILD shots: use tracking/dolly to follow character motion
+- PEAK shots: use static OR slow dolly_in for emotional weight + micro-expression
+- DETAIL/INSERT shots: zoom_in or static (intimate macro feel)
+- ACTION shots: handheld/tracking for energy
+- DIALOGUE shots: static lock-off for stability
+- Aim for AT LEAST 3 different camera movements across the shot list (don't pick same value for all)
+
 Mỗi shot có:
 - "titleVi": tiêu đề ngắn TIẾNG VIỆT (vd: "Robot tỉnh dậy", "Mắt LED sáng dần", "Tay rỉ sét cử động")
 - "titleEn": same title in ENGLISH (for AI image/video prompts downstream)
 - "shotType": MUST be exactly one of: ${SHOT_TYPE_VALUES.join(" | ")}
-- "cameraMovement": MUST be exactly one of: ${CAMERA_MOVEMENT_VALUES.join(" | ")}
+- "cameraMovement": MUST be exactly one of: ${CAMERA_MOVEMENT_VALUES.join(" | ")} — VARY across shots per rules above
 ${durationConstraint}
 - "purposeVi": 1 câu TIẾNG VIỆT giải thích mục đích shot (vd: "Establish setting + thời gian", "Reveal robot's consciousness")
+- "purposeEn": 1 sentence ENGLISH equivalent of purposeVi — REQUIRED, used in AI prompts downstream (Sprint 1.0 r7 Q1 fix — prevent VI leak)
 - "actionVi": 1-2 câu TIẾNG VIỆT mô tả hành động cụ thể trong shot
 - "actionEn": same action in ENGLISH (for downstream AI image prompts)
+- "rhythmRole": MUST be exactly one of: ${RHYTHM_ROLE_VALUES.join(" | ")} — cinematic micro-arc role within scene:
+    * "establish" — shot đầu set baseline (location, time, mood) — thường wide
+    * "build"     — leo dốc tension (action chính, dialogue exchange, tension build) — medium/2-shot
+    * "peak"      — đỉnh cảm xúc của scene's micro-arc — CU/ECU dày
+    * "release"   — pull back kết scene, transition — wide hoặc cut
+    Quy tắc phân bổ: shot 1 thường "establish"; 60% giữa "build"; 1-2 shots cuối-giữa "peak"; shot cuối "release"
+- "lightingHintEn": short ENGLISH lighting direction specific to THIS shot (Sprint 1.0 r7 Q2 — per-shot mood variety). Example: "golden-hour key light through canopy, atmospheric haze" / "tight shallow DOF, single blue accent on subject's eye" / "harsh top-light, deep shadows" / "macro detail lighting, sharp focus on textures". REQUIRED — never empty. Vary across shots to match action context.${beats && beats.length > 0 ? `
+- "coveredBeatIds": array of beat IDs from SCENE BEATS list this shot captures. Use [] if AI cannot map to any specific beat. EVERY beat MUST appear in at least one shot's coveredBeatIds.` : ""}
 
 QUY TẮC:
 - Shot ĐẦU TIÊN thường là wide_establishing để introduce scene
 - Shot CUỐI cùng thường là reveal/payoff (medium/close_up tùy emotional intent)
 - Mix shot types để không buồn chán
-- camera movement = "static" cho dialogue + intimate moments
+- camera movement = "static" cho dialogue + intimate moments (NHƯNG không phải tất cả — VARY!)
 - camera movement = "pan/tilt/dolly/tracking" cho action + reveals
 
 OUTPUT JSON: { "shots": [ {...}, {...} ] }
 
-Tất cả title/purpose/action: TIẾNG VIỆT cho user đọc; titleEn + actionEn: TIẾNG ANH cho AI prompts downstream.`;
+Tất cả title/purpose/action: TIẾNG VIỆT cho user đọc; titleEn + actionEn + purposeEn + lightingHintEn: TIẾNG ANH cho AI prompts downstream.`;
 
   const userPrompt = `SCENE ${scene.order}: ${scene.titleVi || scene.titleEn}
 SETTING: ${scene.settings}
@@ -226,7 +300,105 @@ Generate 4-16 shots theo cinematic breakdown formula above. Aim for richer cover
   const shotsToReturn = parsed.shots.slice(0, 16);
 
   // Sanitize + validate each shot
-  return shotsToReturn.map((s, i) => sanitizeShot(s, i, videoProviderId));
+  const totalCount = shotsToReturn.length;
+  const sanitized = shotsToReturn.map((s, i) => sanitizeShot(s, i, videoProviderId, totalCount));
+
+  // Sprint 1.0 r7.1 (Bug 5 fix): Fallback heuristic — if AI returned empty/incomplete
+  // coveredBeatIds despite beats being passed, do fuzzy keyword match between shot
+  // actionEn/titleEn and beat labels to auto-link. Better than 0/N coverage display.
+  if (beats && beats.length > 0) {
+    return autoFillCoveredBeatIds(sanitized, beats);
+  }
+  return sanitized;
+}
+
+/**
+ * Sprint 1.0 r7.1 fallback: when AI doesn't return coveredBeatIds (or returns invalid IDs),
+ * fuzzy-match shot's actionEn + titleEn against beat labels.
+ *
+ * Heuristic per shot:
+ *   1. Tokenize shot text (action + title) into lowercase keywords (skip stopwords)
+ *   2. Tokenize each beat label same way
+ *   3. Compute overlap count: shot↔beat keyword Jaccard-like score
+ *   4. Assign shot to beat(s) with highest score (≥1 keyword match)
+ *
+ * Beats with multiple shots: keep all matching shot IDs.
+ * Shots with no clear match: assigned to nearest unassigned beat by order.
+ */
+function autoFillCoveredBeatIds(shots: GeneratedShot[], beats: import("../types/project").Beat[]): GeneratedShot[] {
+  // Skip if AI already filled correctly (every beat has coverage AND every shot has coveredBeatIds)
+  const validBeatIds = new Set(beats.map((b) => b.id));
+  const allShotsHaveCoverage = shots.every(
+    (s) => s.coveredBeatIds && s.coveredBeatIds.length > 0 && s.coveredBeatIds.some((id) => validBeatIds.has(id))
+  );
+  if (allShotsHaveCoverage) return shots;
+
+  // Stopwords (Vietnamese + English) to skip from tokenization
+  const STOPWORDS = new Set([
+    "the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "but",
+    "with", "from", "by", "as", "is", "are", "was", "were", "be", "been",
+    "shot", "scene", "the", "this", "that", "these", "those",
+    "của", "và", "là", "có", "không", "cho", "với", "trong", "tại", "đã", "sẽ",
+    "một", "các", "những", "thì", "mà", "ở", "khi", "đến", "vào", "ra", "nó",
+  ]);
+  const tokenize = (text: string): Set<string> => {
+    const tokens = text
+      .toLowerCase()
+      .replace(/[^a-zà-ỹ0-9\s]/gi, " ")
+      .split(/\s+/)
+      .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+    return new Set(tokens);
+  };
+
+  const beatTokensByID = new Map<string, Set<string>>();
+  for (const beat of beats) {
+    beatTokensByID.set(
+      beat.id,
+      tokenize(beat.label + " " + (beat.sourcePhrase ?? ""))
+    );
+  }
+
+  // For each shot, score against each beat, pick top matches
+  return shots.map((shot, shotIdx) => {
+    // If AI already provided valid coverage, keep it
+    if (shot.coveredBeatIds && shot.coveredBeatIds.some((id) => validBeatIds.has(id))) {
+      return shot;
+    }
+
+    const shotTokens = tokenize(
+      (shot.actionEn ?? "") + " " + (shot.titleEn ?? "") + " " + (shot.actionVi ?? "") + " " + (shot.titleVi ?? "")
+    );
+
+    // Score against each beat
+    const scores: Array<{ beatId: string; score: number; beatOrder: number }> = [];
+    for (const beat of beats) {
+      const beatTokens = beatTokensByID.get(beat.id) ?? new Set();
+      let overlap = 0;
+      for (const t of beatTokens) {
+        if (shotTokens.has(t)) overlap += 1;
+      }
+      if (overlap > 0) {
+        scores.push({ beatId: beat.id, score: overlap, beatOrder: beat.order });
+      }
+    }
+
+    // Pick top 2 matches (allow shot to cover 2 adjacent beats)
+    scores.sort((a, b) => b.score - a.score);
+    const topMatches = scores.slice(0, 2).map((s) => s.beatId);
+
+    // Fallback: if no keyword match, distribute shot to nearest beat by position
+    // (shotIdx / shots.length) → beatIdx position
+    const fallbackBeatIdx = Math.min(
+      beats.length - 1,
+      Math.floor((shotIdx / shots.length) * beats.length)
+    );
+    const fallbackBeatId = beats[fallbackBeatIdx].id;
+
+    return {
+      ...shot,
+      coveredBeatIds: topMatches.length > 0 ? topMatches : [fallbackBeatId],
+    };
+  });
 }
 
 // ============================================================================
@@ -293,12 +465,15 @@ Format output JSON (chỉ 1 shot, không wrap trong "shots" array):
   "shotType": "wide_establishing|medium|close_up|insert|over_shoulder|two_shot|pov",
   "cameraMovement": "static|pan_left|pan_right|tilt_up|tilt_down|zoom_in|zoom_out|dolly_in|dolly_out|handheld|tracking",
   "durationSeconds": <number>,
-  "purposeVi": "<Vietnamese>",
-  "actionVi": "<Vietnamese>",
-  "actionEn": "<English>"
+  "purposeVi": "<Vietnamese 1 sentence>",
+  "purposeEn": "<English 1 sentence>",
+  "actionVi": "<Vietnamese 1-2 sentences>",
+  "actionEn": "<English 1-2 sentences>",
+  "rhythmRole": "establish|build|peak|release",
+  "lightingHintEn": "<short English lighting hint specific to this shot>"
 }
 
-Tất cả VN cho user đọc; titleEn + actionEn: EN cho AI prompts downstream.`;
+Tất cả VN cho user đọc; titleEn + actionEn + purposeEn + lightingHintEn: EN cho AI prompts downstream.`;
 
   const userPrompt = `SCENE ${scene.order}: ${scene.titleVi || scene.titleEn}
 SETTING: ${scene.settings}
@@ -333,7 +508,7 @@ Sinh shot MỚI thay thế shot này. Phải khác về ít nhất 1 trong: shot
     );
   }
 
-  return sanitizeShot(parsed, indexToRegen, videoProviderId);
+  return sanitizeShot(parsed, indexToRegen, videoProviderId, allShots.length);
 }
 
 // ============================================================================
@@ -343,7 +518,8 @@ Sinh shot MỚI thay thế shot này. Phải khác về ít nhất 1 trong: shot
 function sanitizeShot(
   s: Partial<GeneratedShot>,
   fallbackIndex: number,
-  videoProviderId?: string
+  videoProviderId?: string,
+  totalCount: number = 1
 ): GeneratedShot {
   const shotType = SHOT_TYPE_VALUES.includes(s.shotType as any)
     ? (s.shotType as FilmShot["shotType"])
@@ -370,7 +546,17 @@ function sanitizeShot(
     cameraMovement,
     durationSeconds: duration,
     purposeVi: s.purposeVi?.trim() || "",
+    // Sprint 1.0 r7: Q1 VI leak fix — AI must sinh purposeEn
+    purposeEn: s.purposeEn?.trim() || "",
     actionVi: s.actionVi?.trim() || "",
     actionEn: s.actionEn?.trim() || "",
+    // Sprint 1.0 r1 (Phase 1B)
+    rhythmRole: sanitizeRhythmRole(s.rhythmRole, fallbackIndex, Math.max(1, totalCount)),
+    // Sprint 1.0 r7: Q2 per-shot mood — AI fills lighting hint
+    lightingHintEn: s.lightingHintEn?.trim() || undefined,
+    // Sprint 1.0 r7: D2 beat mapping
+    coveredBeatIds: Array.isArray(s.coveredBeatIds)
+      ? s.coveredBeatIds.filter((id) => typeof id === "string" && id.length > 0)
+      : undefined,
   };
 }

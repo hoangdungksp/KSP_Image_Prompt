@@ -11,7 +11,7 @@
  * Replaces deprecated MusicSfxSectionV09.tsx (atomic Q6).
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import {
   ensureFilmData,
@@ -29,6 +29,14 @@ export function FilmMusicSfxSection() {
   const project = useAppStore((s) => s.currentProject);
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const showToast = useAppStore((s) => s.showToast);
+  // r7.6: default collapse on first mount. Editor handles toggle via header click.
+  const sectionRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (sectionRef.current && !sectionRef.current.classList.contains("ksp-section-collapsed")) {
+      sectionRef.current.classList.add("ksp-section-collapsed");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!project) return null;
   const film = ensureFilmData(project);
@@ -36,7 +44,7 @@ export function FilmMusicSfxSection() {
   const sfxProvider: FilmSfxProvider = film.sfxProvider ?? "freesound";
 
   return (
-    <section className="ksp-section ksp-music-sfx-film">
+    <section ref={sectionRef} className="ksp-section ksp-music-sfx-film">
       <header className="ksp-section-header">
         <span className="ksp-section-icon">🎵</span>
         <h2 className="ksp-section-title">7. MUSIC + SFX</h2>

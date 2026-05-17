@@ -23,6 +23,7 @@ import type { ProjectModeV2 } from "../types/project";
 import { ProjectSettingSection } from "./ProjectSettingSection";
 import { CastFilmSection } from "./CastFilmSection";
 import { FilmIdeaScriptSection } from "./FilmIdeaScriptSection";
+import { FilmPacingDashboardSection } from "./FilmPacingDashboardSection";
 import { FilmShotListSection } from "./FilmShotListSection";
 import { FilmStoryboardSection } from "./FilmStoryboardSection";
 // ShotDetailPanel deleted r5 (atomic Q6) — replaced by FilmShotDetailPanel inline expand drawer
@@ -158,7 +159,10 @@ function FilmPipeline() {
   return (
     <>
       <FilmIdeaScriptSection />
-      <Connector colorFrom="#f0a677" colorTo="#D4537E" />
+      <Connector colorFrom="#f0a677" colorTo="#534AB7" />
+
+      <FilmPacingDashboardSection />
+      <Connector colorFrom="#534AB7" colorTo="#D4537E" />
 
       <FilmShotListSection />
       <Connector colorFrom="#D4537E" colorTo="#afa9ec" />

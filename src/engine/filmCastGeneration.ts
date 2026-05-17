@@ -221,3 +221,244 @@ export function findNextMissingLabel(
   const filled = new Set(filledRefs.map((r) => r.label).filter((l): l is string => !!l));
   return labelOrder.find((label) => !filled.has(label));
 }
+
+// ============================================================================
+// Sprint G1d — Item 6: AI CAST PROMPT SET GENERATION
+// ============================================================================
+
+/**
+ * Output of runGenerateCastPromptSet — 2 EN prompts (face/body) + anchor tokens
+ * that must remain consistent across all shots involving this character.
+ */
+export interface CastPromptSet {
+  /** EN photo prompt for face/head close-up ref (1:1 portrait, slot 0 = "front") */
+  facePrompt: string;
+  /** EN photo prompt for full-body ref (3:4 portrait, slot 0 = "front") */
+  bodyPrompt: string;
+  /** 3-7 short tokens that lock the character's appearance — used by user as a
+   *  consistency checklist when picking generated images. */
+  anchorTokens: string[];
+}
+
+export interface GenerateCastPromptSetInput {
+  character: FilmCharacter;
+  idea: string;
+  script?: FilmScript;
+  setting: ProjectSettingV2;
+  provider?: FilmScriptProvider;
+  /** When true AND character.faceRefs[0] exists, send the first face ref as a
+   *  multimodal input to Gemini so the output prompt is anchored on the actual
+   *  uploaded image (not invented appearance). Falls back to text-only if no refs. */
+  useFaceRefForMatch?: boolean;
+}
+
+const GEMINI_FLASH_MM_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+/**
+ * Generate 2 EN photo prompts (face + body) + anchor tokens for a single character.
+ *
+ * Use case: user has Cast description in VI + has uploaded refs (or not). Click
+ * "📝 Prompt" button → this engine assembles project context + character entry
+ * → AI distills into 2 production-ready EN prompts. User copies → pastes into
+ * Banana Pro / Imagen / Nano Banana → generates → uploads back into Face/Body refs.
+ *
+ * Hướng B (Q-ii confirmed): when useFaceRefForMatch=true AND refs exist, sends
+ * the image to Gemini Flash multimodal so the AI describes the ACTUAL appearance
+ * (no invention drift). When false or no refs: text-only AI call from description.
+ */
+export async function runGenerateCastPromptSet(
+  input: GenerateCastPromptSetInput
+): Promise<CastPromptSet> {
+  const {
+    character,
+    idea,
+    script,
+    setting,
+    provider = "gemini-flash",
+    useFaceRefForMatch = true,
+  } = input;
+  const charName = character.name.trim() || `Character ${character.order}`;
+  const animationStyle = setting.animationStyle ?? "live_action";
+
+  // Style hint for prompt suffix (same mapping as generateCharacterRefImage)
+  const styleHint =
+    animationStyle === "anime_2d"
+      ? "anime 2D character sheet art style, clean line work, soft cel shading"
+      : animationStyle === "cgi_3d_cinematic"
+      ? "Pixar 3D render style, cinematic lighting, soft global illumination, character sheet quality"
+      : animationStyle === "film_noir"
+      ? "black and white film noir reference photo, high-contrast Rembrandt lighting"
+      : "photorealistic studio photography, soft cinematic lighting, character sheet quality";
+
+  // Script context (max 3 scenes character appears in, fallback to first 3)
+  let scriptContext = "";
+  if (script && script.scenes.length > 0) {
+    const charRegex = new RegExp(
+      charName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i"
+    );
+    // Filter scenes where action lines OR dialog mention this character.
+    const matchingScenes = script.scenes.filter((s) => {
+      const action = ((s as any).actionLinesVi || s.actionLinesEn || "") as string;
+      const dialogues = (s.dialog ?? []).map((d: any) => d.text ?? "").join(" ");
+      return charRegex.test(action) || charRegex.test(dialogues);
+    });
+    const scenesToInclude = (matchingScenes.length > 0 ? matchingScenes : script.scenes).slice(0, 3);
+    if (scenesToInclude.length > 0) {
+      scriptContext = scenesToInclude
+        .map((s) => {
+          const action = ((s as any).actionLinesVi || s.actionLinesEn || "") as string;
+          return `Scene ${s.order} (${s.titleVi || s.titleEn}): ${action.slice(0, 220)}`;
+        })
+        .join("\n");
+    }
+  }
+
+  // Existing refs note (for AI to know user already has visual reference)
+  const hasFaceRef = (character.faceRefs?.length ?? 0) > 0;
+  const hasBodyRef = (character.bodyRefs?.length ?? 0) > 0;
+  const refsNote =
+    hasFaceRef || hasBodyRef
+      ? `\n\n[USER HAS UPLOADED REFS: ${hasFaceRef ? character.faceRefs.length + " face" : ""}${
+          hasFaceRef && hasBodyRef ? " + " : ""
+        }${hasBodyRef ? character.bodyRefs.length + " body" : ""}]. ${
+          useFaceRefForMatch && hasFaceRef
+            ? "The first face ref is attached below — describe the ACTUAL appearance in that image. Do NOT invent new physical features. Anchor on what you can see."
+            : "Match the established visual style — be conservative, do not invent contradictory details."
+        }`
+      : "";
+
+  const systemPrompt = `You are a character designer for animation/cinema (Pixar / Disney / Studio Ghibli caliber). Your job: distill a character into 2 production-ready EN photo prompts ready to paste into Banana Pro / Nano Banana / Imagen 4 / Midjourney.
+
+OUTPUT STRUCTURE — return ONLY valid JSON, no markdown fences:
+{
+  "anchorTokens": [3-7 short phrases that lock identity — e.g. "moss-covered grey-green metal body", "single glowing blue right sensor", "rust-streaked chest plates", "3.5m hulking humanoid"],
+  "facePrompt": "Single-paragraph EN photo prompt for FACE REFERENCE (head + shoulders close-up, 1:1 portrait, neutral expression, front-facing, character sheet style). 200-350 chars. Include anchor tokens. End with style suffix.",
+  "bodyPrompt": "Single-paragraph EN photo prompt for FULL BODY REFERENCE (full figure head to toe, 3:4 portrait, T-pose or neutral standing pose, front-facing). 250-400 chars. Include anchor tokens + body proportions + signature outfit/material. End with style suffix."
+}
+
+CRITICAL RULES:
+- Anchor tokens are the CONSISTENCY LOCK — these features MUST appear identically in face and body prompts.
+- Concrete visual details only: shape, color, material, distinguishing marks. NO plot, NO emotion narrative.
+- Sentences not bullet points.
+- Style suffix at end of each prompt: "${styleHint}".
+- Neutral grey backdrop, soft cinematic lighting, sharp focus, no text/watermark.
+- Animal characters → describe as the animal (fur color, body shape, ears, tail), NOT anthropomorphized human.
+- If user provides existing refs, anchor on visible features — do NOT invent new appearance.
+
+Return ONLY the JSON object, nothing before or after.`;
+
+  const userPromptText = `IDEA: ${idea || "(no idea provided)"}
+
+CHARACTER:
+- Name: ${charName}
+- Role: ${ROLE_VN[character.role]}
+- Description (VI): ${character.description.trim() || "(no description yet — invent based on idea + role + animation style)"}
+
+GENRE: ${setting.genre ?? "drama"}
+ANIMATION STYLE: ${animationStyle}
+${scriptContext ? `\nSCRIPT CONTEXT (${Math.min(3, script?.scenes.length ?? 0)} scenes character appears in):\n${scriptContext}` : ""}
+${refsNote}
+
+Generate the JSON object now.`;
+
+  // Decide: multimodal or text-only?
+  const useMultimodal = useFaceRefForMatch && hasFaceRef && !!character.faceRefs[0]?.dataUrl;
+
+  let raw: string;
+  if (useMultimodal && provider === "gemini-flash") {
+    // Multimodal Gemini call: attach first face ref as inline_data
+    raw = await callGeminiMultimodal({
+      systemPrompt,
+      userPromptText,
+      imageDataUrl: character.faceRefs[0].dataUrl,
+    });
+  } else {
+    // Text-only path: standard callAi
+    raw = await callAi(provider, systemPrompt, userPromptText);
+  }
+
+  // Parse JSON (Gemini may wrap in markdown despite responseMimeType — be defensive)
+  const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
+  let parsed: CastPromptSet;
+  try {
+    parsed = JSON.parse(cleaned) as CastPromptSet;
+  } catch (err) {
+    throw new Error(
+      `AI returned invalid JSON for cast prompt: ${(err as Error).message}\n\nRaw (${cleaned.length} chars): ${cleaned.slice(0, 200)}...`
+    );
+  }
+  if (!parsed.facePrompt || !parsed.bodyPrompt) {
+    throw new Error(
+      `AI response missing facePrompt or bodyPrompt fields. Got keys: ${Object.keys(parsed).join(", ")}`
+    );
+  }
+  if (!Array.isArray(parsed.anchorTokens)) {
+    parsed.anchorTokens = [];
+  }
+  return parsed;
+}
+
+/**
+ * Lightweight multimodal Gemini Flash call: text + 1 inline image.
+ * Reads gemini API key from global store. Returns raw response text (caller parses JSON).
+ */
+async function callGeminiMultimodal(input: {
+  systemPrompt: string;
+  userPromptText: string;
+  imageDataUrl: string;
+}): Promise<string> {
+  const { systemPrompt, userPromptText, imageDataUrl } = input;
+  const apiKeys = (await import("../store/useGlobalStore")).useGlobalStore.getState().apiKeys;
+  // Parse dataUrl → { mimeType, base64 }
+  const match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("Face ref dataUrl invalid format — không tách được mime/base64");
+  }
+  const mimeType = match[1] || "image/png";
+  const base64 = match[2];
+
+  let response: Response;
+  try {
+    response = await fetch(`${GEMINI_FLASH_MM_ENDPOINT}?key=${apiKeys.gemini}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: `${systemPrompt}\n\n${userPromptText}` },
+              { inline_data: { mime_type: mimeType, data: base64 } },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Network lỗi multimodal Gemini: ${(err as Error).message}`);
+  }
+  if (!response.ok) {
+    const errText = await response.text();
+    if (response.status === 400)
+      throw new Error(`Gemini multimodal request không hợp lệ (400): ${errText.slice(0, 150)}`);
+    if (response.status === 403) throw new Error("Gemini key bị từ chối (403)");
+    if (response.status === 429) throw new Error("Gemini rate limit (429)");
+    throw new Error(`Gemini multimodal error (${response.status}): ${errText.slice(0, 200)}`);
+  }
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const finishReason = data.candidates?.[0]?.finishReason;
+  if (!text) {
+    if (finishReason === "SAFETY")
+      throw new Error("Gemini từ chối multimodal do safety filter. Thử bỏ tick 'Match refs' và regen text-only.");
+    throw new Error(`Gemini multimodal empty response (finishReason: ${finishReason ?? "unknown"})`);
+  }
+  return text;
+}

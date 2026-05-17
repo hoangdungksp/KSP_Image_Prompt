@@ -37,6 +37,11 @@ import type {
 } from "../types/project";
 import { parseGridFormat, gridStats, pickOptimalGridFormat } from "../engine/sceneGridPacker";
 import { buildSceneGridImagePrompt } from "../engine/sceneImagePromptBuilder";
+import {
+  buildSingleShotImagePrompt,
+  buildAnimationPrompt,
+} from "../engine/filmShotPromptBuilder";
+import { resolveVideoProvider } from "../types/film";
 import { cropGridIntoFrames } from "../engine/gridImageCrop";
 import { buildGridTemplateImage } from "../engine/gridTemplateImage";
 import { GridCropPreviewModal } from "./GridCropPreviewModal";
@@ -253,9 +258,41 @@ function SceneBlock({ scene }: SceneBlockProps) {
             </div>
           )}
 
-          {grids.map((grid) => (
-            <GridDisplay key={grid.id} grid={grid} scene={scene} />
-          ))}
+          {/* Sprint 1.0 r7.5 (Hướng A): Multi-grid seamless cells + prompts side-by-side below.
+              Single-grid path: render GridDisplay (cells only) + GridPromptPanel inline.
+              Multi-grid path: render all GridDisplay (cells only) stacked seamless,
+              then MultiGridPromptTabs at the bottom for prompt access.
+              GridDisplay no longer renders the prompt panel — that's lifted out so cells
+              flow directly into the next grid's cells with no DOM separator. */}
+          <div className="ksp-storyboard-multigrid-container">
+            {grids.map((grid, gridIdx) => {
+              // Cumulative cell offset = sum of cell counts of all previous grids
+              const cellOffset = grids
+                .slice(0, gridIdx)
+                .reduce((sum, g) => sum + g.cells.length, 0);
+              return (
+                <GridDisplay
+                  key={grid.id}
+                  grid={grid}
+                  scene={scene}
+                  cellNumberOffset={cellOffset}
+                  hideHeader={gridIdx > 0}
+                  allGrids={grids}
+                />
+              );
+            })}
+            {/* Prompt panels — separated from grid blocks so cells flow seamlessly */}
+            {grids.length === 1 ? (
+              <GridPromptPanel
+                grid={grids[0]}
+                scene={scene}
+                allGrids={grids}
+                hideToggleRow={false}
+              />
+            ) : grids.length > 1 ? (
+              <MultiGridPromptTabs grids={grids} scene={scene} />
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -294,73 +331,28 @@ function SceneBlock({ scene }: SceneBlockProps) {
 interface GridDisplayProps {
   grid: SceneGrid;
   scene: FilmSceneScript;
+  /** Sprint 1.0 r7: cumulative cell number offset from previous grids (multi-grid seamless display).
+   *  E.g., Grid 2 in a 3x3 multi-grid scene → offset = 9 → cells display "10", "11", ... */
+  cellNumberOffset?: number;
+  /** Sprint 1.0 r7: hide the grid header (used for Grid 2+ in seamless display).
+   *  When true, only renders cells visually + the prompt panel below. */
+  hideHeader?: boolean;
+  /** Sprint 1.0 r7: all grids in this scene (for prompt builder to detect multi-grid + Grid 2 ref Grid 1). */
+  allGrids?: SceneGrid[];
 }
 
-function GridDisplay({ grid, scene }: GridDisplayProps) {
+function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, allGrids: _allGrids }: GridDisplayProps) {
   const project = useAppStore((s) => s.currentProject)!;
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const showToast = useAppStore((s) => s.showToast);
   const film = ensureFilmData(project);
   const setting = (project as any).settingV2;
-  const [promptExpanded, setPromptExpanded] = useState(false);
-  const [pendingUpload, setPendingUpload] = useState<{
-    dataUrl: string;
-    initialSettings?: ShotCropSettings;
-  } | null>(null);
-  // qc17: Edit Frame Modal state
+  // qc17: Edit Frame Modal state (cell-level, kept in GridDisplay since cells are rendered here)
   const [editingCellOrder, setEditingCellOrder] = useState<number | null>(null);
 
-  const { rows, cols } = parseGridFormat(grid.gridFormat);
+  const { cols } = parseGridFormat(grid.gridFormat);
   const shots = getShotsForScene(project, scene.id);
   const aspectRatio = setting?.aspectRatio ?? "16:9";
-
-  const imagePromptText = useMemo(() => {
-    if (grid.imagePrompt) return grid.imagePrompt;
-    if (!setting) return "(missing project setting)";
-    return buildSceneGridImagePrompt({
-      grid,
-      scene,
-      shots,
-      cast: film.characters,
-      setting,
-    });
-  }, [grid, scene, shots, film.characters, setting]);
-
-  function handleCopyPrompt() {
-    navigator.clipboard.writeText(imagePromptText);
-    showToast(`Copied prompt grid ${grid.order} (${imagePromptText.length} chars)`, "success");
-  }
-
-  function handleRegenPrompt() {
-    updateProject((p) => regenerateSceneGridImagePrompt(p, scene.id, grid.id));
-    showToast(`Đã regen prompt grid ${grid.order}`, "success");
-  }
-
-  async function handleUploadFile(file: File) {
-    try {
-      const dataUrl = await fileToDataUrl(file);
-      setPendingUpload({ dataUrl, initialSettings: grid.cropSettings });
-    } catch (err) {
-      showToast(`Upload lỗi: ${(err as Error).message}`, "error");
-    }
-  }
-
-  function handleRecrop() {
-    if (!grid.gridImageDataUrl) {
-      showToast("Chưa có grid để re-crop", "info");
-      return;
-    }
-    setPendingUpload({
-      dataUrl: grid.gridImageDataUrl,
-      initialSettings: grid.cropSettings,
-    });
-  }
-
-  function handleClear() {
-    if (!grid.gridImageDataUrl) return;
-    if (!confirm(`Xóa grid ${grid.order} và tất cả cropped cells?`)) return;
-    updateProject((p) => clearSceneGridImage(p, scene.id, grid.id));
-  }
 
   /**
    * Trigger hidden file input for video upload. Reads video as dataURL,
@@ -420,101 +412,156 @@ function GridDisplay({ grid, scene }: GridDisplayProps) {
     input.click();
   }
 
-  async function handleDownloadRefs() {
-    const filledCells = grid.cells.filter((c) => c.shotId);
-    const croppedCells = grid.cells.filter((c) => c.dataUrl);
-    if (film.characters.length === 0 && croppedCells.length === 0 && filledCells.length === 0) {
-      showToast("Chưa có cast + chưa crop — ZIP rỗng", "info");
+  /**
+   * Sprint 1.0 r7.8 Feature 2 — Bulk download Animation Prompts for ALL shots in this scene.
+   * ZIP filename: scene-N_animation_prompts.zip
+   * Inner files: prompt_shot_N.txt (N = shot.order, ALL shots in scene regardless of grid)
+   *
+   * Each shot's prompt resolves: shot.animationPromptR5 (AI re-prompt override) → fallback
+   * to deterministic buildAnimationPrompt. Bulk mode uses simple builder (no advanced
+   * first/last frame mode, which is per-modal local state).
+   */
+  async function handleDownloadAnimationPrompts() {
+    const sceneShots = getShotsForScene(project, scene.id);
+    if (sceneShots.length === 0) {
+      showToast("Scene chưa có shot nào", "info");
+      return;
+    }
+    if (!setting) {
+      showToast("Project setting missing", "error");
       return;
     }
     try {
       const zip = new JSZip();
-      // Filename convention matches prompt references:
-      //   IMAGE #1 (grid template)  → image-01_grid-template.png
-      //   IMAGE #2+ (cast refs)     → image-02_cast-{name}_face-NN.png, image-03_cast-{name}_body-NN.png
-      //   (Supplemental cropped cells in subfolder, not referenced as IMAGE #N)
-
-      // IMAGE #1 — grid template (blank labeled layout)
-      try {
-        const template = buildGridTemplateImage({
-          gridFormat: grid.gridFormat,
-          targetAspect: setting?.aspectRatio ?? "16:9",
-          filledCellOrders: filledCells.map((c) => c.order),
-        });
-        zip.file("image-01_grid-template.png", dataUrlToBlob(template.dataUrl));
-      } catch (err) {
-        console.warn("[Storyboard] grid template image generation failed", err);
-      }
-
-      // IMAGE #2+ — cast refs (face + body per character).
-      // Sequential numbering across all cast members, face before body per character.
-      let imageNum = 2;
-      for (const c of film.characters) {
-        const safeName = (c.name || `char${c.order}`).replace(/[^a-zA-Z0-9_-]/g, "_");
-        c.faceRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
-          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
-          zip.file(
-            `image-${numStr}_cast-${safeName}_face-${slotStr}.${ext}`,
-            dataUrlToBlob(ref.dataUrl)
-          );
-          imageNum++;
-        });
-        c.bodyRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
-          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
-          zip.file(
-            `image-${numStr}_cast-${safeName}_body-${slotStr}.${ext}`,
-            dataUrlToBlob(ref.dataUrl)
-          );
-          imageNum++;
-        });
-      }
-
-      // Supplemental — cropped cells, named by SHOT order (matches prompt refs).
-      // Filename matches `first-frame_shot-N.png` / `shot-N.png` convention used elsewhere.
-      croppedCells.forEach((cell) => {
-        if (cell.dataUrl) {
-          const cellShot = cell.shotId ? shots.find((s) => s.id === cell.shotId) : undefined;
-          const name = cellShot ? `shot-${cellShot.order}.png` : `cell-${cell.order}.png`;
-          zip.file(`cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
-        }
+      const timeFormat = (setting as any).timeFormat ?? "integer";
+      const allScenes = film.script?.scenes;
+      const setupPayoffPairs = film.setupPayoffPairs;
+      sceneShots.forEach((s) => {
+        const overridePrompt = (s as any).animationPromptR5 as string | undefined;
+        const provider = resolveVideoProvider((s as any).videoProviderId, undefined);
+        const promptText = overridePrompt
+          ? overridePrompt
+          : buildAnimationPrompt({
+              shot: s,
+              scene,
+              cast: film.characters,
+              setting,
+              provider,
+              timeFormat,
+              allScenes,
+              setupPayoffPairs,
+            });
+        zip.file(`prompt_shot_${s.order}.txt`, promptText);
       });
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `scene-${scene.order}_grid-${grid.order}_refs.zip`;
+      a.download = `scene-${scene.order}_animation_prompts.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      const parts: string[] = ["template"];
-      if (film.characters.length > 0) parts.push(`${film.characters.length} cast`);
-      if (croppedCells.length > 0) parts.push(`${croppedCells.length} crops`);
-      showToast(`Refs ZIP downloaded — ${parts.join(" + ")}`, "success");
+      showToast(
+        `Đã tải ${sceneShots.length} animation prompts (scene ${scene.order})`,
+        "success"
+      );
     } catch (err) {
-      showToast(`ZIP error: ${(err as Error).message}`, "error");
+      showToast(`Animation prompts ZIP lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
+  /**
+   * Sprint 1.0 r7.8 Feature 3 — Bulk download Image Prompts for ALL shots in this scene.
+   * Same filename convention as Animation (prompt_shot_N.txt) but inside a different ZIP.
+   *
+   * Uses buildSingleShotImagePrompt — single-frame generation prompt (Edit Frame modal).
+   * Resolves shot.imagePromptR5 (AI re-prompt) → fallback to deterministic build.
+   */
+  async function handleDownloadImagePrompts() {
+    const sceneShots = getShotsForScene(project, scene.id);
+    if (sceneShots.length === 0) {
+      showToast("Scene chưa có shot nào", "info");
+      return;
+    }
+    if (!setting) {
+      showToast("Project setting missing", "error");
+      return;
+    }
+    try {
+      const zip = new JSZip();
+      const allScenes = film.script?.scenes;
+      const setupPayoffPairs = film.setupPayoffPairs;
+      sceneShots.forEach((s) => {
+        const overridePrompt = (s as any).imagePromptR5 as string | undefined;
+        const promptText = overridePrompt
+          ? overridePrompt
+          : buildSingleShotImagePrompt({
+              shot: s,
+              scene,
+              cast: film.characters,
+              setting,
+              allScenes,
+              setupPayoffPairs,
+            });
+        zip.file(`prompt_shot_${s.order}.txt`, promptText);
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `scene-${scene.order}_image_prompts.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(
+        `Đã tải ${sceneShots.length} image prompts (scene ${scene.order})`,
+        "success"
+      );
+    } catch (err) {
+      showToast(`Image prompts ZIP lỗi: ${(err as Error).message}`, "error");
     }
   }
 
   return (
     <div className="ksp-storyboard-grid-block">
-      <div className="ksp-storyboard-grid-header">
-        <strong>Grid {grid.order}</strong>
-        <span className="ksp-storyboard-grid-info">
-          ({grid.gridFormat} ·{" "}
-          {grid.cells.filter((c) => c.shotId).length} filled
-          {grid.cells.filter((c) => !c.shotId).length > 0
-            ? ` · ${grid.cells.filter((c) => !c.shotId).length} empty`
-            : ""}
-          {grid.gridImageDataUrl ? " · ✓ cropped" : " · 📤 needs upload"})
-        </span>
-      </div>
-
-      {!grid.gridImageDataUrl && (
-        <div className="ksp-storyboard-no-upload-warning">
-          ⚠ Chưa upload grid PNG. Copy prompt → paste Banana Pro / Imagen 4 / Nano Banana → generate grid → upload lại.
+      {/* Sprint 1.0 r7: hide header for Grid 2+ in seamless multi-grid display.
+          User sees a single continuous grid visually; Grid 1 header still shows
+          since it carries the format + filled-count info for the scene.
+      {/* Sprint 1.0 r7.5 (Hướng A): prompt panel lifted OUT of GridDisplay so
+          cells of Grid 1 and Grid 2 flow into each other with no DOM break.
+          r7.8: Grid header renamed "Grid - Scene N" (Jason: 2 grids gom 1 visual block).
+          Header is rendered ONLY for first grid (hideHeader=false). Right side:
+          download buttons for bulk animation/image prompt export per scene. */}
+      {!hideHeader && (
+        <div className="ksp-storyboard-grid-header">
+          <strong>Grid - Scene {scene.order}</strong>
+          <span className="ksp-storyboard-grid-info">
+            ({grid.gridFormat} ·{" "}
+            {grid.cells.filter((c) => c.shotId).length} filled
+            {grid.cells.filter((c) => !c.shotId).length > 0
+              ? ` · ${grid.cells.filter((c) => !c.shotId).length} empty`
+              : ""}
+            {grid.gridImageDataUrl ? " · ✓ cropped" : " · 📤 needs upload"})
+          </span>
+          {/* r7.8 Feature 2+3: per-scene bulk prompt download buttons */}
+          <div className="ksp-storyboard-grid-header-downloads">
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+              onClick={() => handleDownloadAnimationPrompts()}
+              title="📥 Tải về tất cả Animation Prompts của shots trong scene này (ZIP với prompt_shot_N.txt)"
+              aria-label="Download animation prompts"
+            >
+              🎬<span className="ksp-btn-label-fluid"> Animation</span>
+            </button>
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+              onClick={() => handleDownloadImagePrompts()}
+              title="📥 Tải về tất cả Image Prompts (single-frame) của shots trong scene này (ZIP với prompt_shot_N.txt)"
+              aria-label="Download image prompts"
+            >
+              📸<span className="ksp-btn-label-fluid"> Image</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -539,6 +586,9 @@ function GridDisplay({ grid, scene }: GridDisplayProps) {
           const shot = cell.shotId
             ? shots.find((s) => s.id === cell.shotId)
             : undefined;
+          // r7.5: forward cellNumberOffset to the cell so cell number displays cumulatively
+          // (Grid 2 cell #1 shows "10" when offset=9). Falls back to cell.order if not used.
+          void cellNumberOffset;
           return (
             <GridCell
               key={cell.order}
@@ -579,137 +629,6 @@ function GridDisplay({ grid, scene }: GridDisplayProps) {
         })}
       </div>
 
-      <div className="ksp-storyboard-grid-actions">
-        <label className="ksp-btn ksp-btn-primary ksp-btn-sm">
-          📤 Upload grid
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleUploadFile(f);
-            }}
-          />
-        </label>
-        {grid.gridImageDataUrl && (
-          <button
-            type="button"
-            className="ksp-btn ksp-btn-ghost ksp-btn-sm"
-            onClick={handleRecrop}
-            title="Re-crop với settings mới"
-          >
-            🔧 Re-crop
-          </button>
-        )}
-        <button
-          type="button"
-          className="ksp-btn ksp-btn-ghost ksp-btn-sm"
-          onClick={handleDownloadRefs}
-          title="Download cast refs + cropped frames"
-        >
-          📥 Refs ZIP
-        </button>
-        {grid.gridImageDataUrl && (
-          <button
-            type="button"
-            className="ksp-btn ksp-btn-ghost ksp-btn-sm"
-            onClick={handleClear}
-            title="Clear grid + cropped cells"
-          >
-            ✕ Clear
-          </button>
-        )}
-      </div>
-
-      <div className="ksp-storyboard-prompt-collapsible">
-        <button
-          type="button"
-          className="ksp-storyboard-prompt-toggle"
-          onClick={() => setPromptExpanded(!promptExpanded)}
-        >
-          {promptExpanded ? "▼" : "▶"} 📝 Image Prompt (cho{" "}
-          {grid.cells.filter((c) => c.shotId).length} shots)
-          <span className="ksp-storyboard-prompt-chars">
-            · {imagePromptText.length} chars
-          </span>
-        </button>
-        {promptExpanded && (
-          <div className="ksp-storyboard-prompt-body">
-            <div className="ksp-storyboard-prompt-actions">
-              <button
-                type="button"
-                className="ksp-btn ksp-btn-primary ksp-btn-sm"
-                onClick={handleCopyPrompt}
-              >
-                📋 Copy → Banana Pro
-              </button>
-              <button
-                type="button"
-                className="ksp-btn ksp-btn-ghost ksp-btn-sm"
-                onClick={handleRegenPrompt}
-              >
-                🔄 Regen prompt
-              </button>
-            </div>
-            <textarea
-              className="ksp-storyboard-prompt-textarea"
-              readOnly
-              value={imagePromptText}
-            />
-          </div>
-        )}
-      </div>
-
-      {pendingUpload && (
-        <GridCropPreviewModal
-          gridDataUrl={pendingUpload.dataUrl}
-          gridFormat={grid.gridFormat}
-          projectAspectRatio={aspectRatio}
-          initialSettings={pendingUpload.initialSettings}
-          onCancel={() => setPendingUpload(null)}
-          onApprove={async (settings, finalGridFormat) => {
-            const dataUrl = pendingUpload.dataUrl;
-            setPendingUpload(null);
-            try {
-              // If user overrode grid format in modal (e.g. AI returned different layout),
-              // update the scene's grid format first so re-pack uses correct cell count.
-              if (finalGridFormat !== grid.gridFormat) {
-                updateProject((p) =>
-                  setSceneGridFormat(p, scene.id, finalGridFormat as SceneGridFormat)
-                );
-                showToast(
-                  `Grid format override: ${grid.gridFormat} → ${finalGridFormat}`,
-                  "info"
-                );
-              }
-              updateProject((p) =>
-                setSceneGridImage(p, scene.id, grid.id, dataUrl, settings)
-              );
-              showToast("Đang crop...", "info");
-              // qc22 hotfix: compute target cell aspect from project setting
-              const aspectParts = aspectRatio.split(":").map(Number);
-              const targetCellAspect = (aspectParts[0] || 16) / (aspectParts[1] || 9);
-              const cropResult = await cropGridIntoFrames(dataUrl, finalGridFormat, {
-                totalWidth: settings.totalWidth,
-                totalHeight: settings.totalHeight,
-                gutterPx: settings.gutterPx,
-                targetCellAspect,
-              });
-              updateProject((p) =>
-                applyCroppedFramesToGrid(p, scene.id, grid.id, cropResult.frameDataUrls)
-              );
-              showToast(
-                `Đã crop ${cropResult.count} cells (${cropResult.cellW}×${cropResult.cellH})`,
-                "success"
-              );
-            } catch (err) {
-              showToast(`Crop lỗi: ${(err as Error).message}`, "error");
-            }
-          }}
-        />
-      )}
-
       {/* qc17: Edit Frame Modal — opens when user clicks ✏ on a cell */}
       {editingCellOrder !== null && (() => {
         const cell = grid.cells.find((c) => c.order === editingCellOrder);
@@ -725,6 +644,8 @@ function GridDisplay({ grid, scene }: GridDisplayProps) {
             allShotsInScene={shots}
             cast={film.characters}
             setting={setting}
+            allScenes={film.script?.scenes}
+            setupPayoffPairs={film.setupPayoffPairs}
             onCancel={() => setEditingCellOrder(null)}
             showToast={showToast}
             onSave={(updates) => {
@@ -755,6 +676,461 @@ function GridDisplay({ grid, scene }: GridDisplayProps) {
     </div>
   );
 }
+
+/**
+ * Sprint 1.0 r7.5 (Hướng A) — GridPromptPanel
+ *
+ * Standalone prompt panel for ONE grid. Owns:
+ * - imagePromptText computation (rebuilds from current shots + scene + pacing)
+ * - Upload/Recrop/Download Refs/Clear handlers
+ * - pendingUpload state + GridCropPreviewModal
+ *
+ * Two render modes:
+ * - Default (`hideToggleRow=false`): renders own toggle row with inline action buttons.
+ *   Used for single-grid scenes (1 grid → 1 inline collapsible).
+ * - `hideToggleRow=true` + `expanded` controlled: parent owns toggle UI (tabs).
+ *   Used inside MultiGridPromptTabs — action buttons render INSIDE the body
+ *   (top of body) instead of the toggle row since tabs don't have space for them.
+ */
+interface GridPromptPanelProps {
+  grid: SceneGrid;
+  scene: FilmSceneScript;
+  allGrids?: SceneGrid[];
+  /** When false (default): self-managed expand state + toggle row visible.
+   *  When true: controlled mode, parent renders the toggle externally. */
+  hideToggleRow?: boolean;
+  /** Controlled expanded state. Required when hideToggleRow=true. */
+  expanded?: boolean;
+}
+
+function GridPromptPanel({
+  grid,
+  scene,
+  allGrids,
+  hideToggleRow = false,
+  expanded: controlledExpanded,
+}: GridPromptPanelProps) {
+  const project = useAppStore((s) => s.currentProject)!;
+  const updateProject = useAppStore((s) => s.updateCurrentProject);
+  const showToast = useAppStore((s) => s.showToast);
+  const film = ensureFilmData(project);
+  const setting = (project as any).settingV2;
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const [pendingUpload, setPendingUpload] = useState<{
+    dataUrl: string;
+    initialSettings?: ShotCropSettings;
+  } | null>(null);
+
+  const shots = getShotsForScene(project, scene.id);
+  const aspectRatio = setting?.aspectRatio ?? "16:9";
+  // When tab-controlled (hideToggleRow=true), use the `expanded` prop. Otherwise own state.
+  const isExpanded = hideToggleRow ? !!controlledExpanded : internalExpanded;
+
+  const imagePromptText = useMemo(() => {
+    // Sprint 1.0 r6 (BUG #5 fix): always rebuild from current shots + scene + pacing.
+    // Old behavior cached grid.imagePrompt and never invalidated → stale after shot regen.
+    // No user-facing "Save prompt" button exists (textarea is readonly), so dropping
+    // the cache loses no user data. Rebuild cost is negligible (~3-5ms).
+    if (!setting) return "(missing project setting)";
+    const previousGrid =
+      allGrids && grid.order > 1 ? allGrids[grid.order - 2] : undefined;
+    const previousGridGenerated =
+      !!previousGrid && previousGrid.cells.some((c) => !!c.dataUrl);
+    return buildSceneGridImagePrompt({
+      grid,
+      scene,
+      shots,
+      cast: film.characters,
+      setting,
+      allScenes: film.script?.scenes,
+      setupPayoffPairs: film.setupPayoffPairs,
+      allGrids,
+      previousGridGenerated,
+    });
+  }, [
+    grid,
+    scene,
+    shots,
+    film.characters,
+    film.script?.scenes,
+    film.setupPayoffPairs,
+    setting,
+    allGrids,
+  ]);
+
+  function handleCopyPrompt() {
+    navigator.clipboard.writeText(imagePromptText);
+    showToast(`Copied prompt grid ${grid.order} (${imagePromptText.length} chars)`, "success");
+  }
+
+  function handleRegenPrompt() {
+    updateProject((p) => regenerateSceneGridImagePrompt(p, scene.id, grid.id));
+    showToast(`Đã regen prompt grid ${grid.order}`, "success");
+  }
+
+  async function handleUploadFile(file: File) {
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setPendingUpload({ dataUrl, initialSettings: grid.cropSettings });
+    } catch (err) {
+      showToast(`Upload lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
+  function handleRecrop() {
+    if (!grid.gridImageDataUrl) {
+      showToast("Chưa có grid để re-crop", "info");
+      return;
+    }
+    setPendingUpload({
+      dataUrl: grid.gridImageDataUrl,
+      initialSettings: grid.cropSettings,
+    });
+  }
+
+  function handleClear() {
+    if (!grid.gridImageDataUrl) return;
+    if (!confirm(`Xóa grid ${grid.order} và tất cả cropped cells?`)) return;
+    updateProject((p) => clearSceneGridImage(p, scene.id, grid.id));
+  }
+
+  async function handleDownloadRefs() {
+    const filledCells = grid.cells.filter((c) => c.shotId);
+    const croppedCells = grid.cells.filter((c) => c.dataUrl);
+    if (film.characters.length === 0 && croppedCells.length === 0 && filledCells.length === 0) {
+      showToast("Chưa có cast + chưa crop — ZIP rỗng", "info");
+      return;
+    }
+    try {
+      const zip = new JSZip();
+      // IMAGE #1 — grid template (blank labeled layout)
+      try {
+        const template = buildGridTemplateImage({
+          gridFormat: grid.gridFormat,
+          targetAspect: setting?.aspectRatio ?? "16:9",
+          filledCellOrders: filledCells.map((c) => c.order),
+        });
+        zip.file("image-01_grid-template.png", dataUrlToBlob(template.dataUrl));
+      } catch (err) {
+        console.warn("[Storyboard] grid template image generation failed", err);
+      }
+      // IMAGE #2+ — cast refs (face + body per character).
+      let imageNum = 2;
+      for (const c of film.characters) {
+        const safeName = (c.name || `char${c.order}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+        c.faceRefs.forEach((ref, i) => {
+          const numStr = String(imageNum).padStart(2, "0");
+          const slotStr = String(i + 1).padStart(2, "0");
+          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
+          zip.file(
+            `image-${numStr}_cast-${safeName}_face-${slotStr}.${ext}`,
+            dataUrlToBlob(ref.dataUrl)
+          );
+          imageNum++;
+        });
+        c.bodyRefs.forEach((ref, i) => {
+          const numStr = String(imageNum).padStart(2, "0");
+          const slotStr = String(i + 1).padStart(2, "0");
+          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
+          zip.file(
+            `image-${numStr}_cast-${safeName}_body-${slotStr}.${ext}`,
+            dataUrlToBlob(ref.dataUrl)
+          );
+          imageNum++;
+        });
+      }
+      // Supplemental — cropped cells, named by SHOT order
+      croppedCells.forEach((cell) => {
+        if (cell.dataUrl) {
+          const cellShot = cell.shotId ? shots.find((s) => s.id === cell.shotId) : undefined;
+          const name = cellShot ? `shot-${cellShot.order}.png` : `cell-${cell.order}.png`;
+          zip.file(`cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
+        }
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `scene-${scene.order}_grid-${grid.order}_refs.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const parts: string[] = ["template"];
+      if (film.characters.length > 0) parts.push(`${film.characters.length} cast`);
+      if (croppedCells.length > 0) parts.push(`${croppedCells.length} crops`);
+      showToast(`Refs ZIP downloaded — ${parts.join(" + ")}`, "success");
+    } catch (err) {
+      showToast(`ZIP error: ${(err as Error).message}`, "error");
+    }
+  }
+
+  // Action buttons element — reused in toggle row (inline mode) OR body (tab mode)
+  const actionButtonsInline = (
+    <div className="ksp-storyboard-prompt-actions-inline">
+      <label
+        className="ksp-btn ksp-btn-primary ksp-btn-sm ksp-btn-icon-only"
+        title={grid.gridImageDataUrl ? "Re-upload Grid" : "Upload Grid PNG"}
+        onClick={(e) => e.stopPropagation()}
+      >
+        📤
+        <span className="ksp-btn-label-fluid">
+          {grid.gridImageDataUrl ? " Re-upload" : " Upload Grid"}
+        </span>
+        <input
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleUploadFile(f);
+          }}
+        />
+      </label>
+      {grid.gridImageDataUrl && (
+        <button
+          type="button"
+          className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleRecrop();
+          }}
+          title="Re-crop với settings mới"
+        >
+          🔧<span className="ksp-btn-label-fluid"> Re-crop</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleDownloadRefs();
+        }}
+        title="Download cast refs + cropped frames"
+      >
+        📥<span className="ksp-btn-label-fluid"> Refs ZIP</span>
+      </button>
+      {grid.gridImageDataUrl && (
+        <button
+          type="button"
+          className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleClear();
+          }}
+          title="Clear grid + cropped cells"
+        >
+          ✕<span className="ksp-btn-label-fluid"> Clear</span>
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="ksp-storyboard-prompt-collapsible">
+      {/* Toggle row — only rendered in inline mode (single grid scene).
+          Tab mode: parent MultiGridPromptTabs renders tabs; action buttons move into body. */}
+      {!hideToggleRow && (
+        <div className="ksp-storyboard-prompt-toggle-row">
+          <button
+            type="button"
+            className="ksp-storyboard-prompt-toggle"
+            onClick={() => setInternalExpanded(!internalExpanded)}
+          >
+            {internalExpanded ? "▼" : "▶"} 📝 Image Prompt — Grid {grid.order} (cho{" "}
+            {grid.cells.filter((c) => c.shotId).length} shots)
+            <span className="ksp-storyboard-prompt-chars">
+              · {imagePromptText.length} chars
+            </span>
+          </button>
+          {actionButtonsInline}
+        </div>
+      )}
+      {isExpanded && (
+        <div className="ksp-storyboard-prompt-body">
+          {/* Grid 2+ continuity note when previous grid has been uploaded */}
+          {grid.order > 1 &&
+            allGrids &&
+            allGrids[grid.order - 2]?.cells.some((c) => !!c.dataUrl) && (
+              <div className="ksp-storyboard-grid2-note">
+                ⓘ Grid {grid.order} auto-references Grid {grid.order - 1} generated image for visual continuity. Attach <code>grid-{String(grid.order - 1).padStart(2, "0")}-generated.png</code> from Refs ZIP.
+              </div>
+            )}
+          {/* Tab mode: action buttons render in body since tabs don't have inline slot */}
+          {hideToggleRow && (
+            <div className="ksp-storyboard-prompt-tab-actions">{actionButtonsInline}</div>
+          )}
+          <div className="ksp-storyboard-prompt-actions">
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-primary ksp-btn-sm"
+              onClick={handleCopyPrompt}
+            >
+              📋 Copy → Banana Pro
+            </button>
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+              onClick={handleRegenPrompt}
+            >
+              🔄 Regen prompt
+            </button>
+          </div>
+          <textarea
+            className="ksp-storyboard-prompt-textarea"
+            readOnly
+            value={imagePromptText}
+          />
+        </div>
+      )}
+
+      {pendingUpload && (
+        <GridCropPreviewModal
+          gridDataUrl={pendingUpload.dataUrl}
+          gridFormat={grid.gridFormat}
+          projectAspectRatio={aspectRatio}
+          initialSettings={pendingUpload.initialSettings}
+          onCancel={() => setPendingUpload(null)}
+          onApprove={async (settings, finalGridFormat) => {
+            const dataUrl = pendingUpload.dataUrl;
+            setPendingUpload(null);
+            try {
+              if (finalGridFormat !== grid.gridFormat) {
+                updateProject((p) =>
+                  setSceneGridFormat(p, scene.id, finalGridFormat as SceneGridFormat)
+                );
+                showToast(
+                  `Grid format override: ${grid.gridFormat} → ${finalGridFormat}`,
+                  "info"
+                );
+              }
+              updateProject((p) =>
+                setSceneGridImage(p, scene.id, grid.id, dataUrl, settings)
+              );
+              showToast("Đang crop...", "info");
+              const aspectParts = aspectRatio.split(":").map(Number);
+              const targetCellAspect = (aspectParts[0] || 16) / (aspectParts[1] || 9);
+              const cropResult = await cropGridIntoFrames(dataUrl, finalGridFormat, {
+                totalWidth: settings.totalWidth,
+                totalHeight: settings.totalHeight,
+                gutterPx: settings.gutterPx,
+                targetCellAspect,
+              });
+              updateProject((p) =>
+                applyCroppedFramesToGrid(p, scene.id, grid.id, cropResult.frameDataUrls)
+              );
+              showToast(
+                `Đã crop ${cropResult.count} cells (${cropResult.cellW}×${cropResult.cellH})`,
+                "success"
+              );
+            } catch (err) {
+              showToast(`Crop lỗi: ${(err as Error).message}`, "error");
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Sprint 1.0 r7.5 (Hướng A) — MultiGridPromptTabs
+ *
+ * Renders a tab bar (one tab per grid) followed by an expanded body for the
+ * currently active tab. Only ONE tab can be expanded at a time — clicking
+ * the active tab collapses it (activeIdx = null).
+ *
+ * Default state: both tabs collapsed (activeIdx = null) — matches Q-b decision.
+ * Used only when scene.grids.length > 1. Single-grid scenes use GridPromptPanel
+ * inline (no tabs).
+ */
+interface MultiGridPromptTabsProps {
+  grids: SceneGrid[];
+  scene: FilmSceneScript;
+}
+
+function MultiGridPromptTabs({ grids, scene }: MultiGridPromptTabsProps) {
+  const project = useAppStore((s) => s.currentProject)!;
+  const film = ensureFilmData(project);
+  const setting = (project as any).settingV2;
+  // r7.7: default Grid 1 active (index 0) when scene has multiple grids.
+  // User can click active tab to collapse (sets back to null).
+  const [activeIdx, setActiveIdx] = useState<number | null>(0);
+
+  // Compute char counts per grid for tab labels (cheap, re-runs on grid change)
+  const charCounts = useMemo(
+    () =>
+      grids.map((g) => {
+        if (!setting) return 0;
+        const previousGrid = g.order > 1 ? grids[g.order - 2] : undefined;
+        const previousGridGenerated =
+          !!previousGrid && previousGrid.cells.some((c) => !!c.dataUrl);
+        try {
+          return buildSceneGridImagePrompt({
+            grid: g,
+            scene,
+            shots: getShotsForScene(project, scene.id),
+            cast: film.characters,
+            setting,
+            allScenes: film.script?.scenes,
+            setupPayoffPairs: film.setupPayoffPairs,
+            allGrids: grids,
+            previousGridGenerated,
+          }).length;
+        } catch {
+          return 0;
+        }
+      }),
+    [grids, scene, film.characters, film.script?.scenes, film.setupPayoffPairs, setting, project]
+  );
+
+  return (
+    <div className="ksp-storyboard-multigrid-prompts">
+      <div className="ksp-storyboard-prompt-tabs" role="tablist">
+        {grids.map((g, idx) => {
+          const isActive = activeIdx === idx;
+          const filled = g.cells.filter((c) => c.shotId).length;
+          return (
+            <button
+              key={g.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={`ksp-storyboard-prompt-tab ${
+                isActive ? "ksp-storyboard-prompt-tab-active" : ""
+              }`}
+              onClick={() => setActiveIdx(isActive ? null : idx)}
+            >
+              <span className="ksp-storyboard-prompt-tab-arrow">
+                {isActive ? "▼" : "▶"}
+              </span>
+              <span className="ksp-storyboard-prompt-tab-label">
+                📝 Grid {g.order}
+                <span className="ksp-storyboard-prompt-tab-shots"> · {filled} shots</span>
+              </span>
+              <span className="ksp-storyboard-prompt-tab-chars">
+                {charCounts[idx]} chars
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {/* Body for active tab only. Rendered as a controlled GridPromptPanel with
+          hideToggleRow=true so it shows action buttons + Copy/Regen + textarea
+          without re-rendering its own toggle (the tab IS the toggle). */}
+      {activeIdx !== null && grids[activeIdx] && (
+        <GridPromptPanel
+          key={grids[activeIdx].id}
+          grid={grids[activeIdx]}
+          scene={scene}
+          allGrids={grids}
+          hideToggleRow={true}
+          expanded={true}
+        />
+      )}
+    </div>
+  );
+}
+
 
 interface GridCellProps {
   cell: {

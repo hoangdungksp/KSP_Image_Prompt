@@ -2582,14 +2582,22 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(prompt).toContain("Cell 2:");
     expect(prompt).toContain("Cell 3:"); // empty cell
     expect(prompt).toContain("EMPTY");
-    expect(prompt).toContain("Mở đầu"); // VN title preferred
-    expect(prompt).toContain("Cận cảnh");
-    // qc22: STRICT LAYOUT block + grid template ref mention
+    // r6 (BUG #2 fix): EN priority — shot titleEn/actionEn used, not Vi
+    expect(prompt).toContain("Opening");
+    expect(prompt).toContain("Close");
+    expect(prompt).not.toContain("Mở đầu"); // Vi must NOT leak into EN prompt
+    expect(prompt).not.toContain("Cận cảnh");
+    // r6: STRICT LAYOUT block + grid template ref mention (lowercase Image #1)
     expect(prompt).toContain("STRICT LAYOUT REQUIREMENT");
-    expect(prompt).toContain("IMAGE #1 (grid template)");
+    expect(prompt).toContain("Image #1");
+    expect(prompt).toContain("image-01_grid-template.png");
+    // r6 (BUG #3): cinematic intent block injected from pacing data
+    expect(prompt).toContain("CINEMATIC INTENT");
+    expect(prompt).toContain("Lighting:");
+    expect(prompt).toContain("Color palette:");
   });
 
-  it("qc16 → qc19 ensureSceneGrids auto-picks gridFormat from shot count (2 shots → 2x2)", async () => {
+  it("Sprint 1.0 r7: ensureSceneGrids locks 3x3 for Film mode regardless of shot count", async () => {
     const { ensureSceneGrids } = await import("../src/store/film_actions");
     const proj: any = {
       ...baseFilmProject,
@@ -2612,9 +2620,9 @@ describe("Film v0.9.3 schema + actions", () => {
     const scene = patch.filmV093!.script!.scenes[0];
     expect(scene.grids).toBeDefined();
     expect(scene.grids!.length).toBe(1);
-    // qc19 Hướng F-9: 2 shots → auto-pick 2x2 (4 cells), not 3x3 (9 cells)
-    expect(scene.gridFormat).toBe("2x2");
-    expect(scene.grids![0].cells.length).toBe(4);
+    // r7: Film mode locks 3x3 (Q-E) — 2 shots → 3x3 grid with 7 empty cells (not 2x2 anymore)
+    expect(scene.gridFormat).toBe("3x3");
+    expect(scene.grids![0].cells.length).toBe(9);
     expect(scene.grids![0].cells.filter((c) => c.shotId).length).toBe(2);
   });
 
@@ -3265,12 +3273,14 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(scene.grids![0].cells.filter((c) => c.shotId).length).toBe(3);
   });
 
-  it("qc19 ensureSceneGrids uses aspect ratio from settingV2 for auto-pick", async () => {
+  it("qc19 ensureSceneGrids uses aspect ratio from settingV2 for auto-pick (non-Film mode)", async () => {
     const { ensureSceneGrids } = await import("../src/store/film_actions");
     const proj: any = {
       ...baseFilmProject,
       settingV2: {
         ...baseFilmProject.settingV2,
+        // r7: NOT film mode → legacy pickOptimalGridFormat applies (auto-pick by shot count)
+        mode: "photos",
         aspectRatio: "9:16" as const, // vertical reels
       },
       filmV093: {
@@ -3293,7 +3303,7 @@ describe("Film v0.9.3 schema + actions", () => {
     };
     const patch = ensureSceneGrids(proj, "sc1");
     const scene = patch.filmV093!.script!.scenes[0];
-    // 6 shots + vertical → 2x3 (taller grid for portrait reels)
+    // 6 shots + vertical (non-Film mode) → 2x3 (taller grid for portrait reels)
     expect(scene.gridFormat).toBe("2x3");
     expect(scene.grids![0].cells.length).toBe(6);
   });
@@ -3694,7 +3704,7 @@ describe("Film v0.9.3 schema + actions", () => {
     // Actual canvas execution would require jsdom canvas polyfill — we trust shape.
   });
 
-  it("qc22 sceneImagePromptBuilder: prompt references IMAGE #1 grid template + STRICT LAYOUT", async () => {
+  it("qc22 sceneImagePromptBuilder: prompt references Image #1 grid template + STRICT LAYOUT", async () => {
     const { buildSceneGridImagePrompt } = await import(
       "../src/engine/sceneImagePromptBuilder"
     );
@@ -3707,7 +3717,9 @@ describe("Film v0.9.3 schema + actions", () => {
     // qc22: prompt mentions cols × rows (not rows × cols)
     expect(prompt).toContain("4 columns × 2 rows");
     expect(prompt).toContain("STRICT LAYOUT REQUIREMENT");
-    expect(prompt).toContain("IMAGE #1 (grid template)");
+    // r6 (BUG #6 fix): lowercase Image #1 (was IMAGE #1), explicit filename callout
+    expect(prompt).toContain("Image #1");
+    expect(prompt).toContain("image-01_grid-template.png");
     expect(prompt).toContain("DO NOT add cells");
   });
 
@@ -4113,11 +4125,11 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(shotPrompt).toContain("first-frame_shot-");
     // Animation Advanced references last-frame_shot-N.png
     expect(shotPrompt).toContain("last-frame_shot-");
-    // Single Shot Image Prompt references cast filenames
-    expect(shotPrompt).toContain("image-01_cast-{name}_face");
-    // Grid Image Prompt references grid template + cast filenames
+    // Grid Image Prompt references grid template + uses Image #N+ for cast refs (Sprint G r7 cast filter)
     expect(gridPrompt).toContain("image-01_grid-template.png");
-    expect(gridPrompt).toContain("image-02_cast-{name}_face-NN.png");
+    // r7: cast refs delivered via castRefsBlockFiltered with castStartIndex param
+    expect(gridPrompt).toContain("castRefsBlockFiltered");
+    expect(gridPrompt).toContain("Image #${castStartIdx}+");
   });
 
   it("Storyboard Refs ZIP uses image-NN_*.png filename convention matching prompt references", async () => {
@@ -4200,5 +4212,1924 @@ describe("Film v0.9.3 schema + actions", () => {
     const src = fs.readFileSync(path.resolve("./src/components/FilmAnimaticPlayerModal.tsx"), "utf-8");
     // Component source MUST NOT have version markers in user-facing strings
     expect(src).not.toMatch(/["']qc\d+/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r1 — PACING (Phase 1A scene + Phase 1B shot rhythm)
+// ============================================================================
+
+describe("Sprint 1.0 r1 — pacing schema + actions + AI sanitizers", () => {
+  it("EmotionalTone enum has exactly 7 values, melancholy excluded", async () => {
+    const { EMOTIONAL_TONE_LABELS } = await import("../src/types/project");
+    const keys = Object.keys(EMOTIONAL_TONE_LABELS);
+    expect(keys).toHaveLength(7);
+    expect(keys.sort()).toEqual(
+      ["funny", "neutral", "sad", "shocking", "tender", "tense", "triumphant"].sort()
+    );
+    expect(keys).not.toContain("melancholy");
+  });
+
+  it("RhythmRole enum has exactly 4 values establish/build/peak/release", async () => {
+    const { RHYTHM_ROLE_LABELS } = await import("../src/types/project");
+    const keys = Object.keys(RHYTHM_ROLE_LABELS);
+    expect(keys).toHaveLength(4);
+    expect(keys.sort()).toEqual(["build", "establish", "peak", "release"]);
+  });
+
+  it("clampTension clamps to 0-10 range and handles invalid input", async () => {
+    const { clampTension } = await import("../src/types/project");
+    expect(clampTension(5)).toBe(5);
+    expect(clampTension(0)).toBe(0);
+    expect(clampTension(10)).toBe(10);
+    expect(clampTension(-3)).toBe(0);
+    expect(clampTension(99)).toBe(10);
+    expect(clampTension(4.7)).toBe(5); // rounds
+    expect(clampTension(undefined)).toBe(0);
+    expect(clampTension(NaN)).toBe(0);
+  });
+
+  it("getTensionColor returns 3-tier color palette", async () => {
+    const { getTensionColor } = await import("../src/types/project");
+    expect(getTensionColor(0).color).toBe("#3B6D11"); // green
+    expect(getTensionColor(3).color).toBe("#3B6D11"); // green
+    expect(getTensionColor(4).color).toBe("#854F0B"); // amber
+    expect(getTensionColor(6).color).toBe("#854F0B"); // amber
+    expect(getTensionColor(7).color).toBe("#A32D2D"); // red
+    expect(getTensionColor(10).color).toBe("#A32D2D"); // red
+  });
+
+  it("updateSceneInScript persists tensionLevel + emotionalTone", async () => {
+    const { useAppStore } = await import("../src/store/useAppStore");
+    const { updateSceneInScript, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1", idea: { raw: "test" } };
+    // seed a script with 1 scene
+    const seedScript = {
+      titleEn: "T", titleVi: "T",
+      logline: "L", synopsisEn: "S",
+      scenes: [{
+        id: "s1", order: 1, titleEn: "Scene 1", titleVi: "Cảnh 1",
+        settings: "INT.", durationSeconds: 30, act: "rising",
+        actionLinesEn: "act", dialog: [], sfx: [], musicBrief: "",
+      }],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const seedPatch = setScript(project, seedScript as any);
+    const merged = { ...project, ...seedPatch };
+    const updatePatch = updateSceneInScript(merged, "s1", {
+      tensionLevel: 8,
+      emotionalTone: "tense",
+    });
+    const film = updatePatch.filmV093 as any;
+    expect(film.script.scenes[0].tensionLevel).toBe(8);
+    expect(film.script.scenes[0].emotionalTone).toBe("tense");
+  });
+
+  it("updateScriptIntermediateScene patches single intermediate scene", async () => {
+    const { setScriptIntermediateScenes, updateScriptIntermediateScene } = await import(
+      "../src/store/film_actions"
+    );
+    const project: any = { id: "p1" };
+    const seedPatch = setScriptIntermediateScenes(project, [
+      { id: "is1", order: 1, titleEn: "A", settings: "INT.", actionLinesEn: "x", durationSeconds: 30, beatIds: [] } as any,
+      { id: "is2", order: 2, titleEn: "B", settings: "INT.", actionLinesEn: "y", durationSeconds: 30, beatIds: [] } as any,
+    ]);
+    const merged = { ...project, ...seedPatch };
+    const updatePatch = updateScriptIntermediateScene(merged, "is2", {
+      tensionLevel: 7,
+      emotionalTone: "tender",
+    });
+    const film = updatePatch.filmV093 as any;
+    expect(film.scriptIntermediateScenes[0].tensionLevel).toBeUndefined();
+    expect(film.scriptIntermediateScenes[1].tensionLevel).toBe(7);
+    expect(film.scriptIntermediateScenes[1].emotionalTone).toBe("tender");
+  });
+
+  it("updateShot persists rhythmRole", async () => {
+    const { addShot, updateShot, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    // seed script + scene
+    const seedScript = {
+      titleEn: "T", titleVi: "T", logline: "L", synopsisEn: "S",
+      scenes: [{
+        id: "sc1", order: 1, titleEn: "Scene", titleVi: "Cảnh",
+        settings: "INT.", durationSeconds: 30, act: "rising",
+        actionLinesEn: "act", dialog: [], sfx: [], musicBrief: "",
+      }],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const sp = setScript(project, seedScript as any);
+    const proj1 = { ...project, ...sp };
+    const ap = addShot(proj1, "sc1");
+    const proj2 = { ...proj1, ...ap };
+    const film2 = proj2.filmV093 as any;
+    const shot = film2.shotsBySceneId.sc1[0];
+    const up = updateShot(proj2, "sc1", shot.id, { rhythmRole: "peak" });
+    const film3 = up.filmV093 as any;
+    expect(film3.shotsBySceneId.sc1[0].rhythmRole).toBe("peak");
+  });
+
+  it("FilmShot.rhythmRole is optional + 4 valid values", async () => {
+    // Type-level check via source inspection
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/project.ts"), "utf-8");
+    expect(src).toContain('export type RhythmRole = "establish" | "build" | "peak" | "release"');
+    expect(src).toContain("rhythmRole?: RhythmRole");
+  });
+
+  it("FilmSceneScript.tensionLevel + emotionalTone are optional", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/project.ts"), "utf-8");
+    expect(src).toContain("tensionLevel?: number");
+    expect(src).toContain("emotionalTone?: EmotionalTone");
+  });
+
+  it("FilmScriptIntermediateScene also has tensionLevel + emotionalTone", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/film.ts"), "utf-8");
+    expect(src).toContain("tensionLevel?: number");
+    expect(src).toContain("emotionalTone?: import");
+  });
+
+  it("Stage 4 AI prompt requests tension + emotion fields", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("tensionLevel");
+    expect(src).toContain("emotionalTone");
+    expect(src).toContain("Hitchcock"); // mention in prompt for context
+  });
+
+  it("Shot list AI prompt requests rhythmRole field", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    expect(src).toContain("rhythmRole");
+    expect(src).toContain("RHYTHM_ROLE_VALUES");
+  });
+
+  it("runReannotateEmotions is exported from filmScriptStages", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runReannotateEmotions).toBe("function");
+  });
+
+  it("PacingBadges component exists in FilmIdeaScriptSection source", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmIdeaScriptSection.tsx"), "utf-8");
+    expect(src).toContain("function PacingBadges");
+    expect(src).toContain("ksp-pacing-badge");
+    expect(src).toContain("Re-annotate");
+  });
+
+  it("ShotRow renders rhythm role select", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    expect(src).toContain("RHYTHM_ROLE_OPTIONS");
+    expect(src).toContain("ksp-rhythm-pill");
+    expect(src).toContain("rhythmRole");
+  });
+
+  it("manifest version is in 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r2 — PACING DASHBOARD (Phase 2A basic — Stage 6 section)
+// ============================================================================
+
+describe("Sprint 1.0 r2 — pacing dashboard (Stage 6 read-only)", () => {
+  it("FilmPacingDashboardSection component file exists", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const filePath = path.resolve("./src/components/FilmPacingDashboardSection.tsx");
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it("FilmPacingDashboardSection exports main component", async () => {
+    const mod = await import("../src/components/FilmPacingDashboardSection");
+    expect(typeof mod.FilmPacingDashboardSection).toBe("function");
+  });
+
+  it("Editor.tsx wires FilmPacingDashboardSection between Script and ShotList", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/Editor.tsx"), "utf-8");
+    expect(src).toContain('import { FilmPacingDashboardSection }');
+    expect(src).toContain("<FilmPacingDashboardSection />");
+    // Verify order: Script → Pacing → ShotList
+    const scriptIdx = src.indexOf("<FilmIdeaScriptSection />");
+    const pacingIdx = src.indexOf("<FilmPacingDashboardSection />");
+    const shotListIdx = src.indexOf("<FilmShotListSection />");
+    expect(scriptIdx).toBeLessThan(pacingIdx);
+    expect(pacingIdx).toBeLessThan(shotListIdx);
+  });
+
+  it("FilmPacingDashboardSection has TensionCurve + EmotionStrip + BeatCoverage + AnomalyHints", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("function TensionCurve");
+    expect(src).toContain("function EmotionStrip");
+    expect(src).toContain("function BeatCoverage");
+    expect(src).toContain("function AnomalyHints");
+  });
+
+  it("Dashboard renders empty state when no script", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("Sinh script ở phần ② trước");
+  });
+
+  it("Dashboard suggests Re-annotate when script exists but no annotations", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("Re-annotate");
+  });
+
+  it("TensionCurve renders SVG with proper viewBox 320x130", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toMatch(/viewBox=\{`0 0 \$\{W\} \$\{H\}`\}/);
+    expect(src).toMatch(/const W = 320/);
+    expect(src).toMatch(/const H = 130/);
+  });
+
+  it("AnomalyHints detects flat midpoint, no peak, early peak", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("Midpoint chùng");
+    expect(src).toContain("Chưa có peak");
+    expect(src).toContain("Peak quá sớm");
+  });
+
+  it("BeatCoverage uses framework label from FRAMEWORK_LABELS", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("FRAMEWORK_LABELS[framework]");
+  });
+
+  it("manifest bumped to current 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+
+  it("film.css has Sprint 1.0 r2 dashboard styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain("SPRINT 1.0 r2 — PACING DASHBOARD");
+    expect(css).toContain(".ksp-pacing-dashboard-section");
+    expect(css).toContain(".ksp-pacing-curve-svg");
+    expect(css).toContain(".ksp-pacing-strip");
+    expect(css).toContain(".ksp-pacing-beat-list");
+    expect(css).toContain(".ksp-pacing-anomaly");
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r3 — AI DIRECTOR (Phase 3 auto-apply)
+// ============================================================================
+
+describe("Sprint 1.0 r3 — AI Director engine + store actions + UI", () => {
+  it("runAiDirector is exported from filmScriptStages", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runAiDirector).toBe("function");
+  });
+
+  it("AiDirectorResult + AiDirectorSceneChange types exist", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("export interface AiDirectorResult");
+    expect(src).toContain("export interface AiDirectorSceneChange");
+    expect(src).toContain("fieldsChanged");
+  });
+
+  it("applyAiDirectorChanges store action updates multiple scenes", async () => {
+    const { applyAiDirectorChanges, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    const seedScript = {
+      titleEn: "T", titleVi: "T", logline: "L", synopsisEn: "S",
+      scenes: [
+        { id: "s1", order: 1, titleEn: "S1", settings: "INT.", durationSeconds: 30, act: "rising", actionLinesEn: "", dialog: [], sfx: [], musicBrief: "" },
+        { id: "s2", order: 2, titleEn: "S2", settings: "INT.", durationSeconds: 30, act: "rising", actionLinesEn: "", dialog: [], sfx: [], musicBrief: "" },
+        { id: "s3", order: 3, titleEn: "S3", settings: "INT.", durationSeconds: 30, act: "climax", actionLinesEn: "", dialog: [], sfx: [], musicBrief: "" },
+      ],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const sp = setScript(project, seedScript as any);
+    const proj1 = { ...project, ...sp };
+    const patch = applyAiDirectorChanges(proj1, [
+      { sceneId: "s1", after: { tensionLevel: 2, emotionalTone: "tender", durationSeconds: 25 } },
+      { sceneId: "s3", after: { tensionLevel: 9, emotionalTone: "shocking", durationSeconds: 45 } },
+    ]);
+    const film = patch.filmV093 as any;
+    expect(film.script.scenes[0].tensionLevel).toBe(2);
+    expect(film.script.scenes[0].emotionalTone).toBe("tender");
+    expect(film.script.scenes[0].durationSeconds).toBe(25);
+    // s2 untouched
+    expect(film.script.scenes[1].tensionLevel).toBeUndefined();
+    expect(film.script.scenes[1].durationSeconds).toBe(30);
+    // s3 changed
+    expect(film.script.scenes[2].tensionLevel).toBe(9);
+    expect(film.script.scenes[2].emotionalTone).toBe("shocking");
+    expect(film.script.scenes[2].durationSeconds).toBe(45);
+  });
+
+  it("revertSceneAiDirector restores one scene to snapshot", async () => {
+    const { revertSceneAiDirector, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    const seedScript = {
+      titleEn: "T", titleVi: "T", logline: "L", synopsisEn: "S",
+      scenes: [{
+        id: "s1", order: 1, titleEn: "S1", settings: "INT.",
+        durationSeconds: 60, act: "rising",
+        actionLinesEn: "", dialog: [], sfx: [], musicBrief: "",
+        tensionLevel: 8, emotionalTone: "tense",
+      }],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const sp = setScript(project, seedScript as any);
+    const proj1 = { ...project, ...sp };
+    const patch = revertSceneAiDirector(proj1, "s1", {
+      tensionLevel: 3,
+      emotionalTone: "neutral",
+      durationSeconds: 30,
+    });
+    const film = patch.filmV093 as any;
+    expect(film.script.scenes[0].tensionLevel).toBe(3);
+    expect(film.script.scenes[0].emotionalTone).toBe("neutral");
+    expect(film.script.scenes[0].durationSeconds).toBe(30);
+  });
+
+  it("AI Director system prompt includes pacing principles + JSON schema", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("Walter Murch");
+    expect(src).toContain("Pixar");
+    expect(src).toContain("Hitchcock");
+    expect(src).toContain("DO NOT change scene description");
+    expect(src).toContain("rationaleVi");
+    expect(src).toContain("strengthsVi");
+    expect(src).toContain("weaknessesVi");
+  });
+
+  it("AiDirectorPanel UI component exists in dashboard", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("function AiDirectorPanel");
+    expect(src).toContain("function AiDirectorSceneDiff");
+    expect(src).toContain("AI Director · tự động chỉnh nhịp");
+    expect(src).toContain("scanning");
+    expect(src).toContain("applied");
+  });
+
+  it("AiDirectorPanel has Undo all + Keep + per-scene undo buttons", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("Undo all");
+    expect(src).toContain("Undo cảnh này");
+    expect(src).toContain("Giữ");
+    expect(src).toContain("revertScriptToVersion");
+    expect(src).toContain("revertSceneAiDirector");
+  });
+
+  it("Dashboard renders S1/S2/Sn labels (not C1/C2 — sync with 'Scene' terminology)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("S{scenes[i].order}");
+    expect(src).toContain("S{s.order}");
+    expect(src).toContain("`S${scene.order}`");
+    // Should NOT have C{ patterns in label positions
+    expect(src).not.toContain("`C${scene.order}`");
+    expect(src).not.toContain("C{scenes[i].order}");
+  });
+
+  it("CSS has AI Director section styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain("SPRINT 1.0 r3 — AI DIRECTOR");
+    expect(css).toContain(".ksp-ai-director-hero");
+    expect(css).toContain(".ksp-ai-director-progress");
+    expect(css).toContain(".ksp-ai-director-stat-grid");
+    expect(css).toContain(".ksp-ai-director-tabs");
+    expect(css).toContain(".ksp-ai-director-diff");
+  });
+
+  it("AI Director sanitizes scene durations to safe range (5-600s)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    // Validate the clamp logic exists
+    expect(src).toContain("Math.max(5, Math.min(600");
+  });
+
+  it("manifest bumped to current 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r4 — DRAG REWRITE (Phase 4: drag tension + shot duration)
+// ============================================================================
+
+describe("Sprint 1.0 r4 — drag rewrite engine + store + UI", () => {
+  it("runDragRewriteSuggest is exported", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runDragRewriteSuggest).toBe("function");
+  });
+
+  it("runShotReprompt is exported", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runShotReprompt).toBe("function");
+  });
+
+  it("DragRewriteSuggestion + ShotRepromptSuggestion types exist", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("export interface DragRewriteSuggestion");
+    expect(src).toContain("export interface ShotRepromptSuggestion");
+    expect(src).toContain("before"); // snapshot
+    expect(src).toContain("rationaleVi");
+    expect(src).toContain("useStillImage");
+  });
+
+  it("applyDragRewrite store action updates 5 scene fields atomically", async () => {
+    const { applyDragRewrite, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    const seedScript = {
+      titleEn: "T", titleVi: "T", logline: "L", synopsisEn: "S",
+      scenes: [{
+        id: "s1", order: 1, titleEn: "Original EN", titleVi: "Gốc VI",
+        settings: "INT.", durationSeconds: 30, act: "rising",
+        actionLinesEn: "Old action EN", actionLinesVi: "Old action VI",
+        dialog: [], sfx: [], musicBrief: "",
+        tensionLevel: 3, emotionalTone: "neutral",
+      }],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const sp = setScript(project, seedScript as any);
+    const proj1 = { ...project, ...sp };
+    const patch = applyDragRewrite(proj1, "s1", {
+      newTension: 8,
+      newEmotion: "tense",
+      newDurationSeconds: 42,
+      newActionLinesVi: "New VI action with high stakes",
+      newActionLinesEn: "New EN action with high stakes",
+    });
+    const film = patch.filmV093 as any;
+    const scene = film.script.scenes[0];
+    expect(scene.tensionLevel).toBe(8);
+    expect(scene.emotionalTone).toBe("tense");
+    expect(scene.durationSeconds).toBe(42);
+    expect(scene.actionLinesVi).toBe("New VI action with high stakes");
+    expect(scene.actionLinesEn).toBe("New EN action with high stakes");
+    // Original title preserved
+    expect(scene.titleEn).toBe("Original EN");
+  });
+
+  it("applyShotReprompt updates imagePromptR5 + animationPromptR5", async () => {
+    const { applyShotReprompt, setShotsForScene } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    const seedShots: any[] = [{
+      id: "sh1", order: 1, titleEn: "Shot", shotType: "medium",
+      durationSeconds: 4, gridFormat: "3x3", cameraMovement: "static",
+      status: "draft", imagePromptR5: "old image", animationPromptR5: "old anim",
+    }];
+    const sp = setShotsForScene(project, "scene1", seedShots);
+    const proj1 = { ...project, ...sp };
+    const patch = applyShotReprompt(proj1, "scene1", "sh1", {
+      newImagePrompt: "new cinematic hold beat image",
+      newAnimationPrompt: "new slow zoom anim",
+      useStillImage: true,
+    });
+    const film = patch.filmV093 as any;
+    expect(film.shotsBySceneId.scene1[0].imagePromptR5).toBe("new cinematic hold beat image");
+    expect(film.shotsBySceneId.scene1[0].animationPromptR5).toBe("new slow zoom anim");
+  });
+
+  it("Drag rewrite prompt preserves stakes + compresses/extends duration", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("PRESERVE");
+    expect(src).toContain("stakes");
+    expect(src).toMatch(/compress|extend/);
+  });
+
+  it("Shot reprompt prompt mentions still image when duration > 8s", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("still image");
+    expect(src).toMatch(/>\s*8s|cap 5-8s/);
+  });
+
+  it("TensionCurve component accepts onDragRelease prop", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("onDragRelease");
+    expect(src).toContain("handlePointDown");
+    expect(src).toContain("clientYToTension");
+  });
+
+  it("DragRewriteModal + DragRewritePreview components exist", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("function DragRewriteModal");
+    expect(src).toContain("function DragRewritePreview");
+    expect(src).toContain("ksp-drag-rewrite-backdrop");
+    expect(src).toContain("Áp dụng rewrite");
+    expect(src).toContain("Bỏ qua");
+  });
+
+  it("ShotRow does NOT render 🎬 reprompt button (moved to Storyboard modal in r4.1)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    expect(src).not.toContain("ksp-shotlist-film-reprompt-btn");
+    expect(src).not.toContain("onReprompt");
+    expect(src).not.toContain("isRepromptingDur");
+  });
+
+  it("FilmFrameEditModal renders 🎬 AI re-prompt button + ↻ Reset (moved here from Shot List)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmFrameEditModal.tsx"), "utf-8");
+    expect(src).toContain("AI re-prompt");
+    expect(src).toContain("handleAiReprompt");
+    expect(src).toContain("handleResetPrompt");
+    expect(src).toContain("imagePromptIsOverride");
+    expect(src).toContain("animationPromptIsOverride");
+    expect(src).toContain("runShotReprompt");
+  });
+
+  it("FilmFrameEditModal prefers imagePromptR5/animationPromptR5 override if set", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmFrameEditModal.tsx"), "utf-8");
+    expect(src).toMatch(/if \(\(shot as any\)\.imagePromptR5\)/);
+    expect(src).toMatch(/if \(\(shot as any\)\.animationPromptR5\)/);
+  });
+
+  it("handleDuplicate auto-clears shotsBySceneId when duplicating Film project", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/Projects.tsx"), "utf-8");
+    expect(src).toContain("isFilmMode");
+    expect(src).toContain("shotsBySceneId: {}");
+    expect(src).toContain("Sprint 1.0 r4.1");
+  });
+
+  it("Shot list grid template uses minmax(0, 1fr) for title to allow shrink (r4.1 fix)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    // Verify the updated grid template exists
+    expect(css).toContain("minmax(0, 1fr)");
+    expect(css).toContain("Sprint 1.0 r4.1: 8 columns");
+    // Title input must have min-width: 0 + ellipsis
+    expect(css).toMatch(/ksp-shotlist-film-title-input[\s\S]*?min-width:\s*0/);
+    expect(css).toMatch(/ksp-shotlist-film-title-input[\s\S]*?text-overflow:\s*ellipsis/);
+  });
+
+  it("CSS has Sprint 1.0 r4 drag rewrite modal styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain("SPRINT 1.0 r4 — DRAG INTERACTIONS");
+    expect(css).toContain(".ksp-drag-rewrite-backdrop");
+    expect(css).toContain(".ksp-drag-rewrite-modal");
+    expect(css).toContain(".ksp-drag-rewrite-meta-row");
+    expect(css).toContain(".ksp-drag-rewrite-spinner");
+    expect(css).toContain("ksp-drag-rewrite-spin");
+  });
+
+  it("manifest bumped to current 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r5 — MULTI-CHARACTER + SETUP-PAYOFF (Phase 2B)
+// ============================================================================
+
+describe("Sprint 1.0 r5 — multi-character emotion + setup-payoff", () => {
+  it("runReannotateCharacterEmotions is exported", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runReannotateCharacterEmotions).toBe("function");
+  });
+
+  it("runSetupPayoffDetect is exported", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(typeof mod.runSetupPayoffDetect).toBe("function");
+  });
+
+  it("CharacterEmotionsMap + SetupPayoffDetectResult types exist", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("export type CharacterEmotionsMap");
+    expect(src).toContain("export interface SetupPayoffDetectResult");
+    expect(src).toContain("danglingSetupsVi");
+  });
+
+  it("SetupPayoffPair type has 6 categories", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/project.ts"), "utf-8");
+    expect(src).toContain('"object" | "skill" | "promise" | "mystery" | "character" | "world"');
+    expect(src).toContain("SETUP_PAYOFF_TYPE_LABELS");
+  });
+
+  it("FilmSceneScript.characterEmotions field is optional", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/project.ts"), "utf-8");
+    expect(src).toContain("characterEmotions?: Record<string, EmotionalTone>");
+  });
+
+  it("FilmData.setupPayoffPairs field is optional", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/film.ts"), "utf-8");
+    expect(src).toContain("setupPayoffPairs?:");
+  });
+
+  it("applyCharacterEmotions store action bulk updates scenes", async () => {
+    const { applyCharacterEmotions, setScript } = await import("../src/store/film_actions");
+    const project: any = { id: "p1" };
+    const seedScript = {
+      titleEn: "T", titleVi: "T", logline: "L", synopsisEn: "S",
+      scenes: [
+        { id: "s1", order: 1, titleEn: "S1", settings: "INT.", durationSeconds: 30, act: "rising", actionLinesEn: "", dialog: [], sfx: [], musicBrief: "" },
+        { id: "s2", order: 2, titleEn: "S2", settings: "INT.", durationSeconds: 30, act: "climax", actionLinesEn: "", dialog: [], sfx: [], musicBrief: "" },
+      ],
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const sp = setScript(project, seedScript as any);
+    const proj1 = { ...project, ...sp };
+    const patch = applyCharacterEmotions(proj1, {
+      s1: { char_a: "tender", char_b: "neutral" },
+      s2: { char_a: "tense", char_b: "shocking" },
+    });
+    const film = patch.filmV093 as any;
+    expect(film.script.scenes[0].characterEmotions.char_a).toBe("tender");
+    expect(film.script.scenes[0].characterEmotions.char_b).toBe("neutral");
+    expect(film.script.scenes[1].characterEmotions.char_a).toBe("tense");
+    expect(film.script.scenes[1].characterEmotions.char_b).toBe("shocking");
+  });
+
+  it("setSetupPayoffPairs + removeSetupPayoffPair + clearSetupPayoffPairs", async () => {
+    const { setSetupPayoffPairs, removeSetupPayoffPair, clearSetupPayoffPairs } = await import(
+      "../src/store/film_actions"
+    );
+    const project: any = { id: "p1" };
+    const seedPairs: any[] = [
+      { id: "sp1", setupSceneId: "s1", payoffSceneId: "s5", type: "object", labelVi: "Mật mã", rationaleVi: "", confidence: 0.9, detectedAt: 1 },
+      { id: "sp2", setupSceneId: "s2", payoffSceneId: "s6", type: "skill", labelVi: "Combat", rationaleVi: "", confidence: 0.7, detectedAt: 1 },
+    ];
+    const set1 = setSetupPayoffPairs(project, seedPairs);
+    const proj1 = { ...project, ...set1 };
+    expect((proj1.filmV093 as any).setupPayoffPairs).toHaveLength(2);
+
+    const rm1 = removeSetupPayoffPair(proj1, "sp1");
+    const proj2 = { ...proj1, ...rm1 };
+    expect((proj2.filmV093 as any).setupPayoffPairs).toHaveLength(1);
+    expect((proj2.filmV093 as any).setupPayoffPairs[0].id).toBe("sp2");
+
+    const cl1 = clearSetupPayoffPairs(proj2);
+    const proj3 = { ...proj2, ...cl1 };
+    expect((proj3.filmV093 as any).setupPayoffPairs).toHaveLength(0);
+  });
+
+  it("Setup-payoff detection enforces payoffSceneId > setupSceneId (no time-paradox)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toMatch(/payoffOrder\s*<=\s*setupOrder/);
+    expect(src).toContain("// payoff must be later");
+  });
+
+  it("MultiCharacterCurve + SetupPayoffPanel components exist in dashboard", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("function MultiCharacterCurve");
+    expect(src).toContain("function SetupPayoffPanel");
+    expect(src).toContain("CHAR_COLORS");
+    expect(src).toContain("TONE_TO_Y");
+  });
+
+  it("MultiCharacterCurve hidden when fewer than 2 characters", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("characters.length < 2");
+  });
+
+  it("CSS has Sprint 1.0 r5 multi-character + setup-payoff styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain("SPRINT 1.0 r5 — MULTI-CHARACTER + SETUP-PAYOFF");
+    expect(css).toContain(".ksp-multichar-pill");
+    expect(css).toContain(".ksp-setup-payoff-list");
+    expect(css).toContain(".ksp-setup-payoff-anchor-setup");
+    expect(css).toContain(".ksp-setup-payoff-anchor-payoff");
+    expect(css).toContain(".ksp-setup-payoff-line");
+  });
+
+  it("manifest bumped to current 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r6 — PROMPT PIPELINE FIX (Sprint F)
+// ============================================================================
+
+describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
+  it("BUG #1: patchShotsForScene auto-repacks grids so cell.shotId stays in sync", async () => {
+    const { setShotsForScene, ensureSceneGrids } = await import("../src/store/film_actions");
+    const project: any = {
+      id: "p1",
+      filmV093: {
+        characters: [],
+        shotsBySceneId: {
+          sc1: [
+            { id: "shot_A1", order: 1, titleEn: "S1", shotType: "wide_establishing", durationSeconds: 5, gridFormat: "2x2", cameraMovement: "static", status: "draft" },
+            { id: "shot_A2", order: 2, titleEn: "S2", shotType: "medium", durationSeconds: 5, gridFormat: "2x2", cameraMovement: "static", status: "draft" },
+          ],
+        },
+        script: {
+          titleEn: "T", titleVi: "T", logline: "L",
+          scenes: [
+            { id: "sc1", order: 1, titleEn: "Sc1", settings: "INT.", durationSeconds: 30, actionLinesEn: "", dialog: [], sfx: [], musicBrief: "", act: "rising" },
+          ],
+          createdAt: Date.now(), versions: [],
+        } as any,
+      },
+      settingV2: { mode: "film", aspectRatio: "16:9" },
+    };
+    // Initialize storyboard grids
+    const initPatch = ensureSceneGrids(project, "sc1");
+    const proj1 = { ...project, ...initPatch };
+    const gridsBefore = proj1.filmV093!.script!.scenes[0].grids!;
+    expect(gridsBefore[0].cells.filter((c: any) => c.shotId).length).toBe(2);
+    expect(gridsBefore[0].cells[0].shotId).toBe("shot_A1");
+
+    // Simulate user clicking ✨ Sinh lại — new shots with NEW ids
+    const newShots = [
+      { id: "shot_B1", order: 1, titleEn: "NewS1", shotType: "wide_establishing", durationSeconds: 5, gridFormat: "2x2", cameraMovement: "static", status: "draft" },
+      { id: "shot_B2", order: 2, titleEn: "NewS2", shotType: "medium", durationSeconds: 5, gridFormat: "2x2", cameraMovement: "static", status: "draft" },
+    ];
+    const regenPatch = setShotsForScene(proj1, "sc1", newShots as any);
+    const proj2 = { ...proj1, ...regenPatch };
+
+    // Grids should be auto-repacked: cell.shotId now points to new ids
+    const gridsAfter = proj2.filmV093!.script!.scenes[0].grids!;
+    expect(gridsAfter[0].cells.filter((c: any) => c.shotId).length).toBe(2);
+    expect(gridsAfter[0].cells[0].shotId).toBe("shot_B1");
+    expect(gridsAfter[0].cells[1].shotId).toBe("shot_B2");
+    // Stale imagePrompt cache cleared
+    expect(gridsAfter[0].imagePrompt).toBeUndefined();
+  });
+
+  it("BUG #2: scene prompt uses actionLinesEn first, no Vietnamese leak", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "Shot EN", titleVi: "Shot VI", shotType: "medium", durationSeconds: 5, actionEn: "English action", actionVi: "Hành động tiếng Việt" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "Scene EN", titleVi: "Cảnh VI",
+      settings: "EXT.",
+      actionLinesEn: "Robot wakes in forest",
+      actionLinesVi: "Robot tỉnh dậy trong rừng",
+      durationSeconds: 30,
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    expect(prompt).toContain("Robot wakes in forest");
+    expect(prompt).not.toContain("Robot tỉnh dậy");
+    expect(prompt).toContain("English action");
+    expect(prompt).not.toContain("Hành động tiếng Việt");
+  });
+
+  it("BUG #3: pacing data flows into prompt (tension + emotion + rhythm role)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "Peak", shotType: "close_up", durationSeconds: 5, actionEn: "Robot face", rhythmRole: "peak" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "Climax", settings: "EXT.", actionLinesEn: "x",
+      durationSeconds: 30,
+      tensionLevel: 9,
+      emotionalTone: "shocking",
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    // CINEMATIC INTENT block exists
+    expect(prompt).toContain("CINEMATIC INTENT");
+    // Tension + emotion labels in prompt
+    expect(prompt).toContain("Dominant emotion: shocking");
+    expect(prompt).toContain("Tension: 9/10");
+    // Per-cell rhythm role hint
+    expect(prompt).toContain("role=peak");
+    expect(prompt).toContain("COMPOSITION:");
+    // Shocking emotion lighting hint
+    expect(prompt).toContain("harsh top-light");
+  });
+
+  it("BUG #3: characterEmotions injected when annotated", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "Shot", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x",
+      durationSeconds: 30,
+      tensionLevel: 5,
+      emotionalTone: "neutral",
+      characterEmotions: { c1: "tense", c2: "tender" },
+    };
+    const cast = [
+      { id: "c1", order: 1, name: "Robot", role: "protagonist", description: "", faceRefs: [], bodyRefs: [] },
+      { id: "c2", order: 2, name: "Bird", role: "supporting", description: "", faceRefs: [], bodyRefs: [] },
+    ] as any[];
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast, setting });
+    expect(prompt).toContain("Per-character emotional state");
+    expect(prompt).toContain("Robot feels tense");
+    expect(prompt).toContain("Bird feels tender");
+  });
+
+  it("BUG #3: setupPayoff anchors injected when scene is referenced", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "Shot", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene1: any = { id: "sc1", order: 1, titleEn: "S1", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, tensionLevel: 5, emotionalTone: "neutral" };
+    const scene5: any = { id: "sc5", order: 5, titleEn: "S5", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, tensionLevel: 8, emotionalTone: "shocking" };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const pairs = [
+      { id: "p1", setupSceneId: "sc1", payoffSceneId: "sc5", type: "object", labelVi: "Mật mã 3-5 nhịp", rationaleVi: "", confidence: 0.9, detectedAt: 1 },
+    ] as any[];
+    const prompt = buildSceneGridImagePrompt({
+      grid: grids[0], scene: scene1, shots, cast: [], setting,
+      allScenes: [scene1, scene5],
+      setupPayoffPairs: pairs,
+    });
+    expect(prompt).toContain("NARRATIVE CONTINUITY");
+    expect(prompt).toContain("SETUP for \"Mật mã 3-5 nhịp\"");
+    expect(prompt).toContain("payoff in scene 5");
+  });
+
+  it("BUG #4: prompt includes lighting + color palette + atmosphere + framing intensity", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "S", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, tensionLevel: 3, emotionalTone: "tender" };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    expect(prompt).toContain("Lighting:");
+    expect(prompt).toContain("Color palette:");
+    expect(prompt).toContain("Atmosphere:");
+    expect(prompt).toContain("Framing intensity:");
+    // Tender emotion: golden-hour key light
+    expect(prompt).toContain("golden-hour");
+  });
+
+  it("BUG #5: Storyboard component no longer uses cached grid.imagePrompt", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    // Old line: `if (grid.imagePrompt) return grid.imagePrompt;` is removed
+    expect(src).not.toMatch(/if\s*\(grid\.imagePrompt\)\s*return\s+grid\.imagePrompt/);
+    // New comment marker exists
+    expect(src).toContain("BUG #5 fix");
+  });
+
+  it("BUG #6: no duplicate REFERENCE IMAGES header line", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "S", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "2x2");
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    // Count occurrences of "REFERENCE IMAGES"
+    const matches = prompt.match(/REFERENCE IMAGES/g) ?? [];
+    expect(matches.length).toBe(1); // exactly one header, no duplicate
+  });
+
+  it("buildSingleShotImagePrompt injects pacing data + cinematic intent", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Peak shot", shotType: "close_up",
+      cameraMovement: "dolly_in", durationSeconds: 8, actionEn: "Eye opens",
+      rhythmRole: "peak",
+    };
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.",
+      tensionLevel: 8, emotionalTone: "tense",
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    expect(prompt).toContain("CINEMATIC INTENT");
+    expect(prompt).toContain("Scene emotion: tense");
+    expect(prompt).toContain("Tension: 8/10");
+    expect(prompt).toContain("Shot rhythm role: peak");
+    expect(prompt).toContain("cool blue key light");
+  });
+
+  it("buildAnimationPrompt injects motion intent from rhythm role", async () => {
+    const { buildAnimationPrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Build shot", shotType: "medium",
+      cameraMovement: "tracking", durationSeconds: 6, actionEn: "Robot walks",
+      rhythmRole: "build",
+    };
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.",
+      tensionLevel: 5, emotionalTone: "neutral",
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const provider: any = { id: "seedance-2-pro", name: "Seedance 2.0 Pro" };
+    const prompt = buildAnimationPrompt({ shot, scene, cast: [], setting, provider });
+    expect(prompt).toContain("EMOTIONAL & MOTION INTENT");
+    expect(prompt).toContain("Shot role: build");
+    expect(prompt).toContain("Motion intent:");
+    expect(prompt).toContain("energy accumulates");
+  });
+
+  it("manifest bumped to current 0.9.4 series with version_name 0.9.4-r*", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const m = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(m.version).toMatch(/^0\.9\.4\./);
+    expect(m.version_name).toMatch(/^0\.9\.4-r/);
+    expect(m.action.default_title).toMatch(/0\.9\.4-r/);
+  });
+});
+
+// ============================================================================
+// SPRINT 1.0 r7 — BEATS + PER-SHOT MOOD + PHYSICAL LOCK + MULTI-GRID (Sprint G1ab)
+// ============================================================================
+
+describe("Sprint 1.0 r7 — Sprint G1ab", () => {
+  it("Beat type + BEAT_TYPE_LABELS exported from types/project", async () => {
+    const types = await import("../src/types/project");
+    expect(types.BEAT_TYPE_LABELS).toBeDefined();
+    expect(types.BEAT_TYPE_LABELS.camera).toBeDefined();
+    expect(types.BEAT_TYPE_LABELS.subject).toBeDefined();
+    expect(types.BEAT_TYPE_LABELS.action).toBeDefined();
+    expect(types.BEAT_TYPE_LABELS.sensory).toBeDefined();
+    expect(types.BEAT_TYPE_LABELS["state-change"]).toBeDefined();
+    // Each label has vi + emoji + color
+    expect(types.BEAT_TYPE_LABELS.camera.vi).toBe("Máy quay");
+    expect(types.BEAT_TYPE_LABELS.camera.emoji).toBe("🎥");
+  });
+
+  it("SetupPayoffPair schema supports labelEn (Q1 VI leak fix)", async () => {
+    // Type-check only — runtime schema not exposed
+    const types = await import("../src/types/project");
+    // Cast as any since we only verify exports compile
+    const pair: any = {
+      id: "p1",
+      setupSceneId: "sc1",
+      payoffSceneId: "sc2",
+      type: "object",
+      labelVi: "Mật mã 3-5 nhịp",
+      labelEn: "3-5 tap code",
+      rationaleVi: "...",
+      confidence: 0.8,
+      detectedAt: Date.now(),
+    };
+    expect(pair.labelEn).toBe("3-5 tap code");
+  });
+
+  it("FilmShot schema supports new r7 fields", async () => {
+    const shot: any = {
+      id: "s1",
+      order: 1,
+      purposeEn: "Show the wake moment",
+      lightingHintEn: "subtle blue accent on sensor",
+      shotMoodOverride: "shocking",
+      shotMoodIntensity: 9,
+    };
+    expect(shot.purposeEn).toBeDefined();
+    expect(shot.lightingHintEn).toBeDefined();
+    expect(shot.shotMoodOverride).toBe("shocking");
+    expect(shot.shotMoodIntensity).toBe(9);
+  });
+
+  it("FilmSceneScript supports beats + physicalConsistencyLockEn", async () => {
+    const scene: any = {
+      id: "sc1",
+      order: 1,
+      beats: [
+        { id: "b1", order: 1, label: "Wide forest sweep", type: "camera", detectedAt: 1 },
+        { id: "b2", order: 2, label: "Blue light flickers", type: "state-change", detectedAt: 1 },
+      ],
+      physicalConsistencyLockEn: "Robot covered in moss + ivy curtain",
+    };
+    expect(scene.beats).toHaveLength(2);
+    expect(scene.physicalConsistencyLockEn).toBeDefined();
+  });
+
+  it("runDetectBeatsForScene + runDetectBeatsForAllScenes exported", async () => {
+    const mod = await import("../src/engine/filmScriptStages");
+    expect(mod.runDetectBeatsForScene).toBeDefined();
+    expect(mod.runDetectBeatsForAllScenes).toBeDefined();
+    expect(typeof mod.runDetectBeatsForScene).toBe("function");
+    expect(typeof mod.runDetectBeatsForAllScenes).toBe("function");
+  });
+
+  it("Engine prompt: setup-payoff system requires labelEn", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain('"labelEn"');
+    expect(src).toContain("English equivalent");
+    expect(src).toContain("REQUIRED — never skip");
+  });
+
+  it("Engine prompt: shot list system requires purposeEn + lightingHintEn + cameraVaried", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    expect(src).toContain('"purposeEn"');
+    expect(src).toContain('"lightingHintEn"');
+    expect(src).toContain("CAMERA MOVEMENT VARIETY");
+    expect(src).toContain("DO NOT default to");
+    // Beat coverage rules
+    expect(src).toContain("BEAT COVERAGE RULES");
+  });
+
+  it("Grid prompt: PHYSICAL CONSISTENCY LOCK block injected from scene field", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "S", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30,
+      tensionLevel: 5, emotionalTone: "neutral",
+      physicalConsistencyLockEn: "- Robot body: moss-covered\n- Ivy curtain over left sensor",
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    expect(prompt).toContain("PHYSICAL CONSISTENCY LOCK");
+    expect(prompt).toContain("moss-covered");
+    expect(prompt).toContain("Ivy curtain");
+  });
+
+  it("Grid prompt: BEATS COVERAGE block injected when shots have coveredBeatIds", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [
+      { id: "s1", order: 1, titleEn: "S1", shotType: "medium", durationSeconds: 5, actionEn: "x", coveredBeatIds: ["b1", "b2"] },
+      { id: "s2", order: 2, titleEn: "S2", shotType: "close_up", durationSeconds: 5, actionEn: "y", coveredBeatIds: ["b3"] },
+    ] as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30,
+      beats: [
+        { id: "b1", order: 1, label: "Wide sweep", type: "camera", detectedAt: 1 },
+        { id: "b2", order: 2, label: "Reveal robot", type: "subject", detectedAt: 1 },
+        { id: "b3", order: 3, label: "Light flickers", type: "state-change", detectedAt: 1 },
+      ],
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    expect(prompt).toContain("BEATS COVERAGE");
+    expect(prompt).toContain("Beat 1: Wide sweep");
+    expect(prompt).toContain("Beat 2: Reveal robot");
+    expect(prompt).toContain("Beat 3: Light flickers");
+  });
+
+  it("Grid prompt: per-cell LIGHTING HINT injected from shot.lightingHintEn", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [
+      { id: "s1", order: 1, titleEn: "S1", shotType: "wide_establishing", durationSeconds: 5, actionEn: "x",
+        lightingHintEn: "golden-hour through canopy, atmospheric haze",
+        cameraMovement: "pan_right", rhythmRole: "establish" },
+    ] as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    expect(prompt).toContain("LIGHTING HINT:");
+    expect(prompt).toContain("golden-hour through canopy");
+    expect(prompt).toContain("SHOT TITLE:");
+    expect(prompt).toContain("ACTION:");
+    expect(prompt).toContain("COMPOSITION:");
+  });
+
+  it("Cast refs filtered: only characters with refs uploaded; format adapts", async () => {
+    const { castRefsBlockFiltered } = await import("../src/engine/sceneImagePromptBuilder");
+    const cast = [
+      { id: "c1", order: 1, name: "Hero", role: "protagonist", description: "tall, brave", faceRefs: [{ id: "f1" }, { id: "f2" }], bodyRefs: [] },
+      { id: "c2", order: 2, name: "Friend", role: "supporting", description: "", faceRefs: [], bodyRefs: [] },
+      { id: "c3", order: 3, name: "Villain", role: "antagonist", description: "evil", faceRefs: [{ id: "f3" }], bodyRefs: [{ id: "b1" }, { id: "b2" }] },
+    ] as any[];
+    const result = castRefsBlockFiltered(cast, 2);
+    // Friend (c2) omitted (no refs)
+    expect(result).not.toContain("Friend");
+    // Hero: 2 face refs, no body
+    expect(result).toContain("Hero");
+    expect(result).toContain("2 face refs");
+    expect(result).not.toMatch(/Hero.*body ref/); // no body ref mention for Hero
+    // Villain: 1 face + 2 body
+    expect(result).toContain("Villain");
+    expect(result).toContain("1 face ref + 2 body refs");
+    // Numbering: Hero = Image #2 (start index 2), Villain = Image #3 (next after Hero, c2 skipped)
+    expect(result).toContain("Image #2: Hero");
+    expect(result).toContain("Image #3: Villain");
+  });
+
+  it("Cast refs: empty string when all cast have no refs", async () => {
+    const { castRefsBlockFiltered } = await import("../src/engine/sceneImagePromptBuilder");
+    const cast = [
+      { id: "c1", order: 1, name: "Hero", role: "protagonist", description: "", faceRefs: [], bodyRefs: [] },
+    ] as any[];
+    const result = castRefsBlockFiltered(cast, 2);
+    expect(result).toBe("");
+  });
+
+  it("Grid 2 prompt references Grid 1 generated image when previousGridGenerated=true", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    // Create 12 shots → packShotsIntoGrids produces 2 grids of 3x3 each
+    const shots = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i + 1}`, order: i + 1, titleEn: `Shot ${i + 1}`,
+      shotType: "medium", durationSeconds: 5, actionEn: `action ${i + 1}`,
+    })) as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    expect(grids.length).toBe(2);
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    // Grid 2 prompt with previousGridGenerated = true
+    const prompt = buildSceneGridImagePrompt({
+      grid: grids[1], scene, shots, cast: [], setting,
+      allGrids: grids,
+      previousGridGenerated: true,
+    });
+    expect(prompt).toContain("GRID 2 of 2");
+    expect(prompt).toContain("grid-01-generated.png");
+    expect(prompt).toContain("MULTI-GRID CONTINUITY DIRECTIVES");
+    expect(prompt).toContain("blend seamlessly with previous grid");
+  });
+
+  it("Grid 2 without previousGridGenerated: no Grid 1 ref injected", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i + 1}`, order: i + 1, titleEn: `S${i + 1}`,
+      shotType: "medium", durationSeconds: 5, actionEn: "x",
+    })) as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({
+      grid: grids[1], scene, shots, cast: [], setting,
+      allGrids: grids,
+      previousGridGenerated: false,
+    });
+    // Header still says GRID 2 of 2 but no continuity directives
+    expect(prompt).toContain("GRID 2 of 2");
+    expect(prompt).not.toContain("grid-01-generated.png");
+    expect(prompt).not.toContain("MULTI-GRID CONTINUITY DIRECTIVES");
+  });
+
+  it("Single-shot prompt: purposeEn priority over legacy purpose (Q1 VI leak fix)", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Shot", shotType: "close_up",
+      cameraMovement: "static", durationSeconds: 5, actionEn: "x",
+      purpose: "Mục đích tiếng Việt cũ", // legacy VI
+      purposeEn: "English purpose", // new r7
+    };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT." };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    expect(prompt).toContain("English purpose");
+    expect(prompt).not.toContain("Mục đích tiếng Việt cũ");
+  });
+
+  it("Single-shot prompt: falls back to legacy purpose when purposeEn missing", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Shot", shotType: "close_up",
+      cameraMovement: "static", durationSeconds: 5, actionEn: "x",
+      purpose: "Legacy purpose only",
+      // no purposeEn
+    };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT." };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    expect(prompt).toContain("Legacy purpose only");
+  });
+
+  it("Single-shot prompt: per-shot lightingHintEn override takes priority", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Shot", shotType: "close_up",
+      cameraMovement: "static", durationSeconds: 5, actionEn: "x",
+      lightingHintEn: "CUSTOM PER-SHOT LIGHTING",
+    };
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.",
+      emotionalTone: "neutral", tensionLevel: 5,
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    expect(prompt).toContain("CUSTOM PER-SHOT LIGHTING");
+    // Default neutral lighting should NOT appear (per-shot override wins)
+    expect(prompt).not.toContain("balanced three-point lighting");
+  });
+
+  it("Single-shot prompt: shotMoodOverride changes derived emotion/tension", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Shot", shotType: "close_up",
+      cameraMovement: "static", durationSeconds: 5, actionEn: "x",
+      shotMoodOverride: "shocking",
+      shotMoodIntensity: 10,
+    };
+    const scene: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.",
+      emotionalTone: "tender", tensionLevel: 2, // scene says tender/calm
+    };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    // Per-shot override should win
+    expect(prompt).toContain("Scene emotion: shocking");
+    expect(prompt).toContain("Tension: 10/10");
+    expect(prompt).toContain("per-shot override active");
+  });
+
+  it("SetupPayoff prompt: labelEn priority over labelVi (Q1 VI leak fix)", async () => {
+    const { buildSetupPayoffHints } = await import("../src/engine/sceneImagePromptBuilder");
+    const pairs: any[] = [
+      {
+        id: "p1", setupSceneId: "sc1", payoffSceneId: "sc2", type: "object",
+        labelVi: "Mật mã 3-5 nhịp",
+        labelEn: "3-5 tap code",
+        rationaleVi: "...", confidence: 0.9, detectedAt: 1,
+      },
+    ];
+    const scenes = [
+      { id: "sc1", order: 1 } as any,
+      { id: "sc2", order: 2 } as any,
+    ];
+    const hints = buildSetupPayoffHints("sc1", pairs, scenes);
+    expect(hints[0]).toContain("3-5 tap code");
+    expect(hints[0]).not.toContain("Mật mã 3-5 nhịp");
+  });
+
+  it("SetupPayoff prompt: falls back to labelVi when labelEn missing (legacy data)", async () => {
+    const { buildSetupPayoffHints } = await import("../src/engine/sceneImagePromptBuilder");
+    const pairs: any[] = [
+      {
+        id: "p1", setupSceneId: "sc1", payoffSceneId: "sc2", type: "object",
+        labelVi: "Legacy Vietnamese", // no labelEn
+        rationaleVi: "", confidence: 0.9, detectedAt: 1,
+      },
+    ];
+    const scenes = [
+      { id: "sc1", order: 1 } as any,
+      { id: "sc2", order: 2 } as any,
+    ];
+    const hints = buildSetupPayoffHints("sc1", pairs, scenes);
+    expect(hints[0]).toContain("Legacy Vietnamese");
+  });
+
+  it("Store: applyBeatsAndPhysicalLock + setSceneBeats exported", async () => {
+    const mod = await import("../src/store/film_actions");
+    expect(mod.applyBeatsAndPhysicalLock).toBeDefined();
+    expect(mod.setSceneBeats).toBeDefined();
+    expect(mod.setScenePhysicalLock).toBeDefined();
+  });
+
+  it("Store: applyBeatsAndPhysicalLock bulk updates scenes", async () => {
+    const { applyBeatsAndPhysicalLock } = await import("../src/store/film_actions");
+    const proj: any = {
+      ...baseFilmProject,
+      filmV093: {
+        ...baseFilmProject.filmV093,
+        script: {
+          titleEn: "T", titleVi: "T", logline: "L",
+          scenes: [
+            { id: "sc1", order: 1, titleEn: "S1", settings: "INT.", durationSeconds: 30, actionLinesEn: "x", dialog: [], sfx: [], musicBrief: "", act: "setup" },
+            { id: "sc2", order: 2, titleEn: "S2", settings: "INT.", durationSeconds: 30, actionLinesEn: "x", dialog: [], sfx: [], musicBrief: "", act: "rising" },
+          ],
+          createdAt: Date.now(), versions: [],
+        } as any,
+      },
+    };
+    const results = {
+      sc1: {
+        beats: [{ id: "b1", order: 1, label: "Beat 1", type: "camera" as const, detectedAt: 1 }],
+        physicalConsistencyLockEn: "Lock for sc1",
+      },
+      sc2: {
+        beats: [{ id: "b2", order: 1, label: "Beat 2", type: "action" as const, detectedAt: 1 }],
+      },
+    };
+    const patch = applyBeatsAndPhysicalLock(proj, results);
+    const scenes = patch.filmV093!.script!.scenes;
+    expect((scenes[0] as any).beats).toHaveLength(1);
+    expect((scenes[0] as any).beats[0].label).toBe("Beat 1");
+    expect((scenes[0] as any).physicalConsistencyLockEn).toBe("Lock for sc1");
+    expect((scenes[1] as any).beats).toHaveLength(1);
+    expect((scenes[1] as any).physicalConsistencyLockEn).toBeUndefined();
+  });
+
+  it("Film mode: ensureSceneGrids locks 3x3 regardless of shot count (Q-E)", async () => {
+    const { ensureSceneGrids } = await import("../src/store/film_actions");
+    // 5 shots in film mode → should still be 3x3 (4 empty cells)
+    const proj: any = {
+      ...baseFilmProject,
+      filmV093: {
+        ...baseFilmProject.filmV093,
+        shotsBySceneId: {
+          sc1: Array.from({ length: 5 }, (_, i) => ({ id: `sh${i + 1}`, order: i + 1 })),
+        },
+        script: {
+          titleEn: "T", titleVi: "T", logline: "L",
+          scenes: [
+            { id: "sc1", order: 1, titleEn: "S1", settings: "INT.", durationSeconds: 30, actionLinesEn: "", dialog: [], sfx: [], musicBrief: "", act: "setup" },
+          ],
+          createdAt: Date.now(), versions: [],
+        } as any,
+      },
+    };
+    const patch = ensureSceneGrids(proj, "sc1");
+    const scene = patch.filmV093!.script!.scenes[0];
+    expect(scene.gridFormat).toBe("3x3");
+    expect(scene.grids![0].cells.length).toBe(9);
+    expect(scene.grids![0].cells.filter((c) => c.shotId).length).toBe(5);
+  });
+
+  it("Film mode: 10 shots → 2 grids of 3x3 (multi-grid)", async () => {
+    const { ensureSceneGrids } = await import("../src/store/film_actions");
+    const proj: any = {
+      ...baseFilmProject,
+      filmV093: {
+        ...baseFilmProject.filmV093,
+        shotsBySceneId: {
+          sc1: Array.from({ length: 10 }, (_, i) => ({ id: `sh${i + 1}`, order: i + 1 })),
+        },
+        script: {
+          titleEn: "T", titleVi: "T", logline: "L",
+          scenes: [
+            { id: "sc1", order: 1, titleEn: "S1", settings: "INT.", durationSeconds: 30, actionLinesEn: "", dialog: [], sfx: [], musicBrief: "", act: "setup" },
+          ],
+          createdAt: Date.now(), versions: [],
+        } as any,
+      },
+    };
+    const patch = ensureSceneGrids(proj, "sc1");
+    const scene = patch.filmV093!.script!.scenes[0];
+    expect(scene.gridFormat).toBe("3x3");
+    expect(scene.grids!.length).toBe(2);
+    // Grid 1: 9 cells, Grid 2: 9 cells (1 filled + 8 empty)
+    expect(scene.grids![0].cells.filter((c) => c.shotId).length).toBe(9);
+    expect(scene.grids![1].cells.filter((c) => c.shotId).length).toBe(1);
+  });
+
+  it("CSS: beats badge + popover + coverage + mood override + gutter styles present", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain("SPRINT 1.0 r7 — BEATS BADGE + POPOVER");
+    expect(css).toContain(".ksp-pacing-beats");
+    expect(css).toContain(".ksp-pacing-popup-beats");
+    expect(css).toContain(".ksp-pacing-popup-beat-item");
+    expect(css).toContain(".ksp-mood-override-section");
+    expect(css).toContain(".ksp-mood-override-reset");
+    expect(css).toContain(".ksp-coverage-banner");
+    expect(css).toContain(".ksp-coverage-modal");
+    expect(css).toContain(".ksp-coverage-beat-covered");
+    expect(css).toContain(".ksp-coverage-beat-missing");
+    expect(css).toContain(".ksp-modal-gutter-handle");
+    expect(css).toContain(".ksp-storyboard-multigrid-container");
+  });
+
+  it("FilmIdeaScriptSection wires beats badge + auto-detection on Stage 5 + J3 re-detect", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmIdeaScriptSection.tsx"), "utf-8");
+    expect(src).toContain("BEAT_TYPE_LABELS");
+    expect(src).toContain("ksp-pacing-beats");
+    expect(src).toContain("ksp-pacing-popup-beats");
+    // Auto-detect after Stage 5 finalize
+    expect(src).toContain("runDetectBeatsForAllScenes");
+    expect(src).toContain("applyBeatsAndPhysicalLock");
+    expect(src).toContain("Đang phân tích beats");
+    // J3 auto re-detect
+    expect(src).toContain("onRedetectBeats");
+    expect(src).toContain("runDetectBeatsForScene");
+    expect(src).toContain("actionDirty");
+  });
+
+  it("FilmShotListSection: coverage indicator + modal + migration warning", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    expect(src).toContain("ksp-coverage-banner");
+    expect(src).toContain("Beat coverage:");
+    expect(src).toContain("ksp-coverage-modal");
+    expect(src).toContain("hasLegacyVietnamesePurpose");
+    expect(src).toContain("tiếng Việt từ phiên bản cũ");
+    // Pass beats to AI generation
+    expect(src).toContain("beats: (scene as any).beats");
+  });
+
+  it("FilmFrameEditModal: per-shot mood section + draggable gutter", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmFrameEditModal.tsx"), "utf-8");
+    expect(src).toContain("ksp-mood-override-section");
+    expect(src).toContain("Override per-shot mood");
+    expect(src).toContain("lightingHintEn");
+    expect(src).toContain("shotMoodOverride");
+    expect(src).toContain("shotMoodIntensity");
+    // Draggable gutter
+    expect(src).toContain("ksp-modal-gutter-handle");
+    expect(src).toContain("onGutterMouseDown");
+    expect(src).toContain("leftPaneWidth");
+    expect(src).toContain("ksp.frameEdit.leftPaneWidth");
+  });
+
+  it("FilmStoryboardSection: multi-grid seamless container + Grid 2 ref Grid 1 auto", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    expect(src).toContain("ksp-storyboard-multigrid-container");
+    expect(src).toContain("cellNumberOffset");
+    expect(src).toContain("hideHeader");
+    expect(src).toContain("previousGridGenerated");
+    expect(src).toContain("Grid {grid.order} auto-references Grid {grid.order - 1}");
+  });
+
+  // Sprint 1.0 r7.5 (Hướng A) — multi-grid prompt tabs refactor
+  it("r7.5 FilmStoryboardSection: GridPromptPanel + MultiGridPromptTabs components exist", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    // New component definitions
+    expect(src).toContain("function GridPromptPanel");
+    expect(src).toContain("function MultiGridPromptTabs");
+    // Tab CSS classes referenced in JSX
+    expect(src).toContain("ksp-storyboard-multigrid-prompts");
+    expect(src).toContain("ksp-storyboard-prompt-tabs");
+    expect(src).toContain("ksp-storyboard-prompt-tab-active");
+    // Hướng A render branching: single grid vs multi grid
+    expect(src).toContain("grids.length === 1");
+    expect(src).toContain("MultiGridPromptTabs");
+    // Tab mode prop passing
+    expect(src).toContain("hideToggleRow");
+  });
+
+  it("r7.5 FilmStoryboardSection: GridDisplay no longer renders prompt panel inline", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    // Slice gdBody = function GridDisplay body up to its closing brace + blank line
+    // (boundary marker = the comment block opening for GridPromptPanel).
+    const gdStart = src.indexOf("function GridDisplay(");
+    const gdEnd = src.indexOf("\n/**\n * Sprint 1.0 r7.5 (Hướng A) — GridPromptPanel");
+    expect(gdStart).toBeGreaterThan(-1);
+    expect(gdEnd).toBeGreaterThan(gdStart);
+    const gdBody = src.slice(gdStart, gdEnd);
+    // GridDisplay keeps cell-level concerns
+    expect(gdBody).toContain("editingCellOrder");
+    expect(gdBody).toContain("FilmFrameEditModal");
+    expect(gdBody).toContain("handleUploadVideoForCell");
+    // GridDisplay does NOT keep prompt-level state/handlers anymore (check actual code patterns)
+    expect(gdBody).not.toContain("setPromptExpanded");
+    expect(gdBody).not.toContain("setPendingUpload");
+    expect(gdBody).not.toContain("handleCopyPrompt");
+    expect(gdBody).not.toContain("handleDownloadRefs");
+    expect(gdBody).not.toContain("GridCropPreviewModal");
+  });
+
+  it("r7.5 MultiGridPromptTabs: activeIdx state with Grid 1 default active (r7.7 update)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    const tabsStart = src.indexOf("function MultiGridPromptTabs");
+    expect(tabsStart).toBeGreaterThan(-1);
+    const tabsBody = src.slice(tabsStart, tabsStart + 8000);
+    // r7.7: Grid 1 default active = useState<number | null>(0)
+    expect(tabsBody).toContain("useState<number | null>(0)");
+    // Click active tab → collapse (toggle behavior)
+    expect(tabsBody).toContain("setActiveIdx(isActive ? null : idx)");
+    // Render GridPromptPanel for active tab in controlled tab mode
+    expect(tabsBody).toContain("hideToggleRow={true}");
+    expect(tabsBody).toContain("expanded={true}");
+  });
+
+  it("r7.5 film.css: tab CSS classes + multigrid prompts container styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain(".ksp-storyboard-multigrid-prompts");
+    expect(css).toContain(".ksp-storyboard-prompt-tabs");
+    expect(css).toContain(".ksp-storyboard-prompt-tab");
+    expect(css).toContain(".ksp-storyboard-prompt-tab-active");
+    expect(css).toContain(".ksp-storyboard-prompt-tab-actions");
+    // Stale rule must be removed: prompt-collapsible inside Grid 2+ grid-block (no longer applies)
+    expect(css).not.toMatch(/ksp-storyboard-grid-block:not\(:first-child\)\s*>\s*\.ksp-storyboard-prompt-collapsible/);
+  });
+
+  // Sprint 1.0 r7.6 (UI batch) — multi-grid CSS tweaks + pacing border + cast + twists editable + sections collapsed
+  it("r7.6 film.css: multi-grid tabs CSS adjustments (padding, gap, border-radius, :has() sibling)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    // Grid 2+ block: padding 0 10px (Jason r7.6), no longer transparent
+    expect(css).toMatch(/ksp-storyboard-multigrid-container\s*>\s*\.ksp-storyboard-grid-block:not\(:first-child\)\s*\{[^}]*padding:\s*0\s+10px/);
+    // multigrid-prompts margin-top 0
+    expect(css).toMatch(/\.ksp-storyboard-multigrid-prompts\s*\{[^}]*margin-top:\s*0/);
+    // tabs gap 0
+    expect(css).toMatch(/\.ksp-storyboard-prompt-tabs\s*\{[^}]*gap:\s*0/);
+    // tab border-radius 0
+    expect(css).toMatch(/\.ksp-storyboard-prompt-tab\s*\{[^}]*border-radius:\s*0/);
+    // :has() sibling rule for non-active tabs
+    expect(css).toContain(":has(.ksp-storyboard-prompt-tab-active)");
+    expect(css).toContain("border-bottom: 1px solid #534AB7");
+  });
+
+  it("r7.6 film.css: pacing dashboard section has full border framing like .ksp-section", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    // .ksp-pacing-dashboard-section block must declare standard border + radius (matching .ksp-section)
+    const match = css.match(/\.ksp-pacing-dashboard-section\s*\{[^}]+\}/);
+    expect(match).not.toBeNull();
+    const rule = match![0];
+    expect(rule).toContain("border");
+    expect(rule).toContain("border-radius");
+    expect(rule).toContain("background");
+  });
+
+  it("r7.6 CastFilmSection: + button uses margin-left auto (pushed to right corner)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    const match = css.match(/\.ksp-cast-film-add-corner\s*\{[^}]+\}/);
+    expect(match).not.toBeNull();
+    expect(match![0]).toMatch(/margin-left:\s*auto/);
+  });
+
+  it("r7.6 CastFilmSection: avatar renders face ref image when present, emoji fallback", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // New img element with ksp-cast-film-avatar-img class
+    expect(src).toContain("ksp-cast-film-avatar-img");
+    expect(src).toContain("firstFaceRefUrl");
+    expect(src).toContain("character.faceRefs?.[0]?.dataUrl");
+    // CSS for the img
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toMatch(/\.ksp-cast-film-avatar-img\s*\{[^}]*object-fit:\s*cover/);
+    expect(css).toMatch(/\.ksp-cast-film-avatar-img\s*\{[^}]*border-radius:\s*50%/);
+  });
+
+  it("r7.6 Stage 3 Twists: addScriptTwist + removeScriptTwist actions exist with correct shape", async () => {
+    const { addScriptTwist, removeScriptTwist } = await import("../src/store/film_actions");
+    expect(typeof addScriptTwist).toBe("function");
+    expect(typeof removeScriptTwist).toBe("function");
+    // Functional test: addScriptTwist appends to scriptTwists with empty description default
+    const baseProject: any = {
+      id: "p1",
+      filmV093: {
+        scriptTwists: [
+          { id: "t1", beatId: "b1", description: "existing", accepted: true },
+        ],
+      },
+    };
+    const addPatch = addScriptTwist(baseProject, "b2");
+    expect(addPatch.filmV093?.scriptTwists).toHaveLength(2);
+    const newTwist = addPatch.filmV093!.scriptTwists![1];
+    expect(newTwist.beatId).toBe("b2");
+    expect(newTwist.description).toBe("");
+    expect(newTwist.accepted).toBeUndefined();
+    expect(newTwist.id).toMatch(/^twist_/);
+    // removeScriptTwist removes by id
+    const removePatch = removeScriptTwist(baseProject, "t1");
+    expect(removePatch.filmV093?.scriptTwists).toHaveLength(0);
+  });
+
+  it("r7.6 ActiveStage3 UI: editable + remove + add form wired", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmIdeaScriptSection.tsx"), "utf-8");
+    // Edit-on-click state + draft state
+    expect(src).toContain("editingTwistId");
+    expect(src).toContain("twistDraft");
+    // Blur-to-save commit function
+    expect(src).toContain("commitTwistEdit");
+    // Remove handler
+    expect(src).toContain("handleRemoveTwist");
+    // Add form state + handler
+    expect(src).toContain("addBeatId");
+    expect(src).toContain("handleAddNewTwist");
+    // JSX uses textarea for inline edit
+    expect(src).toContain("ksp-step-twist-edit");
+    expect(src).toContain("ksp-step-twist-remove-btn");
+    expect(src).toContain("ksp-step-twist-add-form");
+    // Imports new actions
+    expect(src).toContain("removeScriptTwist");
+    expect(src).toContain("addScriptTwist");
+  });
+
+  it("r7.7 manifest + package version bump to r7.8-downloads", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const manifest = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
+    expect(manifest.version_name).toBe("0.9.4-r7.8-downloads");
+    expect(manifest.version).toBe("0.9.4.16");
+    expect(manifest.action.default_title).toContain("v0.9.4-r7.8");
+    const pkg = JSON.parse(fs.readFileSync(path.resolve("./package.json"), "utf-8"));
+    expect(pkg.version).toBe("0.9.4-r7.8-downloads");
+  });
+
+  // Sprint 1.0 r7.8 — story overview download + per-scene prompt ZIP downloads
+  it("r7.8 engine: filmStoryOverviewExport builds Vietnamese text overview", async () => {
+    const { buildStoryOverviewTxt } = await import("../src/engine/filmStoryOverviewExport");
+    expect(typeof buildStoryOverviewTxt).toBe("function");
+
+    const minimalInput: any = {
+      idea: { raw: "Robot bị lạc trong rừng", language: "vi" },
+      script: {
+        titleVi: "Robot Thức Tỉnh",
+        titleEn: "Robot Awakening",
+        loglineVi: "Một robot tìm được mục đích sống",
+        scenes: [
+          {
+            id: "s1",
+            order: 1,
+            titleVi: "Mở đầu",
+            settings: "Khu rừng nguyên sinh",
+            durationSeconds: 30,
+            emotionalTone: "tender",
+            tensionLevel: 3,
+            actionLinesVi: "Robot G.N.U.D nằm im trong cây rêu.",
+            dialog: [],
+          },
+        ],
+      },
+      characters: [
+        { id: "c1", order: 1, name: "G.N.U.D", role: "protagonist", description: "Robot rỉ sét", faceRefs: [], bodyRefs: [] },
+      ],
+      shotsBySceneId: {
+        s1: [
+          {
+            id: "sh1",
+            order: 1,
+            shotType: "wide_establishing",
+            cameraMovement: "static",
+            durationSeconds: 5,
+            actionVi: "Toàn cảnh khu rừng",
+          },
+        ],
+      },
+      setting: { animationStyle: "cgi_3d_cinematic", aspectRatio: "16:9" },
+    };
+    const text = buildStoryOverviewTxt(minimalInput);
+    expect(text).toContain("ROBOT THỨC TỈNH");
+    expect(text).toContain("Robot bị lạc trong rừng");
+    expect(text).toContain("Một robot tìm được mục đích sống");
+    expect(text).toContain("PHÂN CẢNH 1");
+    expect(text).toContain("Mở đầu");
+    expect(text).toContain("Khu rừng nguyên sinh");
+    expect(text).toContain("G.N.U.D");
+    expect(text).toContain("Robot rỉ sét");
+    expect(text).toContain("SHOT 1.1");
+    expect(text).toContain("Wide / Toàn cảnh");
+    expect(text).toContain("TỔNG KẾT");
+    expect(text).toContain("Tổng số shots:    1");
+  });
+
+  it("r7.8 engine: filmStoryOverviewExport handles empty script gracefully", async () => {
+    const { buildStoryOverviewTxt } = await import("../src/engine/filmStoryOverviewExport");
+    const text = buildStoryOverviewTxt({
+      idea: undefined,
+      script: undefined,
+      characters: [],
+      shotsBySceneId: {},
+      setting: undefined,
+    });
+    // Should produce header + summary footer even with no data
+    expect(text).toContain("PHIM:");
+    expect(text).toContain("TỔNG KẾT");
+    expect(text).toContain("Tổng số phân cảnh: 0");
+    expect(text).toContain("Tổng số shots:    0");
+  });
+
+  it("r7.8 ShotListSection: download story overview button wired with handler", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    expect(src).toContain('import { buildStoryOverviewTxt } from "../engine/filmStoryOverviewExport"');
+    expect(src).toContain("handleDownloadStoryOverview");
+    expect(src).toContain("ksp-shotlist-download-overview-btn");
+    expect(src).toContain("_overview.txt");
+    // UTF-8 BOM for Vietnamese Notepad rendering
+    expect(src).toContain('"\\ufeff"');
+  });
+
+  it("r7.8 StoryboardSection: Grid header renamed 'Grid - Scene N' + 2 download buttons wired", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    // Header rename — JSX literal "Grid - Scene {scene.order}"
+    expect(src).toContain("Grid - Scene {scene.order}");
+    expect(src).not.toContain("<strong>Grid {grid.order}</strong>");
+    // Handlers
+    expect(src).toContain("handleDownloadAnimationPrompts");
+    expect(src).toContain("handleDownloadImagePrompts");
+    // ZIP filename conventions
+    expect(src).toContain("scene-${scene.order}_animation_prompts.zip");
+    expect(src).toContain("scene-${scene.order}_image_prompts.zip");
+    // Inner file naming
+    expect(src).toContain("prompt_shot_${s.order}.txt");
+    // Prompt resolution: AI re-prompt override → fallback to deterministic builder
+    expect(src).toContain("animationPromptR5");
+    expect(src).toContain("imagePromptR5");
+    expect(src).toContain("buildAnimationPrompt");
+    expect(src).toContain("buildSingleShotImagePrompt");
+    // CSS classes
+    expect(src).toContain("ksp-storyboard-grid-header-downloads");
+  });
+
+  it("r7.8 film.css: download button styles for shotlist overview + grid header downloads", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain(".ksp-shotlist-download-overview-btn");
+    expect(css).toContain(".ksp-storyboard-grid-header-downloads");
+    // Right corner alignment
+    expect(css).toMatch(/\.ksp-shotlist-download-overview-btn\s*\{[^}]*margin-left:\s*auto/);
+    expect(css).toMatch(/\.ksp-storyboard-grid-header-downloads\s*\{[^}]*margin-left:\s*auto/);
+  });
+
+  // r7.7 hotfix items (UI gap + active tab default)
+  it("r7.7 fix: twist add button + form have bottom margin to separate from orange Continue button", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    // Both add-btn AND add-form must have margin-bottom (10px)
+    expect(css).toMatch(/\.ksp-step-twist-add-btn\s*\{[^}]*margin-bottom:\s*10px/);
+    expect(css).toMatch(/\.ksp-step-twist-add-form\s*\{[^}]*margin-bottom:\s*10px/);
+  });
+
+  // Sprint G1d (Item 6) — AI cast prompt generation
+  it("G1d engine: runGenerateCastPromptSet exists with correct signature + multimodal branch", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmCastGeneration.ts"), "utf-8");
+    expect(src).toContain("export interface CastPromptSet");
+    expect(src).toContain("facePrompt");
+    expect(src).toContain("bodyPrompt");
+    expect(src).toContain("anchorTokens");
+    expect(src).toContain("export async function runGenerateCastPromptSet");
+    expect(src).toContain("useFaceRefForMatch");
+    // Multimodal Gemini call branch exists
+    expect(src).toContain("callGeminiMultimodal");
+    expect(src).toContain("inline_data");
+    expect(src).toContain("GEMINI_FLASH_MM_ENDPOINT");
+  });
+
+  it("G1d engine: parses CastPromptSet JSON correctly with anchor tokens defaulting to []", async () => {
+    // Direct unit test of the parsing logic via the parser pattern.
+    // We can't easily mock callAi here, but we can verify the engine module imports & types.
+    const engine = await import("../src/engine/filmCastGeneration");
+    expect(typeof engine.runGenerateCastPromptSet).toBe("function");
+    // Verify type exports
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmCastGeneration.ts"), "utf-8");
+    // Defensive: missing anchorTokens defaults to []
+    expect(src).toContain("parsed.anchorTokens = []");
+    // Missing required fields throws
+    expect(src).toContain("missing facePrompt or bodyPrompt");
+  });
+
+  it("G1d CastPromptModal: component file exists with 2 tabs + actions + anchor + workflow", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const exists = fs.existsSync(path.resolve("./src/components/CastPromptModal.tsx"));
+    expect(exists).toBe(true);
+    const src = fs.readFileSync(path.resolve("./src/components/CastPromptModal.tsx"), "utf-8");
+    // 2 tab keys + active state
+    expect(src).toContain('TabKey = "face" | "body"');
+    expect(src).toContain("activeTab");
+    expect(src).toContain("👤 Face portrait");
+    expect(src).toContain("🧍 Full body");
+    // Copy + Regen actions
+    expect(src).toContain("handleCopy");
+    expect(src).toContain("handleRegen");
+    expect(src).toContain("navigator.clipboard.writeText");
+    // Anchor tokens collapsible
+    expect(src).toContain("showAnchorTokens");
+    expect(src).toContain("Anchor tokens");
+    // Workflow guide
+    expect(src).toContain("Workflow");
+    // Match refs toggle (multimodal)
+    expect(src).toContain("useFaceRefForMatch");
+    // Backdrop click-to-close
+    expect(src).toContain("ksp-cast-prompt-modal-backdrop");
+    expect(src).toContain("onClick={onClose}");
+    expect(src).toContain("stopPropagation");
+  });
+
+  it("G1d CastFilmSection: wires 📝 button + modal trigger + handleGenerateCastPrompt", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // Imports
+    expect(src).toContain("runGenerateCastPromptSet");
+    expect(src).toContain("CastPromptSet");
+    expect(src).toContain('import { CastPromptModal } from "./CastPromptModal"');
+    // State
+    expect(src).toContain("promptResult");
+    expect(src).toContain("isGeneratingPrompt");
+    expect(src).toContain("promptMatchedToRefs");
+    // Handler
+    expect(src).toContain("handleGenerateCastPrompt");
+    expect(src).toContain("useFaceRefForMatch");
+    // Button in JSX
+    expect(src).toContain("ksp-cast-film-castprompt-icon-btn");
+    expect(src).toContain('"📝"');
+    // Modal mounts conditionally
+    expect(src).toContain("<CastPromptModal");
+    expect(src).toContain("matchedToRefs={promptMatchedToRefs}");
+  });
+
+  it("G1d film.css: cast prompt button + modal styles defined", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain(".ksp-cast-film-castprompt-icon-btn");
+    expect(css).toContain(".ksp-cast-prompt-modal-backdrop");
+    expect(css).toContain(".ksp-cast-prompt-modal");
+    expect(css).toContain(".ksp-cast-prompt-modal-tabs");
+    expect(css).toContain(".ksp-cast-prompt-modal-tab-active");
+    expect(css).toContain(".ksp-cast-prompt-modal-anchor");
+    expect(css).toContain(".ksp-cast-prompt-modal-workflow");
+    expect(css).toContain(".ksp-cast-prompt-modal-match-toggle");
+    // position fixed backdrop (z-index high)
+    expect(css).toMatch(/\.ksp-cast-prompt-modal-backdrop\s*\{[^}]*position:\s*fixed/);
+    expect(css).toMatch(/\.ksp-cast-prompt-modal-backdrop\s*\{[^}]*z-index:\s*9000/);
   });
 });

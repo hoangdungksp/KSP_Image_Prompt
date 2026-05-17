@@ -22,8 +22,19 @@ import type {
   FilmShot,
   FilmSceneScript,
   ProjectSettingV2,
+  EmotionalTone,
+  RhythmRole,
+  SetupPayoffPair,
 } from "../types/project";
 import type { FilmCharacter, FilmVideoProvider } from "../types/film";
+import {
+  EMOTION_CINEMA_HINTS,
+  RHYTHM_COMPOSITION_HINT,
+  tensionFramingHint,
+  buildCharacterEmotionPhrase,
+  buildSetupPayoffHints,
+  castRefsBlockFiltered,
+} from "./sceneImagePromptBuilder";
 
 // ============================================================================
 // SHARED HELPERS
@@ -76,12 +87,15 @@ export interface BuildSingleShotImagePromptInput {
   scene?: FilmSceneScript;
   cast: FilmCharacter[];
   setting: ProjectSettingV2;
+  /** r6: Optional pacing context — when caller has it, prompt enriches accordingly. */
+  allScenes?: FilmSceneScript[];
+  setupPayoffPairs?: SetupPayoffPair[];
 }
 
 export function buildSingleShotImagePrompt(
   input: BuildSingleShotImagePromptInput
 ): string {
-  const { shot, scene, cast, setting } = input;
+  const { shot, scene, cast, setting, allScenes, setupPayoffPairs } = input;
   const styleHint =
     ANIMATION_STYLE_HINT[setting.animationStyle ?? "live_action"] ??
     ANIMATION_STYLE_HINT["live_action"];
@@ -92,26 +106,96 @@ export function buildSingleShotImagePrompt(
   const cameraMovement = (shot.cameraMovement || "static").replace(/_/g, " ");
   const sceneTitle = scene?.titleEn || scene?.titleVi || "—";
   const sceneSettings = scene?.settings || "unspecified location";
+  // BUG #2 fix: actionEn priority everywhere
   const actionEn =
-    (shot as any).actionEn ||
+    (shot as any).actionEn?.trim() ||
+    (shot as any).actionVi?.trim() ||
     scene?.actionLinesEn?.trim() ||
+    (scene as any)?.actionLinesVi?.trim() ||
     "(action to be filled by director)";
-  const purpose = shot.purpose ? `Narrative purpose: ${shot.purpose}` : "";
-  const refBlock = castSummary(cast);
+  // Sprint 1.0 r7 (Q1 VI leak fix): prefer purposeEn, fallback purpose (legacy VI)
+  const purposeEn = (shot as any).purposeEn?.trim();
+  const purposeFallback = shot.purpose?.trim();
+  const purpose = purposeEn
+    ? `Narrative purpose: ${purposeEn}`
+    : purposeFallback
+    ? `Narrative purpose: ${purposeFallback}` // legacy VI — user warned via UI migration flag
+    : "";
+
+  // Sprint 1.0 r7: Cast refs filtered
+  const refBlock = castRefsBlockFiltered(cast, 1); // single-shot: cast refs start at Image #1
+
+  // Pacing resolution order (Sprint 1.0 r7 D3 priority):
+  //   1. shot.lightingHintEn (user manual or AI auto) — highest
+  //   2. shot.shotMoodOverride + shotMoodIntensity — middle
+  //   3. scene.emotionalTone + scene.tensionLevel — fallback
+  const overrideTone = (shot as any).shotMoodOverride as EmotionalTone | undefined;
+  const overrideIntensity = (shot as any).shotMoodIntensity as number | undefined;
+  const sceneTone: EmotionalTone = overrideTone ?? (scene?.emotionalTone as EmotionalTone) ?? "neutral";
+  const sceneTension =
+    overrideIntensity ?? (scene ? ((scene as any).tensionLevel as number | undefined) : undefined);
+  const moodHints = EMOTION_CINEMA_HINTS[sceneTone];
+  const tensionHint = tensionFramingHint(sceneTension);
+  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "unset";
+  const rhythmRole = (shot as any).rhythmRole as RhythmRole | undefined;
+  const compositionHint = rhythmRole
+    ? RHYTHM_COMPOSITION_HINT[rhythmRole]
+    : `balanced framing for ${shotType}`;
+  const characterEmotionPhrase = scene
+    ? buildCharacterEmotionPhrase(scene, cast)
+    : "";
+  const setupPayoffHints = scene
+    ? buildSetupPayoffHints(scene.id, setupPayoffPairs, allScenes)
+    : [];
+
+  // Sprint 1.0 r7: per-shot lighting hint (user override or AI auto-fill)
+  const lightingHint = (shot as any).lightingHintEn?.trim() || moodHints.lighting;
+
+  // Sprint 1.0 r7: Physical consistency lock from scene
+  const physicalLockBody = scene
+    ? ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim()
+    : undefined;
+  const physicalLockBlock = physicalLockBody
+    ? `
+
+PHYSICAL CONSISTENCY LOCK (must match other shots in this scene):
+${physicalLockBody}`
+    : "";
+
+  // CINEMATIC INTENT block — per-shot, with override-aware values
+  const overrideNote = overrideTone || overrideIntensity ? " — per-shot override active" : "";
+  const cinematicMoodBlock = `CINEMATIC INTENT (per-shot, derived from pacing analysis${overrideNote}):
+- Scene emotion: ${sceneTone} · Tension: ${tensionLabel}${rhythmRole ? ` · Shot rhythm role: ${rhythmRole}` : ""}
+- Lighting: ${lightingHint}
+- Color palette: ${moodHints.palette}
+- Atmosphere: ${moodHints.atmosphere}
+- Framing intensity: ${tensionHint}
+- Composition direction: ${compositionHint}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}`;
+
+  const setupPayoffBlock = setupPayoffHints.length > 0
+    ? `\n\nNARRATIVE CONTINUITY:
+${setupPayoffHints.map((h) => `- ${h}`).join("\n")}`
+    : "";
+
+  // Sprint 1.0 r7: REFERENCE IMAGES block — only include cast subblock if any refs uploaded
+  const refImageBlock = refBlock
+    ? `REFERENCE IMAGES (use for character consistency — filenames from Refs ZIP):
+${refBlock}`
+    : `REFERENCE IMAGES: (no cast references uploaded — AI must render character from description text alone)`;
 
   return `Cinematic single-frame storyboard image. ${aspect} aspect ratio.
 Style: ${styleHint}.
 
-REFERENCE IMAGES (use for character consistency — filenames from Refs ZIP):
-- image-01_cast-{name}_face-NN.png — face reference per cast member
-- image-02_cast-{name}_body-NN.png — body reference per cast member
-${refBlock}
+${refImageBlock}
 
 SHOT: ${shotTitle}
 Type: ${shotType}
 Camera framing: ${cameraMovement}
+Duration: ${shot.durationSeconds}s
 Scene: ${sceneTitle} — ${sceneSettings}
 ${purpose}
+
+${cinematicMoodBlock}${physicalLockBlock}${setupPayoffBlock}
 
 ACTION IN THIS FRAME:
 ${actionEn}
@@ -119,13 +203,15 @@ ${actionEn}
 FRAMING:
 - Single image (NOT a grid, NOT a collage). One coherent cinematic frame.
 - Capture the EXACT moment described in the action above — peak of the beat.
-- Maintain character identity (face, body, outfit) per reference images.
+- Maintain character identity (face, body, outfit) per reference images${refBlock ? "" : " (description only — no refs)"}.
 - Cinematic ${aspect} framing with appropriate depth of field for shot type.
+- Honor the CINEMATIC INTENT block above — lighting, color, atmosphere, composition must match.${physicalLockBody ? "\n- Match PHYSICAL CONSISTENCY LOCK — appearance details locked across all shots of this scene." : ""}
 
 AVOID:
 - Multiple panels, frames, or split-screen.
 - Text overlays, dialogue captions, frame numbers.
 - Branded logos, watermarks, timestamps.
+- Generic neutral lighting that ignores the emotional intent above.${physicalLockBody ? "\n- Varying physical appearance details listed in PHYSICAL CONSISTENCY LOCK." : ""}
 
 OUTPUT: one high-resolution still image of the described shot.`;
 }
@@ -199,6 +285,9 @@ export interface BuildAnimationPromptInput {
   provider: FilmVideoProvider;
   /** Time format for TIMING BREAKDOWN block (default "timecode"). */
   timeFormat?: TimeFormat;
+  /** r6: Optional pacing context for prompt enrichment. */
+  allScenes?: FilmSceneScript[];
+  setupPayoffPairs?: SetupPayoffPair[];
 }
 
 /**
@@ -325,7 +414,7 @@ function timingBreakdown(
 }
 
 export function buildAnimationPrompt(input: BuildAnimationPromptInput): string {
-  const { shot, scene, cast, setting, provider, timeFormat = "timecode" } = input;
+  const { shot, scene, cast, setting, provider, timeFormat = "timecode", allScenes, setupPayoffPairs } = input;
   const styleHint =
     ANIMATION_STYLE_HINT[setting.animationStyle ?? "live_action"] ??
     ANIMATION_STYLE_HINT["live_action"];
@@ -334,14 +423,20 @@ export function buildAnimationPrompt(input: BuildAnimationPromptInput): string {
 
   const shotTitle = shot.titleEn || shot.titleVi || `Shot ${shot.order}`;
   const sceneTitle = scene?.titleEn || scene?.titleVi || "—";
-  // Prioritize per-shot action. Scene action NEVER injected into prompt body
-  // (was causing AI to animate multi-beat scene events in single shot).
   const shotAction = (shot as any).actionEn?.trim() || (shot as any).actionVi?.trim();
   const actionLines =
     shotAction || shot.purpose?.trim() || "(action to be filled by director)";
-  // Setting (location) ONLY — for lighting/mood grounding, not action
   const settingHint = scene?.settings || "—";
-  const purpose = shot.purpose ? `Narrative purpose: ${shot.purpose}` : "";
+
+  // Sprint 1.0 r7 (Q1 VI leak fix): purposeEn priority
+  const purposeEn = (shot as any).purposeEn?.trim();
+  const purposeFallback = shot.purpose?.trim();
+  const purpose = purposeEn
+    ? `Narrative purpose: ${purposeEn}`
+    : purposeFallback
+    ? `Narrative purpose: ${purposeFallback}`
+    : "";
+
   const cameraDirection = cameraMovementDirection(
     shot.cameraMovement ?? "static",
     duration
@@ -353,8 +448,57 @@ export function buildAnimationPrompt(input: BuildAnimationPromptInput): string {
       ? cast.map((c) => c.name || `Character ${c.order}`).join(", ")
       : "(no characters specified)";
 
+  // Sprint 1.0 r7: Per-shot mood override resolution (D3 priority order)
+  const overrideTone = (shot as any).shotMoodOverride as EmotionalTone | undefined;
+  const overrideIntensity = (shot as any).shotMoodIntensity as number | undefined;
+  const sceneTone: EmotionalTone = overrideTone ?? (scene?.emotionalTone as EmotionalTone) ?? "neutral";
+  const sceneTension =
+    overrideIntensity ?? (scene ? ((scene as any).tensionLevel as number | undefined) : undefined);
+  const moodHints = EMOTION_CINEMA_HINTS[sceneTone];
+  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "unset";
+  const rhythmRole = (shot as any).rhythmRole as RhythmRole | undefined;
+  const characterEmotionPhrase = scene
+    ? buildCharacterEmotionPhrase(scene, cast)
+    : "";
+  const setupPayoffHints = scene
+    ? buildSetupPayoffHints(scene.id, setupPayoffPairs, allScenes)
+    : [];
+
+  // Per-rhythm motion intent (different from composition — describes HOW motion unfolds)
+  const rhythmMotionHint: Record<RhythmRole, string> = {
+    establish: "calm, deliberate motion. Let the eye absorb the space before anything happens.",
+    build: "motion ramps gradually — small actions build into larger ones, energy accumulates.",
+    peak: "intense, focused motion. This is the emotional pinnacle — every gesture must land with weight.",
+    release: "motion winds down, releases tension. Action resolves, frame settles into stillness.",
+  };
+  const motionIntent = rhythmRole ? rhythmMotionHint[rhythmRole] : "natural, story-appropriate motion pace.";
+
+  // Sprint 1.0 r7: Per-shot lighting hint override
+  const lightingHint = (shot as any).lightingHintEn?.trim() || moodHints.lighting;
+
+  // Sprint 1.0 r7: Physical consistency lock from scene
+  const physicalLockBody = scene
+    ? ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim()
+    : undefined;
+  const physicalLockBlock = physicalLockBody
+    ? `
+
+PHYSICAL CONSISTENCY LOCK (must hold across entire shot duration):
+${physicalLockBody}`
+    : "";
+
+  const overrideNote = overrideTone || overrideIntensity ? " — per-shot override active" : "";
+  const cinematicMoodBlock = `EMOTIONAL & MOTION INTENT (from pacing analysis${overrideNote}):
+- Scene emotion: ${sceneTone} · Tension: ${tensionLabel}${rhythmRole ? ` · Shot role: ${rhythmRole}` : ""}
+- Lighting consistency target: ${lightingHint}
+- Atmosphere maintained throughout shot: ${moodHints.atmosphere}
+- Motion intent: ${motionIntent}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}`;
+
+  const setupPayoffBlock = setupPayoffHints.length > 0
+    ? `\n\nNARRATIVE CONTINUITY: ${setupPayoffHints[0]}`
+    : "";
+
   // Provider hints — ALL aligned to ONE CONTINUOUS SHOT (no multi-shot syntax).
-  // Previous Seedance hint "multi-shot syntax / 3 beats" contradicted ONE SHOT ONE BEAT.
   const providerHints: Record<string, string> = {
     "seedance-2-pro":
       "Provider: Seedance 2.0 Pro. ONE continuous shot (no cuts inside). Up to 12s. Strong character/motion fidelity.",
@@ -382,6 +526,8 @@ ${purpose}
 REFERENCE IMAGE — filename: first-frame_shot-${shot.order}.png.
 A single keyframe of THIS shot (the starting/anchor frame). Animate motion that BEGINS from this exact image. Do not redraw, recompose, or restyle the reference.
 
+${cinematicMoodBlock}${physicalLockBlock}${setupPayoffBlock}
+
 ACTION (this shot ONLY):
 ${actionLines}
 
@@ -394,13 +540,15 @@ KEY DIRECTIONS:
 - ONE continuous shot, NO internal cuts or scene transitions.
 - Preserve character identity across the whole shot (face, outfit, body proportion) per reference.
 - Smooth motion arc only. Frame begins EXACTLY at reference image.
-- Lighting matches the setting mood. No style drift mid-shot.
+- Lighting matches the EMOTIONAL & MOTION INTENT above. No style drift mid-shot.
 - ${aspect} framing throughout.
+- Motion pace and emotional weight match the rhythm role specified above.${physicalLockBody ? "\n- Physical appearance details (PHYSICAL CONSISTENCY LOCK) MUST stay identical frame-to-frame." : ""}
 
 AVOID:
 - Adding actions outside the listed ACTION (no extra characters appearing, no new locations).
 - Cuts, transitions, or split-screens inside the shot.
 - Style/lighting drift.
+- Generic neutral motion — the rhythm role + emotion above are authoritative.${physicalLockBody ? "\n- Drift in physical appearance details listed in PHYSICAL CONSISTENCY LOCK." : ""}
 
 ${providerHint}`;
 

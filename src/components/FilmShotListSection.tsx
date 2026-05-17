@@ -30,13 +30,16 @@ import {
   updateShot,
   setShotsForScene,
 } from "../store/film_actions";
-import type { FilmShot, FilmSceneScript } from "../types/project";
+import type { FilmShot, FilmSceneScript, RhythmRole, Beat } from "../types/project";
+import { BEAT_TYPE_LABELS } from "../types/project";
+import { RHYTHM_ROLE_LABELS } from "../types/project";
 import {
   runShotListForScene,
   regenSingleShot,
   type GeneratedShot,
 } from "../engine/filmShotListGeneration";
 import type { FilmScriptProvider } from "../engine/filmScriptStages";
+import { buildStoryOverviewTxt } from "../engine/filmStoryOverviewExport";
 
 const SHOT_TYPE_OPTIONS: { value: FilmShot["shotType"]; labelVi: string }[] = [
   { value: "wide_establishing", labelVi: "Wide / Toàn cảnh" },
@@ -46,6 +49,13 @@ const SHOT_TYPE_OPTIONS: { value: FilmShot["shotType"]; labelVi: string }[] = [
   { value: "over_shoulder", labelVi: "Over shoulder / Qua vai" },
   { value: "two_shot", labelVi: "Two-shot / 2 người" },
   { value: "pov", labelVi: "POV / Góc nhìn" },
+];
+
+const RHYTHM_ROLE_OPTIONS: { value: RhythmRole; labelVi: string }[] = [
+  { value: "establish", labelVi: "Mở (establish)" },
+  { value: "build",     labelVi: "Leo (build)" },
+  { value: "peak",      labelVi: "Đỉnh (peak)" },
+  { value: "release",   labelVi: "Thả (release)" },
 ];
 
 const CAMERA_MOVEMENT_OPTIONS: { value: string; labelVi: string }[] = [
@@ -96,6 +106,43 @@ export function FilmShotListSection() {
 
   const totalScenes = script?.scenes?.length ?? 0;
 
+  /**
+   * Sprint 1.0 r7.8 Feature 1: Download full story overview as .txt
+   * Triggered from header download button. Generates Vietnamese text with
+   * all scenes + shots + cast + dialog and downloads via Blob link.
+   */
+  function handleDownloadStoryOverview() {
+    if (!script || script.scenes.length === 0) {
+      showToast("Chưa có Script — không có gì để xuất", "info");
+      return;
+    }
+    try {
+      const text = buildStoryOverviewTxt({
+        idea: (project as any).idea,
+        script,
+        characters: film.characters,
+        shotsBySceneId: film.shotsBySceneId ?? {},
+        setting,
+        framework: (film as any).scriptFramework,
+        projectName: (project as any).name,
+      });
+      // UTF-8 BOM helps Windows Notepad render Vietnamese correctly
+      const blob = new Blob(["\ufeff" + text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const safeTitle = (script.titleVi || script.titleEn || "story")
+        .replace(/[^a-zA-Z0-9\u00C0-\u1EF9_-]/g, "_")
+        .slice(0, 60);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeTitle}_overview.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Đã xuất story overview (${text.length} ký tự)`, "success");
+    } catch (err) {
+      showToast(`Xuất overview lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
   return (
     <section className="ksp-section ksp-shotlist-film">
       <header className="ksp-section-header">
@@ -106,6 +153,18 @@ export function FilmShotListSection() {
             ? `${totalShots} shots · ${totalScenes} scenes`
             : "chưa có script"}
         </span>
+        {/* r7.8 Feature 1: download full story overview button (right corner) */}
+        {script && totalScenes > 0 && (
+          <button
+            type="button"
+            className="ksp-shotlist-download-overview-btn"
+            onClick={handleDownloadStoryOverview}
+            title="📥 Tải về toàn bộ mô tả phim (scenes + shots + cast) dạng text tiếng Việt dễ đọc"
+            aria-label="Download story overview"
+          >
+            📥 Story Overview
+          </button>
+        )}
       </header>
 
       {!script && (
@@ -149,6 +208,8 @@ export function FilmShotListSection() {
                   // qc17: Grid + provider duration constraints (Jason Q1 + Q2)
                   gridFormat: (scene as any).gridFormat ?? "3x3",
                   videoProviderId: (setting as any).defaultVideoProvider ?? "seedance-2-pro",
+                  // Sprint 1.0 r7: pass beats so AI must cover them all
+                  beats: (scene as any).beats,
                 });
                 // Map GeneratedShot → FilmShot
                 const newShots: FilmShot[] = generated.map((gs, idx) => ({
@@ -162,10 +223,17 @@ export function FilmShotListSection() {
                   cameraMovement: gs.cameraMovement as any,
                   purpose: gs.purposeVi, // legacy field for downstream prompts
                   purposeVi: gs.purposeVi,
+                  // Sprint 1.0 r7: Q1 VI leak fix
+                  purposeEn: gs.purposeEn,
                   actionVi: gs.actionVi,
                   actionEn: gs.actionEn,
                   status: "draft",
-                }));
+                  // Sprint 1.0 r1 (Phase 1B)
+                  rhythmRole: gs.rhythmRole,
+                  // Sprint 1.0 r7: per-shot mood + beat mapping
+                  lightingHintEn: gs.lightingHintEn,
+                  coveredBeatIds: gs.coveredBeatIds,
+                } as any));
                 updateProject((p) => setShotsForScene(p, scene.id, newShots));
                 showToast(
                   `Đã sinh ${newShots.length} shots cho Scene ${scene.order}`,
@@ -218,6 +286,8 @@ export function FilmShotListSection() {
                     purposeVi: newContent.purposeVi,
                     actionVi: newContent.actionVi,
                     actionEn: newContent.actionEn,
+                    // Sprint 1.0 r1 (Phase 1B)
+                    rhythmRole: newContent.rhythmRole,
                   })
                 );
                 showToast(
@@ -267,10 +337,27 @@ function SceneShotListCard({
 }: SceneShotListCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Sprint 1.0 r7: coverage modal toggle
+  const [coverageModalOpen, setCoverageModalOpen] = useState(false);
 
   const totalShotDuration = shots.reduce((s, sh) => s + (sh.durationSeconds ?? 0), 0);
   const durationMismatch =
     shots.length > 0 && Math.abs(totalShotDuration - scene.durationSeconds) > 3;
+
+  // Sprint 1.0 r7: compute beat coverage
+  const sceneBeats = (scene as any).beats as Beat[] | undefined;
+  const totalBeats = sceneBeats?.length ?? 0;
+  const coveredBeatIds = new Set<string>();
+  for (const shot of shots) {
+    const covered = (shot as any).coveredBeatIds as string[] | undefined;
+    if (covered) {
+      for (const bid of covered) coveredBeatIds.add(bid);
+    }
+  }
+  const coveredCount = sceneBeats
+    ? sceneBeats.filter((b) => coveredBeatIds.has(b.id)).length
+    : 0;
+  const missingCount = totalBeats - coveredCount;
 
   async function handleAIClick() {
     setIsGenerating(true);
@@ -300,6 +387,33 @@ function SceneShotListCard({
           <div className="ksp-shotlist-film-scene-action">
             {(scene as any).actionLinesVi || scene.actionLinesEn}
           </div>
+
+          {/* Sprint 1.0 r7: Beat coverage indicator */}
+          {totalBeats > 0 && shots.length > 0 && (
+            <div className="ksp-coverage-banner">
+              <span className="ksp-coverage-banner-text">
+                📊 Beat coverage:{" "}
+                <span className="ksp-coverage-banner-stat">
+                  {coveredCount}/{totalBeats}
+                </span>
+                {missingCount > 0 && (
+                  <>
+                    {" · "}
+                    <span className="ksp-coverage-banner-stat ksp-coverage-banner-stat-missing">
+                      {missingCount} missing
+                    </span>
+                  </>
+                )}
+              </span>
+              <button
+                type="button"
+                className="ksp-coverage-banner-btn"
+                onClick={() => setCoverageModalOpen(true)}
+              >
+                🎯 View beats
+              </button>
+            </div>
+          )}
 
           {shots.length === 0 ? (
             <div className="ksp-shotlist-film-empty-shots">
@@ -378,6 +492,71 @@ function SceneShotListCard({
           )}
         </div>
       )}
+
+      {/* Sprint 1.0 r7: Coverage modal */}
+      {coverageModalOpen && (
+        <div
+          className="ksp-coverage-modal-backdrop"
+          onClick={() => setCoverageModalOpen(false)}
+        >
+          <div className="ksp-coverage-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              🎯 Beat coverage — Scene {scene.order}: {scene.titleVi || scene.titleEn}
+            </h3>
+            <p style={{ fontSize: 12, color: "#888780", margin: "0 0 12px 0" }}>
+              {coveredCount}/{totalBeats} beats được cover bởi {shots.length} shots.
+              {missingCount > 0 && ` ${missingCount} beats chưa có shot.`}
+            </p>
+            <ul className="ksp-coverage-modal-list">
+              {sceneBeats?.map((b) => {
+                const isCovered = coveredBeatIds.has(b.id);
+                const typeInfo = BEAT_TYPE_LABELS[b.type];
+                return (
+                  <li
+                    key={b.id}
+                    className={`ksp-coverage-beat ${
+                      isCovered ? "ksp-coverage-beat-covered" : "ksp-coverage-beat-missing"
+                    }`}
+                  >
+                    <span className="ksp-coverage-beat-check">
+                      {isCovered ? "✓" : "✗"}
+                    </span>
+                    <span
+                      className="ksp-coverage-beat-check"
+                      style={{ color: typeInfo.color }}
+                      title={typeInfo.vi}
+                    >
+                      {typeInfo.emoji}
+                    </span>
+                    <span>
+                      <strong>{b.order}.</strong> {b.label}
+                    </span>
+                    {!isCovered && (
+                      <button
+                        type="button"
+                        className="ksp-coverage-beat-generate"
+                        disabled
+                        title="Coming in Sprint G1c: AI generate shot for this beat"
+                      >
+                        + shot
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div style={{ marginTop: 16, textAlign: "right" }}>
+              <button
+                type="button"
+                className="ksp-btn ksp-btn-secondary ksp-btn-sm"
+                onClick={() => setCoverageModalOpen(false)}
+              >
+                ✓ Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,6 +576,12 @@ interface ShotRowProps {
 function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps) {
   const [showAction, setShowAction] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+
+  // Sprint 1.0 r7 (Q4 migration): detect VI-only purpose (legacy data pre-r7).
+  // Heuristic: shot.purpose exists but purposeEn missing → likely Vietnamese-only data.
+  // Show warning badge prompting user to regenerate via ✨ Sinh lại.
+  const hasLegacyVietnamesePurpose =
+    !!shot.purpose?.trim() && !((shot as any).purposeEn?.trim());
 
   async function handleRegenClick() {
     const ok = confirm(
@@ -463,6 +648,23 @@ function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps
             if (!isNaN(v) && v > 0 && v <= 30) onUpdate({ durationSeconds: v });
           }}
         />
+        <select
+          className="ksp-shotlist-film-rhythm ksp-rhythm-pill"
+          data-role={shot.rhythmRole ?? "neutral"}
+          value={shot.rhythmRole ?? ""}
+          onChange={(e) => {
+            const v = e.target.value as RhythmRole | "";
+            if (v) onUpdate({ rhythmRole: v });
+          }}
+          title="Vai trò nhịp (rhythm role) — cinematic micro-arc trong scene"
+        >
+          {!shot.rhythmRole && <option value="">·</option>}
+          {RHYTHM_ROLE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {RHYTHM_ROLE_LABELS[o.value].emoji} {RHYTHM_ROLE_LABELS[o.value].vi}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           className="ksp-shotlist-film-col-regen ksp-shotlist-film-regen-btn"
@@ -484,6 +686,21 @@ function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps
 
       {showAction && (
         <div className="ksp-shotlist-film-row-detail">
+          {hasLegacyVietnamesePurpose && (
+            <div
+              className="ksp-shotlist-film-purpose"
+              style={{
+                background: "#FAEEDA",
+                color: "#854F0B",
+                padding: "6px 8px",
+                borderRadius: 4,
+                marginBottom: 6,
+                fontSize: 11,
+              }}
+            >
+              ⚠ Shot này có "purpose" tiếng Việt từ phiên bản cũ. Prompt EN có thể leak Vietnamese. Click <strong>✨ Sinh lại</strong> để AI sinh lại với <code>purposeEn</code>.
+            </div>
+          )}
           {shot.purposeVi && (
             <div className="ksp-shotlist-film-purpose">
               <span className="ksp-shotlist-film-detail-label">Mục đích:</span>{" "}
