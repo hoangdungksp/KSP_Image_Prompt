@@ -1,5 +1,5 @@
 /**
- * KSP Image qc10 — Film Shot List Generation Engine
+ * KSP Image Film Shot List Generation Engine
  *
  * Text-only AI generation. Given a scene from Script (Stage 5 output),
  * AI breaks the scene's action into 3-6 concrete shots with:
@@ -18,6 +18,7 @@
  */
 
 import { callAi, type FilmScriptProvider } from "./filmScriptStages";
+import { JSON_OUTPUT_RULES } from "./jsonRecovery";
 import type {
   FilmShot,
   FilmSceneScript,
@@ -41,19 +42,9 @@ const SHOT_TYPE_VALUES: FilmShot["shotType"][] = [
   "pov",
 ];
 
-const CAMERA_MOVEMENT_VALUES = [
-  "static",
-  "pan_left",
-  "pan_right",
-  "tilt_up",
-  "tilt_down",
-  "zoom_in",
-  "zoom_out",
-  "dolly_in",
-  "dolly_out",
-  "handheld",
-  "tracking",
-] as const;
+// r7.21: Camera movement now sourced from single source of truth (19 values).
+// AI sees all 19 (mode-agnostic at gen time); rendering filters by mode at Copy time.
+import { CAMERA_MOVEMENT_VALUES, buildAiPromptRules, buildStyleCameraConstraints } from "../types/cameraMovement";
 
 /**
  * Sprint 1.0 r1 (Phase 1B): valid rhythm role values for AI prompt + sanitizer.
@@ -85,14 +76,14 @@ export interface RunShotListForSceneInput {
   setting: ProjectSettingV2;
   provider?: FilmScriptProvider;
   /**
-   * qc17 → qc19: DEPRECATED — no longer injected into AI prompt.
+   * → DEPRECATED — no longer injected into AI prompt.
    * AI now sinh shot count theo narrative (sweet spot 4-9, hard cap 16).
    * Storyboard auto-picks grid format from shot count (sceneGridPacker.pickOptimalGridFormat).
    * Kept here for backward-compat (callers passing this won't crash).
    */
   gridFormat?: string;
   /**
-   * qc17: Default video provider ID — AI constrains shot durations to supported
+   * Default video provider ID — AI constrains shot durations to supported
    * values for this provider (e.g. Veo3 only 8s, Kling only 5/10s).
    * If undefined, AI uses default 1-15s range freely.
    */
@@ -124,6 +115,9 @@ export interface GeneratedShot {
   /** Sprint 1.0 r7: AI maps this shot to beat IDs in scene.beats (D2 mapping).
    *  Used for Coverage indicator in Shot List section. */
   coveredBeatIds?: string[];
+  /** Sprint G1e2 Phase 2B: Inner emotional state — what character feels AT THIS FRAME.
+   *  AI sinh 1-3 VI sentences subtle interiority. Can be empty for insert/object shots. */
+  innerStateVi?: string;
 }
 
 /**
@@ -145,7 +139,7 @@ export async function runShotListForScene(
   input: RunShotListForSceneInput
 ): Promise<GeneratedShot[]> {
   const { scene, characters, setting, provider = "gemini-flash", videoProviderId, beats } = input;
-  // qc19 note: input.gridFormat still exists in type for backward-compat but is NO LONGER used.
+  // note: input.gridFormat still exists in type for backward-compat but is NO LONGER used.
   // Storyboard auto-picks grid format from shot count (see sceneGridPacker.pickOptimalGridFormat).
 
   const castSummary =
@@ -154,7 +148,7 @@ export async function runShotListForScene(
       .join("\n") || "(no cast)";
 
   // Sprint 1.0 r7: Beats injection if available
-  // Sprint 1.0 r7.1 (Bug fix): Strengthen instructions — AI was producing 7 shots
+  // Sprint 1.0 (Bug fix): Strengthen instructions — AI was producing 7 shots
   // for 10 beats by defaulting to "sweet spot 4-9". Now beat count drives shot count.
   const beatsBlock = beats && beats.length > 0
     ? `\n\n🎯 SCENE BEATS (${beats.length} atomic narrative units AI MUST cover):
@@ -165,13 +159,13 @@ ${beats.map((b) => `[${b.id}] Beat ${b.order} [${b.type}]: ${b.label}${b.sourceP
 - HARD MINIMUM: ${Math.max(4, Math.ceil(beats.length * 0.8))} shots (no fewer, even if "sweet spot" rules suggest less).
 - HARD MAXIMUM: ${beats.length + 2} shots (avoid over-coverage).
 - EVERY beat MUST be covered by at least 1 shot — DO NOT skip beats.
-- 1 shot CAN cover 1-2 ADJACENT beats only if they are tightly similar (e.g., merge "claws on moss" + "tiny grip texture"). DO NOT merge across rhythm changes.
+- 1 shot CAN cover 1-2 ADJACENT beats only if they are tightly similar in type AND describe the same continuous moment (e.g., merge 2 beats describing parallel sensory details of the same action). DO NOT merge across rhythm changes.
 - DO NOT merge beats of different types (camera + state-change = always separate shots).
 - For EACH shot, return "coveredBeatIds": NON-EMPTY array of beat IDs (copy exact beat IDs from list above like "${beats[0].id}"). EVERY beat ID must appear in at least one shot's coveredBeatIds.
 - If you cannot cover all ${beats.length} beats, you MUST sinh more shots. Beat coverage takes priority over the 4-9 "sweet spot" rule.`
     : "";
 
-  // qc19 Hướng F-9: narrative-driven shot count guidance.
+  // 9: narrative-driven shot count guidance.
   // Sweet spot 4-9 shots/scene (per AI filmmaking 2026 industry data + Jason intuition).
   // Hard cap 16 → Stage 4 wizard warns to break scene if exceeded.
   // gridFormat param kept for backward-compat but NO LONGER injected into prompt.
@@ -188,7 +182,7 @@ Chọn shot count theo NARRATIVE NEED (không phải grid constraint):
 
 Storyboard sẽ TỰ ĐỘNG pick grid format optimal theo shot count (3×3 cho 9 shots, 4×3 cho 12, v.v.). Bạn KHÔNG cần lo grid lẻ.`;
 
-  // qc17: Compute duration constraint instruction (Jason Q2 — Hướng D)
+  // Compute duration constraint instruction (Jason Q2 — Hướng D)
   let durationConstraint = `- "durationSeconds": integer 1-15`;
   if (videoProviderId) {
     const durationDesc = formatDurationsForPrompt(videoProviderId);
@@ -218,24 +212,25 @@ KHÔNG bị giới hạn bởi durationSeconds — đó chỉ là tham khảo t�
 Mỗi shot có thể chỉ 0.5-3 giây trong final cut.
 Mục tiêu: kể chuyện CINEMATIC, truyền cảm xúc, rõ hành động.
 
-⚡ Sprint 1.0 r7 — CAMERA MOVEMENT VARIETY (CRITICAL):
-- DO NOT default to "static" for every shot — visual variety is essential
-- ESTABLISHING shots: use pan/tilt to reveal SPACE (pan_right reveal, tilt_down reveal)
-- BUILD shots: use tracking/dolly to follow character motion
-- PEAK shots: use static OR slow dolly_in for emotional weight + micro-expression
-- DETAIL/INSERT shots: zoom_in or static (intimate macro feel)
-- ACTION shots: handheld/tracking for energy
-- DIALOGUE shots: static lock-off for stability
-- Aim for AT LEAST 3 different camera movements across the shot list (don't pick same value for all)
+${buildAiPromptRules()}
+
+${buildStyleCameraConstraints(setting.animationStyle)}
 
 Mỗi shot có:
-- "titleVi": tiêu đề ngắn TIẾNG VIỆT (vd: "Robot tỉnh dậy", "Mắt LED sáng dần", "Tay rỉ sét cử động")
+- "titleVi": tiêu đề ngắn TIẾNG VIỆT (3-5 từ, đặc tả hành động chính của shot — phải PHÙ HỢP với scene action + cast nhập, không bịa nội dung khác)
 - "titleEn": same title in ENGLISH (for AI image/video prompts downstream)
 - "shotType": MUST be exactly one of: ${SHOT_TYPE_VALUES.join(" | ")}
 - "cameraMovement": MUST be exactly one of: ${CAMERA_MOVEMENT_VALUES.join(" | ")} — VARY across shots per rules above
 ${durationConstraint}
-- "purposeVi": 1 câu TIẾNG VIỆT giải thích mục đích shot (vd: "Establish setting + thời gian", "Reveal robot's consciousness")
-- "purposeEn": 1 sentence ENGLISH equivalent of purposeVi — REQUIRED, used in AI prompts downstream (Sprint 1.0 r7 Q1 fix — prevent VI leak)
+- "purposeVi": 1 câu TIẾNG VIỆT giải thích mục đích shot (vd: "Establish setting + thời gian", "Reveal subject's inner state")
+- "purposeEn": 1 sentence ENGLISH equivalent of purposeVi — REQUIRED, used in AI prompts downstream (prevent VI leak). **MUST start with ONE of 4 Pixar Visual Arc category prefixes** followed by " — " then specific sentence:
+    * "reveal scale — ..." (show size/space/grandeur for viewer awe)
+    * "establish trust — ..." (build viewer's confidence in subject/setting)
+    * "show curiosity — ..." (frame subject's wonder/exploration moment)
+    * "create intimacy — ..." (compress viewer-subject distance for emotional connection)
+  Example correct: "reveal scale — show the immense scale of the subject dwarfing its environment"
+  Example WRONG: "Establish the setting." (no category prefix, generic)
+  Pick category matching shot's narrative function in scene's emotional arc.
 - "actionVi": 1-2 câu TIẾNG VIỆT mô tả hành động cụ thể trong shot
 - "actionEn": same action in ENGLISH (for downstream AI image prompts)
 - "rhythmRole": MUST be exactly one of: ${RHYTHM_ROLE_VALUES.join(" | ")} — cinematic micro-arc role within scene:
@@ -244,8 +239,30 @@ ${durationConstraint}
     * "peak"      — đỉnh cảm xúc của scene's micro-arc — CU/ECU dày
     * "release"   — pull back kết scene, transition — wide hoặc cut
     Quy tắc phân bổ: shot 1 thường "establish"; 60% giữa "build"; 1-2 shots cuối-giữa "peak"; shot cuối "release"
-- "lightingHintEn": short ENGLISH lighting direction specific to THIS shot (Sprint 1.0 r7 Q2 — per-shot mood variety). Example: "golden-hour key light through canopy, atmospheric haze" / "tight shallow DOF, single blue accent on subject's eye" / "harsh top-light, deep shadows" / "macro detail lighting, sharp focus on textures". REQUIRED — never empty. Vary across shots to match action context.${beats && beats.length > 0 ? `
+- "lightingHintEn": short ENGLISH lighting direction.
+  *** SPRINT G1e0 CRITICAL CONSTRAINT — UNIFIED SCENE LIGHTING ***
+  All shots in this scene MUST share the SAME lighting QUALITY (golden hour OR low-key OR harsh top-light OR overcast — pick ONE based on emotional tone + setting).
+  DO NOT vary lighting QUALITY across shots. A scene of 9 shots is rendered as 1 visual continuum — viewer's brain rejects shot 1 golden-hour + shot 2 low-key + shot 3 harsh as discontinuous.
+  Per-shot variation is LIMITED to: (a) INTENSITY [gentle / moderate / strong], (b) FOCUS AREA [full scene / subject / face / eye / hands / object], (c) DIRECTION [key / fill / rim / silhouette / bounce].
+  Same lighting QUALITY across shots = professional cinema continuity.
+  Examples of valid per-shot variations (SAME scene "golden hour outdoor"):
+    - Shot 1: "golden-hour key light, full scene reveal, atmospheric haze"
+    - Shot 2: "golden-hour rim light on subject, moderate intensity, soft falloff"
+    - Shot 3: "golden-hour macro detail on eye, gentle highlight, shallow DOF"
+    - Shot 4: "golden-hour silhouette of subject against canopy, strong backlight"
+  INVALID (drift across qualities):
+    - Shot 1: "golden-hour sunlight" → Shot 2: "low-key shadows" → Shot 3: "harsh direct light" ← REJECT
+  REQUIRED — never empty.${beats && beats.length > 0 ? `
 - "coveredBeatIds": array of beat IDs from SCENE BEATS list this shot captures. Use [] if AI cannot map to any specific beat. EVERY beat MUST appear in at least one shot's coveredBeatIds.` : ""}
+- "innerStateVi": **CRITICAL cho cinematic depth.** 1-3 câu TIẾNG VIỆT mô tả CHARACTER ĐANG CẢM GÌ Ở FRAME ĐÓ — interiority, không phải action. Đây là Pixar core principle: "what is character feeling AT THIS EXACT FRAME". REQUIRED for shots có character on-screen; có thể empty cho insert/object shots không có character (vd: macro shot of texture).
+  Format guidance:
+    * Mô tả emotional state subtle, không melodramatic
+    * Dùng metaphor để truyền cảm: "như đứa trẻ sơ sinh", "như giấc mơ đang tan"
+    * Phải khác between shots cùng scene (mỗi shot character có moment emotion riêng)
+    * KHÔNG describe action ("nhân vật di chuyển tay") — describe FEELING ("an yên không biết đời ngoài kia")
+  Example correct: "Nhân vật đang giữa hai trạng thái — chưa hoàn toàn cảm nhận được hoàn cảnh, như giấc mơ đang tan dần khi tỉnh giấc."
+  Example WRONG: "Nhân vật đứng yên" (action, not feeling)
+  Example WRONG: "Nhân vật rất buồn" (too generic, no metaphor)
 
 QUY TẮC:
 - Shot ĐẦU TIÊN thường là wide_establishing để introduce scene
@@ -256,7 +273,7 @@ QUY TẮC:
 
 OUTPUT JSON: { "shots": [ {...}, {...} ] }
 
-Tất cả title/purpose/action: TIẾNG VIỆT cho user đọc; titleEn + actionEn + purposeEn + lightingHintEn: TIẾNG ANH cho AI prompts downstream.`;
+Tất cả title/purpose/action: TIẾNG VIỆT cho user đọc; titleEn + actionEn + purposeEn + lightingHintEn: TIẾNG ANH cho AI prompts downstream.${JSON_OUTPUT_RULES}`;
 
   const userPrompt = `SCENE ${scene.order}: ${scene.titleVi || scene.titleEn}
 SETTING: ${scene.settings}
@@ -274,11 +291,11 @@ Generate 4-16 shots theo cinematic breakdown formula above. Aim for richer cover
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
 
-  // Parse + validate
+  // Parse with 3-layer recovery (sanitizer + AI repair fallback)
   let parsed: { shots: Array<Partial<GeneratedShot>> };
   try {
-    const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
-    parsed = JSON.parse(cleaned);
+    const { parseJsonStrictAsync } = await import("./filmScriptStages");
+    parsed = await parseJsonStrictAsync<{ shots: Array<Partial<GeneratedShot>> }>(raw, "Shot List");
   } catch (err) {
     throw new Error(
       `AI returned invalid JSON for shot list: ${(err as Error).message}\n\nRaw (first 200 chars): ${raw.slice(0, 200)}`
@@ -303,7 +320,7 @@ Generate 4-16 shots theo cinematic breakdown formula above. Aim for richer cover
   const totalCount = shotsToReturn.length;
   const sanitized = shotsToReturn.map((s, i) => sanitizeShot(s, i, videoProviderId, totalCount));
 
-  // Sprint 1.0 r7.1 (Bug 5 fix): Fallback heuristic — if AI returned empty/incomplete
+  // Sprint 1.0 (Bug 5 fix): Fallback heuristic — if AI returned empty/incomplete
   // coveredBeatIds despite beats being passed, do fuzzy keyword match between shot
   // actionEn/titleEn and beat labels to auto-link. Better than 0/N coverage display.
   if (beats && beats.length > 0) {
@@ -313,7 +330,7 @@ Generate 4-16 shots theo cinematic breakdown formula above. Aim for richer cover
 }
 
 /**
- * Sprint 1.0 r7.1 fallback: when AI doesn't return coveredBeatIds (or returns invalid IDs),
+ * Sprint 1.0 fallback: when AI doesn't return coveredBeatIds (or returns invalid IDs),
  * fuzzy-match shot's actionEn + titleEn against beat labels.
  *
  * Heuristic per shot:
@@ -413,7 +430,7 @@ export interface RegenSingleShotInput {
   characters: FilmCharacter[];
   setting: ProjectSettingV2;
   provider?: FilmScriptProvider;
-  /** qc17: Clamp regenerated duration to provider's supported values */
+  /* * Clamp regenerated duration to provider's supported values */
   videoProviderId?: string;
 }
 
@@ -457,13 +474,18 @@ QUY TẮC:
 - KHÔNG copy 100% shot cũ — phải khác về ít nhất 1 trong: shotType, cameraMovement, action focus
 - Vẫn theo cinematic formula tổng thể của scene (establishing/action/detail/emotion/reveal)
 - Giữ continuity với shots trước + sau
+- *** G1e0: lightingHintEn PHẢI giữ CÙNG QUALITY với siblings shots khác trong scene (e.g. nếu các shots khác golden-hour → shot mới cũng golden-hour, KHÔNG được switch sang low-key/harsh). Chỉ được vary intensity/focus area/direction. ***
+
+${buildAiPromptRules()}
+
+${buildStyleCameraConstraints(setting.animationStyle)}
 
 Format output JSON (chỉ 1 shot, không wrap trong "shots" array):
 {
   "titleVi": "...",
   "titleEn": "...",
   "shotType": "wide_establishing|medium|close_up|insert|over_shoulder|two_shot|pov",
-  "cameraMovement": "static|pan_left|pan_right|tilt_up|tilt_down|zoom_in|zoom_out|dolly_in|dolly_out|handheld|tracking",
+  "cameraMovement": "${CAMERA_MOVEMENT_VALUES.join("|")}",
   "durationSeconds": <number>,
   "purposeVi": "<Vietnamese 1 sentence>",
   "purposeEn": "<English 1 sentence>",
@@ -500,8 +522,8 @@ Sinh shot MỚI thay thế shot này. Phải khác về ít nhất 1 trong: shot
 
   let parsed: Partial<GeneratedShot>;
   try {
-    const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
-    parsed = JSON.parse(cleaned);
+    const { parseJsonStrictAsync } = await import("./filmScriptStages");
+    parsed = await parseJsonStrictAsync<Partial<GeneratedShot>>(raw, "Shot Regen");
   } catch (err) {
     throw new Error(
       `AI returned invalid JSON for shot regen: ${(err as Error).message}\n\nRaw (first 200 chars): ${raw.slice(0, 200)}`
@@ -528,7 +550,7 @@ function sanitizeShot(
     ? (s.cameraMovement as string)
     : "static";
 
-  // qc17: Clamp duration. Two pass:
+  // Clamp duration. Two pass:
   //   1. Generic 1-15 clamp (fallback if AI returns out-of-bounds value)
   //   2. Provider-specific clamp (Veo3 → 8, Kling → 5/10, etc.)
   let duration =
@@ -558,5 +580,7 @@ function sanitizeShot(
     coveredBeatIds: Array.isArray(s.coveredBeatIds)
       ? s.coveredBeatIds.filter((id) => typeof id === "string" && id.length > 0)
       : undefined,
+    // Sprint G1e2 Phase 2B: Inner emotional state — graceful undefined if AI didn't sinh
+    innerStateVi: s.innerStateVi?.trim() || undefined,
   };
 }

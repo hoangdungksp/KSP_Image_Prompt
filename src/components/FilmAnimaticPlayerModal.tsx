@@ -24,6 +24,7 @@ import type {
   FilmShot,
   ProjectSettingV2,
 } from "../types/project";
+import { getLabel } from "../types/cameraMovement";
 
 export interface FilmAnimaticPlayerModalProps {
   scene: FilmSceneScript;
@@ -370,7 +371,7 @@ export function FilmAnimaticPlayerModal({
             </strong>
             <span>{shotTypeLabel(currentShot.shotType)}</span>
             <span>·</span>
-            <span>{currentShot.cameraMovement?.replace(/_/g, " ") ?? "static"}</span>
+            <span>{getLabel(currentShot.cameraMovement || "static")}</span>
             <span>·</span>
             <span>{currentShot.durationSeconds}s</span>
           </div>

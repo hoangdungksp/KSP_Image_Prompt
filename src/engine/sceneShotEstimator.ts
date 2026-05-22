@@ -1,5 +1,5 @@
 /**
- * KSP Image qc20 — Scene Shot Count Estimator
+ * KSP Image Scene Shot Count Estimator
  *
  * Estimates how many shots an AI Shot List would generate for a scene,
  * BEFORE actual shot list generation. Used by Stage 4 wizard to warn user

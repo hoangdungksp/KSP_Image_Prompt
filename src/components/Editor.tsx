@@ -26,6 +26,7 @@ import { FilmIdeaScriptSection } from "./FilmIdeaScriptSection";
 import { FilmPacingDashboardSection } from "./FilmPacingDashboardSection";
 import { FilmShotListSection } from "./FilmShotListSection";
 import { FilmStoryboardSection } from "./FilmStoryboardSection";
+import { PipelineResumeBanner } from "./PipelineResumeBanner";
 // ShotDetailPanel deleted r5 (atomic Q6) — replaced by FilmShotDetailPanel inline expand drawer
 // rendered inside FilmStoryboardSection when a shot row is clicked.
 // r6: VoiceSectionV09 / MusicSfxSectionV09 / BundleExportV09 all deleted (atomic Q6),
@@ -156,28 +157,48 @@ function ArchivedModePlaceholder({ mode }: { mode: string }) {
 }
 
 function FilmPipeline() {
+  // read settings to conditionally render Pacing Dashboard + Voice/Music/SFX
+  const currentProject = useAppStore((s) => s.currentProject);
+  const setting: any = (currentProject as any)?.settingV2;
+  const showPacingDashboard = setting?.showPacingDashboard ?? true;
+  const hasDialog = setting?.dialog !== "no_dialog"; // default has_dialog if undefined
+
   return (
     <>
-      <FilmIdeaScriptSection />
-      <Connector colorFrom="#f0a677" colorTo="#534AB7" />
+      {/* r7.29 Feature 1B: Cross-session resume banner (shows when pipeline incomplete) */}
+      <PipelineResumeBanner />
 
-      <FilmPacingDashboardSection />
-      <Connector colorFrom="#534AB7" colorTo="#D4537E" />
+      <FilmIdeaScriptSection />
+      <Connector colorFrom="#f0a677" colorTo={showPacingDashboard ? "#534AB7" : "#D4537E"} />
+
+      {/* Pacing Dashboard — conditionally rendered per setting.showPacingDashboard */}
+      {showPacingDashboard && (
+        <>
+          <FilmPacingDashboardSection />
+          <Connector colorFrom="#534AB7" colorTo="#D4537E" />
+        </>
+      )}
 
       <FilmShotListSection />
       <Connector colorFrom="#D4537E" colorTo="#afa9ec" />
 
       <FilmStoryboardSection />
-      <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
 
       {/* r5: Steps 4 (IMAGE GEN) + 5 (VIDEO AI) are now per-shot — accessed by
           clicking a shot row in Storyboard to expand FilmShotDetailPanel inline.
           No standalone sections here anymore. */}
-      <FilmVoiceSection />
-      <Connector colorFrom="#85b7eb" colorTo="#c490c4" />
+      {/* Voice + Music + SFX hidden when dialog === "no_dialog" */}
+      {hasDialog && (
+        <>
+          <Connector colorFrom="#afa9ec" colorTo="#85b7eb" />
+          <FilmVoiceSection />
+          <Connector colorFrom="#85b7eb" colorTo="#c490c4" />
 
-      <FilmMusicSfxSection />
-      <Connector colorFrom="#c490c4" colorTo="#5dcaa5" />
+          <FilmMusicSfxSection />
+          <Connector colorFrom="#c490c4" colorTo="#5dcaa5" />
+        </>
+      )}
+      {!hasDialog && <Connector colorFrom="#afa9ec" colorTo="#5dcaa5" />}
 
       <FilmBundleExportSection />
     </>

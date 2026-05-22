@@ -32,12 +32,16 @@ import {
   applyCharacterEmotions,
   setSetupPayoffPairs,
   removeSetupPayoffPair,
+  updateSceneInScript,
 } from "../store/film_actions";
 import {
   EMOTIONAL_TONE_LABELS,
   SETUP_PAYOFF_TYPE_LABELS,
   clampTension,
   getTensionColor,
+  validateEmotionTension,
+  autoFixEmotionTension,
+  EMOTION_TENSION_VALID_RANGE,
   type EmotionalTone,
   type SetupPayoffPair,
 } from "../types/project";
@@ -160,6 +164,33 @@ export function FilmPacingDashboardSection() {
       {hasScript && isAnnotated && (
         <div className="ksp-pacing-dashboard-body">
           <AiDirectorPanel scenes={scenes} film={film} setting={setting} />
+          {/* Sprint G1e0: validate emotion ↔ tension combos across scenes,
+              surface warnings with 1-click auto-fix. */}
+          <EmotionTensionWarningPanel
+            scenes={scenes}
+            onAutoFixAll={() => {
+              updateProject((p) => {
+                let patched = p;
+                for (const s of scenes) {
+                  const result = validateEmotionTension(s.emotionalTone, s.tensionLevel);
+                  if (!result.valid) {
+                    const updatePatch = updateSceneInScript(patched, s.id, {
+                      tensionLevel: result.suggestedTension,
+                    });
+                    patched = { ...patched, ...updatePatch };
+                  }
+                }
+                return patched;
+              });
+              showToast("Đã auto-fix emotion/tension mismatch", "success");
+            }}
+            onFixOne={(sceneId, newTension) => {
+              updateProject((p) =>
+                updateSceneInScript(p, sceneId, { tensionLevel: newTension })
+              );
+              showToast(`Đã fix scene tension → ${newTension}`, "success");
+            }}
+          />
           <TensionCurve scenes={scenes} onDragRelease={handleDragRelease} />
           <EmotionStrip scenes={scenes} />
           <MultiCharacterCurve scenes={scenes} film={film} />
@@ -1614,6 +1645,114 @@ function SetupPayoffPanel({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Sprint G1e0 — EMOTION ↔ TENSION VALIDATOR WARNING PANEL
+// ============================================================================
+
+/**
+ * Scans all scenes for emotion/tension combo violations (per Pixar emotional model
+ * defined in EMOTION_TENSION_VALID_RANGE). Surfaces 1-click auto-fix UI.
+ *
+ * Root cause this addresses: AI Stage 4 sometimes generates contradictory combos
+ * like "shocking + tension 3" → downstream prompt builder produces conflicting
+ * cinematic intent → AI image gen renders inconsistent lighting/mood across cells
+ * ("cái tối cái sáng" symptom Jason reported).
+ *
+ * Renders nothing if all scenes have valid combos.
+ */
+function EmotionTensionWarningPanel({
+  scenes,
+  onAutoFixAll,
+  onFixOne,
+}: {
+  scenes: Array<{
+    id: string;
+    order: number;
+    tensionLevel?: number;
+    emotionalTone?: EmotionalTone;
+    titleVi?: string;
+    titleEn: string;
+  }>;
+  onAutoFixAll: () => void;
+  onFixOne: (sceneId: string, newTension: number) => void;
+}) {
+  const invalidScenes = React.useMemo(
+    () =>
+      scenes
+        .map((s) => {
+          const result = validateEmotionTension(s.emotionalTone, s.tensionLevel);
+          if (result.valid) return null;
+          return { scene: s, result };
+        })
+        .filter((x): x is { scene: typeof scenes[number]; result: ReturnType<typeof validateEmotionTension> & { valid: false } } => x !== null),
+    [scenes]
+  );
+
+  if (invalidScenes.length === 0) return null;
+
+  return (
+    <div className="ksp-pacing-block ksp-emotion-warning-panel">
+      <div className="ksp-emotion-warning-header">
+        <strong className="ksp-emotion-warning-title">
+          ⚠ Phát hiện {invalidScenes.length} scene có cảm xúc / tension không khớp
+        </strong>
+        <button
+          type="button"
+          className="ksp-emotion-warning-autofix-btn"
+          onClick={onAutoFixAll}
+          title="Auto-fix tất cả: clamp tension vào valid range của tone"
+        >
+          ✨ Auto-fix tất cả
+        </button>
+      </div>
+      <p className="ksp-emotion-warning-hint">
+        Combo emotion+tension không hợp ngữ cảnh sẽ tạo prompt mâu thuẫn — AI sinh ảnh
+        sẽ "cái tối cái sáng" giữa các shots cùng scene.
+      </p>
+      <ul className="ksp-emotion-warning-list">
+        {invalidScenes.map(({ scene, result }) => {
+          const tone = scene.emotionalTone!;
+          const range = EMOTION_TENSION_VALID_RANGE[tone];
+          const toneLabel = EMOTIONAL_TONE_LABELS[tone];
+          return (
+            <li key={scene.id} className="ksp-emotion-warning-item">
+              <div className="ksp-emotion-warning-item-meta">
+                <span className="ksp-emotion-warning-scene-order">
+                  Scene {scene.order}:
+                </span>
+                <span className="ksp-emotion-warning-scene-title">
+                  {scene.titleVi || scene.titleEn}
+                </span>
+              </div>
+              <div className="ksp-emotion-warning-item-detail">
+                <span
+                  className="ksp-emotion-warning-current"
+                  style={{ background: toneLabel.bg, color: toneLabel.color }}
+                >
+                  {toneLabel.emoji} {toneLabel.vi} · tension {clampTension(scene.tensionLevel)}/10
+                </span>
+                <span className="ksp-emotion-warning-arrow">→</span>
+                <span className="ksp-emotion-warning-suggested">
+                  tension {result.suggestedTension}/10 (valid {range.min}–{range.max})
+                </span>
+                <button
+                  type="button"
+                  className="ksp-emotion-warning-fix-one-btn"
+                  onClick={() => onFixOne(scene.id, result.suggestedTension)}
+                  title={`Fix scene ${scene.order}: tension ${clampTension(scene.tensionLevel)} → ${result.suggestedTension}`}
+                >
+                  Fix
+                </button>
+              </div>
+              <p className="ksp-emotion-warning-reason">{result.reason}</p>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

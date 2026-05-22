@@ -60,45 +60,58 @@ export interface FilmImageRef {
 /**
  * Single character in Film project Cast.
  *
- * Q1 — Layout: vertical full-width card stack dọc
- * Q3 — Schema: face 1-4 + body 1-3, NO outfit slot riêng
- * Q4 — AI Generate: aiGenDescription field saves prose, API call deferred Sprint 0.9.4
+ * Layout: vertical full-width card stack
+ * Schema: single concept sheet (1 image) — user generates via ChatGPT/Banana Pro
+ * using AI Concept Prompt button, then uploads the resulting character sheet
+ * (front + 3/4 + back + details + palette in one image).
+ *
+ * Legacy faceRefs/bodyRefs preserved for backward-compat with existing user
+ * projects in IndexedDB. New UI does not display them; they are read-only.
+ * Migration auto-copies faceRefs[0] → conceptSheet on first load if conceptSheet
+ * is empty.
  */
 export interface FilmCharacter {
   id: string;
   order: number;
-  /** Display name (vd "Robot", "Chim sẻ rừng") */
+  /** Display name (e.g. "Robot A-17", "Chim sẻ rừng") */
   name: string;
-  /** Q2 — 4 roles dropdown free, no constraint */
+  /** 4 roles: protagonist / antagonist / companion / extra */
   role: FilmCharacterRole;
   /** Free-text prose description (Vietnamese OK — feed AI prompt) */
   description: string;
 
   /**
-   * Face references — 1-4 ảnh (Q3 lock).
-   * - First slot is anchor "front" view (recommended label).
-   * - Subsequent slots user-labeled (3/4 L, 3/4 R, profile, etc.).
-   * Engine reads .length to decide single-face vs multi-face prompt logic.
+   * Character concept sheet — single reference image containing multiple views
+   * (front / 3-4 right / 3-4 left / back) + detail close-ups + color palette.
+   * Recommended workflow: click "AI Concept Prompt" → copy prompt → paste into
+   * ChatGPT/Banana Pro/Imagen → download generated sheet → upload here.
+   *
+   * Storyboard engine reads this for cast injection (replaces old faceRef-per-slot model).
+   */
+  conceptSheet?: FilmImageRef;
+
+  /**
+   * @deprecated Replaced by `conceptSheet` (single image). Kept for backward-compat
+   * with existing user projects. Will not be displayed in new UI but data is
+   * preserved on disk. Migration copies `faceRefs[0]` → `conceptSheet` on load
+   * if `conceptSheet` is undefined.
    */
   faceRefs: FilmImageRef[];
 
   /**
-   * Body references — 1-3 ảnh (Q3 lock).
-   * - front / side / back recommended for full outfit + body proportion coverage.
-   * - NO outfit slot riêng — body refs đã chứa outfit (Q3).
+   * @deprecated Replaced by `conceptSheet`. Kept for backward-compat.
    */
   bodyRefs: FilmImageRef[];
 
   /**
-   * AI-generated character description (Q4 — stub for Imagen 4 wire Sprint 0.9.4).
-   * If set, user has filled the "AI Generate" modal but actual face/body refs
-   * are STILL upload-based for now. When Imagen 4 wire lands in 0.9.4, this
-   * field feeds the image generation prompt.
+   * AI-generated character description draft.
+   * If set, user has clicked "AI Generate Description" to derive a prose description
+   * from idea + script context. User can still edit the text after.
    */
   aiGenDescription?: string;
 
   /**
-   * qc13: Timestamp when AI last generated the description.
+   * Timestamp when AI last generated the description.
    * Used to detect stale descriptions when script is regenerated.
    * If `descriptionGeneratedAt < script.createdAt` → description is stale.
    */
@@ -204,40 +217,40 @@ export interface FilmData {
   /** r7 Stage 3 output: 1-3 twists (accept/reject toggles). */
   scriptTwists?: FilmScriptTwist[];
   /**
-   * qc18 Hướng B: explicit lock flag for Stage 3.
+   * explicit lock flag for Stage 3.
    * - undefined/false: user is still picking accept/reject on twist cards
    *   → isStageDone("twists") returns false → ActiveStage3 renders with cards visible
    * - true: user clicked "Tiếp: ④ Phân cảnh →" to confirm twist selections
    *   → isStageDone("twists") returns true → stage shows green ✓ in stepper
    * Reset to false when setScriptTwists runs (AI regen → user must re-confirm).
    * Cleared when revertToStage("twists") or revertToStage upstream.
-   * Backward-compat: qc17 projects without this field are treated as locked if
+   * Backward-compat: projects without this field are treated as locked if
    * any downstream stage (scenes/script) already has data — see isStageDone.
    */
   scriptTwistsLocked?: boolean;
   /** r7 Stage 4 output: preliminary scenes (before Stage 5 dialogues). */
   scriptIntermediateScenes?: FilmScriptIntermediateScene[];
   /**
-   * qc20 (parallel qc18 Twist lock pattern): explicit lock flag for Stage 4.
+   * (parallel Twist lock pattern): explicit lock flag for Stage 4.
    * - undefined/false: user is still reviewing Stage 4 scenes (may want to split or dismiss warnings)
    *   → isStageDone("scenes") returns false → ActiveStage4 renders with warning badges visible
    * - true: user clicked "Tiếp: ⑤ Lời thoại →" to confirm scene structure
    *   → isStageDone("scenes") returns true → stage shows green ✓ in stepper
    * Reset to false when setScriptIntermediateScenes runs (AI regen → user must re-confirm).
    * Cleared when revertToStage("scenes" or upstream).
-   * Backward-compat: qc19 projects without this field are treated as locked if
+   * Backward-compat: projects without this field are treated as locked if
    * downstream script (Stage 5 dialogues) is set — see isStageDone.
    */
   scriptScenesLocked?: boolean;
   /**
-   * qc6: Optional user-specified scene count for Stage 4.
+   * Optional user-specified scene count for Stage 4.
    * If unset, AI decides (default ~4-7 for 5-min films).
    * User adjusts to force more/fewer scenes for richer storytelling.
    */
   scriptTargetSceneCount?: number;
 
   /**
-   * qc15: Per-project default crop settings. Used as pre-fill in Preview & Crop
+   * Per-project default crop settings. Used as pre-fill in Preview & Crop
    * modal when shot has no per-shot cropSettings override. User sets default
    * 1 time (vd Nano Banana 2752×1536) → modal pre-fills for all shots; when
    * generating a single shot from ChatGPT, user overrides per-shot.
@@ -331,6 +344,12 @@ export const DEFAULT_VIDEO_PROVIDERS: FilmVideoProvider[] = [
     pricingPerSec: "$0.50/s",
     maxDurationSec: 20,
     charLimit: 4000,
+    isCustom: false,
+  },
+  {
+    id: "gemini-omni",
+    name: "Gemini Omni",
+    maxDurationSec: 10,
     isCustom: false,
   },
 ];
@@ -471,12 +490,17 @@ export type FilmScriptStage =
   | "scenes"
   | "dialogues";
 
-/** Stage 1 — narrative framework chosen by AI or user. */
+/** Stage 1 — narrative framework chosen by AI or user.
+ * expanded from 4 → 6 frameworks. Mystery thriller + Tragedy doom
+ * added to match Preview Flow Step 1 default archetype options.
+ */
 export type FilmStoryFramework =
   | "three-act"
   | "hero-journey"
   | "save-the-cat"
-  | "kishotenketsu";
+  | "kishotenketsu"
+  | "mystery-thriller"
+  | "tragedy-doom";
 
 export const FRAMEWORK_LABELS: Record<FilmStoryFramework, { name: string; description: string; defaultBeatCount: number }> = {
   "three-act": {
@@ -499,13 +523,23 @@ export const FRAMEWORK_LABELS: Record<FilmStoryFramework, { name: string; descri
     description: "4 hồi kiểu Nhật (起承転結): Mở → Phát triển → Bước ngoặt → Kết. Phù hợp phim ngắn.",
     defaultBeatCount: 4,
   },
+  "mystery-thriller": {
+    name: "Mystery Thriller (Bí ẩn ly kỳ)",
+    description: "Clue planting → red herring → mid reveal → final twist. Phù hợp phim noir/detective/suspense.",
+    defaultBeatCount: 8,
+  },
+  "tragedy-doom": {
+    name: "Tragedy Doom (Bi kịch định mệnh)",
+    description: "Hubris → recognition → catastrophe. Protagonist có fatal flaw → tự huỷ. Phù hợp phim drama bi kịch.",
+    defaultBeatCount: 5,
+  },
 };
 
 export interface FilmScriptStructure {
   framework: FilmStoryFramework;
   /** English overview — used for image/video AI prompts downstream. */
   contentEn: string;
-  /** qc9: Vietnamese overview — displayed in UI for Jason to read & edit. */
+  /* * Vietnamese overview — displayed in UI for Jason to read & edit. */
   contentVi?: string;
 }
 
@@ -514,14 +548,37 @@ export interface FilmScriptBeat {
   order: number;
   title: string;          // "Opening Image", "Inciting Incident", etc.
   description: string;    // What happens at this beat (user-editable)
+  /**
+   * When a twist is locked at this beat position (from Preview Flow Step 4
+   * or AI placement), this field links beat → twist.id. Allows UI to show "Beat N (chứa twist X)".
+   * AI Stage Beats prompt receives pre-locked twists list and fills this field per beat.
+   */
+  containsTwistId?: string;
 }
 
 export interface FilmScriptTwist {
   id: string;
-  beatId: string;         // Which beat this twist is attached to
+  /**
+   * beatId is now OPTIONAL. When twist comes from Preview Flow Step 4
+   * (skip AI path), beatId is undefined initially — filled later by Stage Beats AI
+   * via the `containsTwistId` field on the assigned beat. Sanitizer in autoChain
+   * matches beat.containsTwistId → twist.id and fills twist.beatId post-hoc.
+   */
+  beatId?: string;
   description: string;
   /** undefined = not yet decided; true = accepted; false = rejected. */
   accepted?: boolean;
+  /**
+   * Track origin of this twist.
+   * - "preview-flow"   : locked from Preview Flow Step 4 multi-pick (skip AI)
+   * - "ai-suggested"   : generated by AI Stage 3 (legacy, when no Preview Flow used)
+   */
+  source?: "preview-flow" | "ai-suggested";
+  /**
+   * optional metadata tag from Preview Flow Step 4 option metaEn
+   * (e.g. "twist:audio-trigger-ptsd"). Used to display archetype label in UI.
+   */
+  archetypeTag?: string;
 }
 
 /**
@@ -536,13 +593,13 @@ export interface FilmScriptIntermediateScene {
   settings: string;
   /** English action description — used for image/video AI prompts downstream. */
   actionLinesEn: string;
-  /** qc9: Vietnamese action description — used for display in UI (so Jason can read & edit). */
+  /* * Vietnamese action description — used for display in UI (so Jason can read & edit). */
   actionLinesVi?: string;
   durationSeconds: number;
   /** Which beats from Stage 2 this scene covers (1-3 typically). */
   beatIds: string[];
   /**
-   * qc20 Q20.5: User has explicitly dismissed the "scene too complex" warning
+   * User has explicitly dismissed the "scene too complex" warning
    * (estimated shots > 9 sweet spot). When true, UI hides the warning badge for
    * this scene. User accepts the larger grid (4x3 or 4x4) that auto-pick will
    * produce in Storyboard.

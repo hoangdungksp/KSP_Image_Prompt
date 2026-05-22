@@ -33,6 +33,7 @@ import type {
 } from "../types/project";
 import type { FilmCharacter } from "../types/film";
 import { parseGridFormat, getShotsInGrid } from "./sceneGridPacker";
+import { getEnglishTerm } from "../types/cameraMovement";
 
 const SHOT_TYPE_LABEL: Record<FilmShot["shotType"], string> = {
   wide_establishing: "wide / establishing",
@@ -114,6 +115,66 @@ export const RHYTHM_COMPOSITION_HINT: Record<RhythmRole, string> = {
   peak: "tight close-up with maximum emotional weight, peak of the beat — capture micro-expression",
   release: "pulled-back wide with breathing space, action resolved, frame settles for next cut",
 };
+
+/**
+ * Sprint G1e2 Phase 2A — Visual Arc mapping (Pixar pacing model).
+ *
+ * Each shot's rhythm role implies a lens focal length + emotional distance from viewer.
+ * This is DETERMINISTIC (no schema change, derived read-time).
+ *
+ * Pixar Visual Arc principle: shots progress through emotional distance arc within scene:
+ *   Discovery (wide)    → viewer absorbs space, scale, context
+ *   Curiosity (medium)  → viewer engages with subject's action
+ *   Connection (close)  → viewer reads subject's emotion
+ *   Intimacy (insert)   → viewer feels subject's interiority
+ *
+ * Mapping:
+ *   establish → Discovery (24-35mm wide)
+ *   build     → Curiosity (50mm medium)
+ *   peak      → Intimacy (85mm close, shallow DOF)
+ *   release   → Curiosity pullback (35mm)
+ *
+ * For shot types that override (e.g. shot.shotType=insert with rhythmRole=peak),
+ * insert overrides to macro 100mm regardless of role.
+ */
+export const VISUAL_ARC_HINT: Record<RhythmRole, { lens: string; distance: string }> = {
+  establish: {
+    lens: "24-35mm wide-angle, deep depth of field, full environment visible",
+    distance: "discovery (Pixar Visual Arc — viewer absorbs space + scale)",
+  },
+  build: {
+    lens: "50mm natural focal length, medium DOF, balanced subject/environment",
+    distance: "curiosity (Pixar Visual Arc — viewer engages with action)",
+  },
+  peak: {
+    lens: "85mm cinematic portrait, shallow DOF, subject pops from background bokeh",
+    distance: "intimacy (Pixar Visual Arc — viewer feels subject's interiority)",
+  },
+  release: {
+    lens: "35mm pullback, medium-wide DOF, breathing space around resolved subject",
+    distance: "curiosity-pullback (Pixar Visual Arc — viewer settles for next cut)",
+  },
+};
+
+/**
+ * Sprint G1e2 Phase 2A — Resolve lens + emotional distance for a shot.
+ * Insert shots always get macro lens regardless of rhythm role.
+ */
+export function resolveVisualArc(
+  rhythmRole: RhythmRole | undefined,
+  shotType: string
+): { lens: string; distance: string } {
+  // Insert shots always macro
+  if (shotType === "insert") {
+    return {
+      lens: "100mm macro, extreme shallow DOF, subject fills frame with texture detail",
+      distance: "insert (Pixar Visual Arc — viewer studies the detail)",
+    };
+  }
+  if (rhythmRole) return VISUAL_ARC_HINT[rhythmRole];
+  // Default fallback: medium engagement
+  return VISUAL_ARC_HINT.build;
+}
 
 /**
  * Per-character emotion phrase from scene's characterEmotions map.
@@ -268,7 +329,7 @@ export function buildSceneGridImagePrompt(
   const sceneTension = (scene as any).tensionLevel as number | undefined;
   const moodHints = EMOTION_CINEMA_HINTS[sceneTone];
   const tensionHint = tensionFramingHint(sceneTension);
-  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "unset";
+  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "neutral baseline";
   const characterEmotionPhrase = buildCharacterEmotionPhrase(scene, cast);
   const setupPayoffHints = buildSetupPayoffHints(scene.id, setupPayoffPairs, allScenes);
 
@@ -300,124 +361,150 @@ ${beatsInThisGrid.map((b) => `- Beat ${b.order}: ${b.label}`).join("\n")}`;
     }
   }
 
-  // Sprint 1.0 r7: Physical consistency lock from scene
+  // Sprint 1.0 r7: Physical consistency lock from scene (now inlined in Tier 1)
   const physicalLockBody = ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim();
-  const physicalLockBlock = physicalLockBody
-    ? `
-
-PHYSICAL CONSISTENCY LOCK (do NOT vary across cells):
-${physicalLockBody}`
-    : "";
 
   // Per-cell descriptions with rhythm-aware composition + per-shot lighting hint
+  // G1e2 Phase 1: lighting hint compressed — only show when shot has explicit override,
+  //   else omit entirely (Tier 2 CINEMATIC INTENT covers it). Reduces token noise.
+  // G1e2 Phase 2A: add LENS (Visual Arc) per cell — derived from rhythmRole + shotType
   const cellDescriptions = grid.cells
     .map((cell) => {
       if (!cell.shotId) {
-        return `  Cell ${cell.order}: EMPTY — solid black, no subject, no detail.`;
+        return `  Cell ${cell.order}: EMPTY (solid black).`;
       }
       const shot = shots.find((s) => s.id === cell.shotId);
       if (!shot) {
-        return `  Cell ${cell.order}: EMPTY — shot reference missing.`;
+        return `  Cell ${cell.order}: EMPTY (shot ref missing).`;
       }
       const shotTitle = shot.titleEn || shot.titleVi || `Shot ${shot.order}`;
       const shotAction =
         (shot as any).actionEn?.trim() ||
         (shot as any).actionVi?.trim() ||
-        "(no specific action — show shot framing only)";
+        "static framing — no specific action, hold composition only";
       const shotType = SHOT_TYPE_LABEL[shot.shotType] ?? shot.shotType;
-      const cameraMovement = (shot.cameraMovement || "static").replace(/_/g, " ");
+      // r7.21: use getEnglishTerm to render proper labels (e.g. "oner" → "one continuous shot",
+      // "smartphone_zoom" → "natural smartphone zoom"). Falls back gracefully for legacy values.
+      const cameraMovement = getEnglishTerm(shot.cameraMovement || "static");
       const rhythmRole = (shot as any).rhythmRole as RhythmRole | undefined;
       const compositionHint = rhythmRole
         ? RHYTHM_COMPOSITION_HINT[rhythmRole]
         : "balanced framing per shot type";
-      // Sprint 1.0 r7: per-shot lighting hint override
-      const lightingHint =
-        (shot as any).lightingHintEn?.trim() ||
-        `derived from scene CINEMATIC INTENT above`;
-      return `  Cell ${cell.order}: [${shotType}, ${cameraMovement}, ${shot.durationSeconds}s${rhythmRole ? `, role=${rhythmRole}` : ""}]
-    SHOT TITLE: ${shotTitle}
-    ACTION: ${shotAction}
-    LIGHTING HINT: ${lightingHint}
+      // G1e2 Phase 1: only show lighting hint line when shot has explicit override
+      const explicitLighting = (shot as any).lightingHintEn?.trim();
+      const lightingLine = explicitLighting
+        ? `\n    LIGHTING: ${explicitLighting}`
+        : "";
+      // G1e2 Phase 2A: Visual Arc — lens + emotional distance per cell
+      const visualArc = resolveVisualArc(rhythmRole, shot.shotType);
+      // G1e2 Phase 2A: Shot Purpose — pull from purposeEn (may have 4-category prefix after Stage update)
+      const purposeEn = (shot as any).purposeEn?.trim();
+      const purposeLine = purposeEn
+        ? `\n    PURPOSE: ${purposeEn}`
+        : "";
+      // G1e2 Phase 2B: Inner State — what character feels AT THIS EXACT FRAME (Pixar core)
+      const innerStateVi = (shot as any).innerStateVi?.trim();
+      const innerStateLine = innerStateVi
+        ? `\n    INNER STATE: ${innerStateVi}`
+        : "";
+      return `  Cell ${cell.order} [${shotType}, ${cameraMovement}, ${shot.durationSeconds}s${rhythmRole ? `, ${rhythmRole}` : ""}]
+    TITLE: ${shotTitle}
+    ACTION: ${shotAction}${purposeLine}${innerStateLine}${lightingLine}
+    LENS: ${visualArc.lens}
+    DISTANCE: ${visualArc.distance}
     COMPOSITION: ${compositionHint}`;
     })
     .join("\n\n");
 
   // BUG #6 fix (r6): clean ref block. r7: conditional cast subblock + multi-grid ref insertion
-  let refImageBlock = `REFERENCE IMAGES (attach in this exact order — filenames from Refs ZIP):
-- Image #1 — image-01_grid-template.png — blank ${cols}×${rows} grid layout (locks cell positions + empty cells)`;
+  let refImageBlock = `REFERENCE IMAGES (in this exact order):
+- Image #1: image-01_grid-template.png — blank ${cols}×${rows} grid layout (locks cell positions)`;
   if (previousGridRef) {
     refImageBlock += `
-- Image #2 — grid-${String(grid.order - 1).padStart(2, "0")}-generated.png — GRID ${grid.order - 1} previously generated. USE AS VISUAL STYLE ANCHOR:
-  · Match exact moss/ivy/rust/outfit pattern on all characters from previous grid
-  · Match exact lighting tone, color palette, atmospheric depth
-  · This is the SAME scene continuing — must blend seamlessly with previous grid`;
+- Image #2: grid-${String(grid.order - 1).padStart(2, "0")}-generated.png — Grid ${grid.order - 1} visual style anchor (match exact appearance + lighting + palette)`;
   }
   if (castBlock) {
     refImageBlock += `
-- Image #${castStartIdx}+ — cast references (face + body per character):
+- Image #${castStartIdx}+: cast references
 ${castBlock}`;
   }
 
-  // CINEMATIC INTENT block
-  const cinematicMoodBlock = `CINEMATIC INTENT (derived from pacing analysis — emotional tone + tension):
-- Dominant emotion: ${sceneTone} · Tension: ${tensionLabel}
-- Lighting: ${moodHints.lighting}
-- Color palette: ${moodHints.palette}
-- Atmosphere: ${moodHints.atmosphere}
-- Framing intensity: ${tensionHint}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}`;
+  // G1e2 Phase 2B: filmReferencesEn — Pixar mood anchor references
+  const filmRefs = ((scene as any).filmReferencesEn as string[] | undefined) ?? [];
+  const filmRefsBlock = filmRefs.length > 0
+    ? `\n\nREFERENCES (mood anchor — AI must lean toward these established cinematic atmospheres):\n${filmRefs.map((r) => `- ${r}`).join("\n")}`
+    : "";
 
+  // G1e2 Phase 3: colorScript — Pixar Production Design 101 (1 dominant + 2 accents)
+  const colorScript = (scene as any).colorScript as
+    | { dominantEn: string; accent1En: string; accent2En: string }
+    | undefined;
+  const colorScriptBlock = colorScript
+    ? `\n\nCOLOR SCRIPT (STRICT palette — locked across ALL cells, no drift):\n- Dominant: ${colorScript.dominantEn}\n- Accent 1: ${colorScript.accent1En}\n- Accent 2: ${colorScript.accent2En}`
+    : "";
+
+  // G1e2 Phase 1: setupPayoff slim — only inject if there are hints (no header noise when empty)
   const setupPayoffBlock = setupPayoffHints.length > 0
-    ? `\n\nNARRATIVE CONTINUITY (Setup → Payoff anchors for this scene):
-${setupPayoffHints.map((h) => `- ${h}`).join("\n")}`
+    ? `\n\nNarrative continuity anchors:\n${setupPayoffHints.map((h) => `- ${h}`).join("\n")}`
     : "";
 
-  // Multi-grid continuity directives (only for Grid 2+)
+  // G1e2 Phase 1: multi-grid continuity compressed (was 4 redundant lines → 1 line + ref to attached image)
   const continuityDirectives = previousGridRef
-    ? `\n\nMULTI-GRID CONTINUITY DIRECTIVES (this is GRID ${grid.order}):
-- Cell content MUST visually flow from previous grid — same composition logic, same character pose continuity
-- Lighting must match previous grid EXACTLY: same time-of-day, same dappled patterns, same color grade
-- All characters MUST have identical appearance to previous grid (same outfit, body coverage, distinctive marks)
-- Do not introduce new style elements, color tones, or visual treatments`
+    ? `\n\nGrid ${grid.order} continuity: visual style + lighting + character appearance MUST match Grid ${grid.order - 1} image (Image #2) exactly. Same scene continuing.`
     : "";
 
-  return `Cinematic storyboard grid${gridLabel}: ${cols} columns × ${rows} rows = ${totalCells} cells (${filledCount} filled${emptyCount > 0 ? `, ${emptyCount} empty` : ""}). ${aspect} aspect ratio per cell.
+  return `Cinematic storyboard panel — single scene only${gridLabel}: ${cols}×${rows} = ${totalCells} cells (${filledCount} filled${emptyCount > 0 ? `, ${emptyCount} empty` : ""}). ${aspect} aspect per cell.
 Style: ${styleHint}.
 
-STRICT LAYOUT REQUIREMENT (do NOT change):
-- Output image MUST contain EXACTLY ${cols} columns and ${rows} rows of cells.
-- DO NOT add cells. DO NOT remove cells. DO NOT fill empty cells with new content.
-- Empty cells MUST stay solid black, no subject, no detail.
-- Reading order: left to right, top to bottom (cell 1 = top-left, cell ${totalCells} = bottom-right).
+═══════════════════════════════════════════════════════════════
+TIER 1 — ABSOLUTE LOCK (do NOT alter under any circumstance)
+═══════════════════════════════════════════════════════════════
+GRID LAYOUT: EXACTLY ${cols}×${rows} cells. Reading order L→R, T→B. Empty cells = solid black, no subject.${emptyCount > 0 ? `\nEMPTY CELLS: ${grid.cells.filter((c) => !c.shotId).map((c) => `Cell ${c.order}`).join(", ")} — solid black.` : ""}
+
+SCENE BOUNDARY (CRITICAL — prevent cross-scene hallucination):
+- ALL ${filledCount} filled cells depict events WITHIN ONE SINGLE SCENE only.
+- Setting locked: "${sceneSettings}". EVERY cell takes place in this exact location.
+- DO NOT depict any setting outside "${sceneSettings}" — no other locations from any larger story arc.
+- DO NOT add narrative progression beyond this scene's action — no cells showing future events, no cells showing past events.
+- If a cell's described action seems to require a different location, REINTERPRET it within "${sceneSettings}" instead.
+
+CHARACTER IDENTITY: identical face/body/outfit across all ${filledCount} filled cells per cast reference images.${physicalLockBody ? `
+
+PHYSICAL CONSISTENCY (locked across ALL cells — appearance details NEVER vary):
+${physicalLockBody}` : ""}
+
+NO TEXT / NO LOGOS / NO WATERMARKS: ABSOLUTELY no written language anywhere in the image — no captions, no subtitles, no cell numbers, no labels, no UI overlays, no signs with readable text in the scene, no brand logos, no watermarks, no numbers, no letters in any script (Latin, Cyrillic, Arabic, Chinese, etc.). Pure visual cinematography only. If a sign or screen would normally have text, draw it blank or with abstract shapes.
 
 ${refImageBlock}
 
-SCENE: ${sceneTitle}
-Setting: ${sceneSettings}
-Scene action overview: ${sceneAction.slice(0, 400)}
+═══════════════════════════════════════════════════════════════
+TIER 2 — SCENE LOCK (unified visual language for this scene)
+═══════════════════════════════════════════════════════════════
+SCENE: ${sceneTitle} — ${sceneSettings}
+${sceneAction ? `This scene's action (ALL cells stay within these events, NO events from other scenes): ${sceneAction.slice(0, 280)}` : ""}
 
-${cinematicMoodBlock}${physicalLockBlock}${setupPayoffBlock}${beatsCoverageBlock}${continuityDirectives}
+CINEMATIC INTENT (unified across all cells — same lighting quality, same color palette, same mood):
+- Emotion: ${sceneTone} · Tension: ${tensionLabel}
+- Lighting: ${moodHints.lighting}
+- Palette: ${moodHints.palette}
+- Atmosphere: ${moodHints.atmosphere}
+- Framing scale: ${tensionHint}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}${filmRefsBlock}${colorScriptBlock}${continuityDirectives}${beatsCoverageBlock}${setupPayoffBlock}
 
-SHOTS IN THIS GRID (left-to-right, top-to-bottom):
+═══════════════════════════════════════════════════════════════
+TIER 3 — SHOT-SPECIFIC (per-cell variation within scene mood)
+═══════════════════════════════════════════════════════════════
+Per cell: vary INTENSITY (gentle/moderate/strong), FOCUS AREA (full/subject/face/eye/hands), and COMPOSITION (per rhythm role). Lighting QUALITY stays unified per Tier 2. LOCATION stays "${sceneSettings}" — NEVER drifts to another setting.
+
 ${cellDescriptions}
 
-FRAMING & CONSISTENCY:
-- Maintain identical character identity (face, body, outfit) across all ${filledCount} filled cells per the cast reference images.
-- Consistent lighting + color grade per the CINEMATIC INTENT above. Same time-of-day, same weather, same emotional register throughout the grid.${physicalLockBody ? "\n- Honor PHYSICAL CONSISTENCY LOCK above — appearance details locked across ALL cells." : ""}
-- Each cell is a self-contained key frame — the moment captured for that shot.
-- Cinematic ${aspect} framing per cell.
-- Honor each cell's COMPOSITION + LIGHTING HINT (rhythm-role + per-shot variation within unified scene mood).
+═══════════════════════════════════════════════════════════════
+TIER 4 — SOFT PREFERENCES (apply where natural, do not force)
+═══════════════════════════════════════════════════════════════
+- Each cell = self-contained key frame for that shot's peak moment within this scene.
+- Cinematic ${aspect} framing.
+- Subtle motifs from setting (textures, light play) welcome — must not override Tier 2 unified lighting or Tier 1 scene boundary.
 
-EMPTY CELLS:
-${emptyCount > 0
-  ? `- Empty cells (${grid.cells.filter((c) => !c.shotId).map((c) => `Cell ${c.order}`).join(", ")}): render as solid black with no subject, no text, no detail.`
-  : "- All cells filled — no empty placeholder needed."}
+AVOID: text/captions/cell numbers inside cells · logos/watermarks · style drift between cells · cells depicting any location other than "${sceneSettings}" · contradicting Tier 1 locks.
 
-AVOID:
-- Text overlays, dialogue captions, frame numbers, cell numbers inside any cell.
-- Inconsistent character appearance between cells.
-- Branded logos, watermarks, timestamps.
-- Style drift between cells.
-- Generic neutral lighting — the CINEMATIC INTENT + per-cell LIGHTING HINT are authoritative.${physicalLockBody ? "\n- Varying physical appearance details that are listed in PHYSICAL CONSISTENCY LOCK." : ""}
-
-OUTPUT: high-resolution single image, ${cols} columns × ${rows} rows grid layout. Each cell rendered as a finished cinematic frame.`;
+OUTPUT: high-resolution single image, ${cols}×${rows} grid layout. Each cell = finished cinematic frame WITHIN THIS SINGLE SCENE.`;
 }

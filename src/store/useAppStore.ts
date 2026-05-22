@@ -6,6 +6,8 @@
 import { create } from "zustand";
 import type { PromptProject, Shot, AssembledPrompt } from "../types";
 import { ANGLE_PRESETS, pickNextAngle } from "../engine/angles";
+import type { AutoChainState } from "../engine/autoChainOrchestrator";
+import { createInitialAutoChainState } from "../engine/autoChainOrchestrator";
 
 type ActiveView = "editor" | "library" | "history" | "settings";
 
@@ -14,6 +16,8 @@ interface AppState {
   generatedPrompts: Map<string, AssembledPrompt>;
   activeView: ActiveView;
   toast: { message: string; type: "info" | "success" | "error" } | null;
+  /* * auto-chain orchestrator state (shared across Idea/Script + Storyboard sections). */
+  autoChainState: AutoChainState;
 
   setCurrentProject: (project: PromptProject | null) => void;
   updateCurrentProject: (updates: Partial<PromptProject> | ((p: PromptProject) => Partial<PromptProject>)) => void;
@@ -28,6 +32,8 @@ interface AppState {
   setActiveView: (view: ActiveView) => void;
   showToast: (message: string, type?: "info" | "success" | "error") => void;
   hideToast: () => void;
+  /* * update auto-chain state (called by orchestrator subscribe). */
+  setAutoChainState: (state: AutoChainState) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -35,9 +41,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   generatedPrompts: new Map(),
   activeView: "editor",
   toast: null,
+  autoChainState: createInitialAutoChainState(),
 
   setCurrentProject: (project) =>
-    set({ currentProject: project, generatedPrompts: new Map() }),
+    set({
+      currentProject: project,
+      generatedPrompts: new Map(),
+      // r7.36: Reset auto-chain state on project switch — prevents stale isRunning/currentSection
+      // from project A appearing in project B's UI. Critical for project isolation.
+      autoChainState: createInitialAutoChainState(),
+      // Clear toast — old project's toast shouldn't follow user to new project
+      toast: null,
+    }),
 
   updateCurrentProject: (updates) =>
     set((state) => {
@@ -125,6 +140,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   hideToast: () => set({ toast: null }),
+
+  setAutoChainState: (state) => set({ autoChainState: state }),
 }));
 
 export function createEmptyProject(): PromptProject {

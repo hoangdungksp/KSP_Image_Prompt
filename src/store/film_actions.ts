@@ -271,7 +271,7 @@ export function setScript(
     archivedVersions = [...prevVersions, newVersion].slice(-10);
   }
 
-  // qc12 fix: When Stage 5 completes, clear scriptStage so all 5 stages
+  // fix: When Stage 5 completes, clear scriptStage so all 5 stages
   // render as done preview (no active panel). User can still click any
   // done stage's "Regen / Edit" button to re-enter active mode.
   return patch({
@@ -461,7 +461,7 @@ function patchShotsForScene(
 }
 
 /**
- * qc10: Bulk replace shots for a scene. Used after AI generates shot list.
+ * Bulk replace shots for a scene. Used after AI generates shot list.
  * Overwrites entire array — caller decides whether to merge or replace.
  */
 export function setShotsForScene(
@@ -871,14 +871,14 @@ export function setScriptTwists(
   twists: FilmScriptTwist[]
 ): Partial<ProjWithFilm> {
   const data = ensureFilmData(project);
-  // qc18 Hướng B: AI regen → reset lock to false. User must re-confirm via
+  // AI regen → reset lock to false. User must re-confirm via
   // "Tiếp: ④ Phân cảnh →" button before stage becomes done. Without this,
   // user re-running Stage 3 would auto-skip without seeing the new twists.
   return patch({ ...data, scriptTwists: twists, scriptTwistsLocked: false });
 }
 
 /**
- * qc18 Hướng B: Lock Stage 3 twists.
+ * Lock Stage 3 twists.
  *
  * Called when user clicks "Tiếp: ④ Phân cảnh →" button in ActiveStage3.
  * Sets scriptTwistsLocked = true so isStageDone("twists") returns true and
@@ -908,7 +908,7 @@ export function updateScriptTwist(
 }
 
 /**
- * Sprint 1.0 r7.6: remove a single twist by id. User-initiated delete.
+ * Sprint 1.0 remove a single twist by id. User-initiated delete.
  * Does NOT clear scriptTwistsLocked — small edit, not regen.
  */
 export function removeScriptTwist(
@@ -921,7 +921,7 @@ export function removeScriptTwist(
 }
 
 /**
- * Sprint 1.0 r7.6: add a new manual twist attached to a beat.
+ * Sprint 1.0 add a new manual twist attached to a beat.
  * Description starts empty — user types via blur-to-save inline editor.
  * Accepted state starts undefined (no decision yet).
  */
@@ -946,7 +946,7 @@ export function setScriptIntermediateScenes(
   scenes: FilmScriptIntermediateScene[]
 ): Partial<ProjWithFilm> {
   const data = ensureFilmData(project);
-  // qc20 parallel qc18 Twist pattern: AI regen → reset lock to false.
+  // parallel Twist pattern: AI regen → reset lock to false.
   // User must re-confirm via "Tiếp: ⑤ Lời thoại →" button before stage becomes done.
   return patch({ ...data, scriptIntermediateScenes: scenes, scriptScenesLocked: false });
 }
@@ -972,7 +972,7 @@ export function updateScriptIntermediateScene(
 }
 
 /**
- * qc20 (parallel qc18 lockScriptTwists): Lock Stage 4 scenes.
+ * (parallel lockScriptTwists): Lock Stage 4 scenes.
  *
  * Called when user clicks "Tiếp: ⑤ Lời thoại →" button in ActiveStage4.
  * Sets scriptScenesLocked = true so isStageDone("scenes") returns true.
@@ -986,7 +986,7 @@ export function lockScriptScenes(
 }
 
 /**
- * qc20 Q20.4: Apply AI-suggested split — replace 1 scene with 2 sub-scenes.
+ * Apply AI-suggested split — replace 1 scene with 2 sub-scenes.
  *
  * Caller (UI) gets SceneSplitSuggestion from runSplitSceneSuggestion, shows preview,
  * and on user confirm calls this action.
@@ -1033,11 +1033,11 @@ export function applySceneSplit(
 }
 
 /**
- * qc20 Q20.5: User explicitly dismisses "scene too complex" warning for a scene.
+ * User explicitly dismisses "scene too complex" warning for a scene.
  *
  * Marker stored in a Set field on the scene itself. Once dismissed, UI no longer shows
  * the warning badge for this scene. User can still see auto-picked grid in Storyboard
- * (qc19 will pick 4x3 or 4x4 for 10-16 shot scenes).
+ * (will pick 4x3 or 4x4 for 10-16 shot scenes).
  *
  * Pure pass-through: just flips scene.complexityWarningDismissed = true.
  */
@@ -1054,7 +1054,7 @@ export function dismissSceneComplexityWarning(
 }
 
 /**
- * qc6: User-specified target scene count for Stage 4.
+ * User-specified target scene count for Stage 4.
  * Default: AI decides based on duration. User can override for richer storytelling.
  */
 export function setScriptTargetSceneCount(
@@ -1083,25 +1083,25 @@ export function revertToStage(
   if (stage === "structure") {
     delete (next as any).scriptBeats;
     delete (next as any).scriptTwists;
-    delete (next as any).scriptTwistsLocked; // qc18
+    delete (next as any).scriptTwistsLocked;
     delete (next as any).scriptIntermediateScenes;
-    delete (next as any).scriptScenesLocked; // qc20
+    delete (next as any).scriptScenesLocked;
     delete (next as any).script;
   } else if (stage === "beats") {
     delete (next as any).scriptTwists;
-    delete (next as any).scriptTwistsLocked; // qc18
+    delete (next as any).scriptTwistsLocked;
     delete (next as any).scriptIntermediateScenes;
-    delete (next as any).scriptScenesLocked; // qc20
+    delete (next as any).scriptScenesLocked;
     delete (next as any).script;
   } else if (stage === "twists") {
-    // qc18: clear lock so ActiveStage3 renders again (user can re-pick).
+    // clear lock so ActiveStage3 renders again (user can re-pick).
     // scriptTwists itself preserved — user often wants to re-confirm same twists.
     delete (next as any).scriptTwistsLocked;
     delete (next as any).scriptIntermediateScenes;
-    delete (next as any).scriptScenesLocked; // qc20
+    delete (next as any).scriptScenesLocked;
     delete (next as any).script;
   } else if (stage === "scenes") {
-    // qc20: clear lock so ActiveStage4 renders again (user can review warnings).
+    // clear lock so ActiveStage4 renders again (user can review warnings).
     // scriptIntermediateScenes preserved — user often wants to re-confirm same scenes.
     delete (next as any).scriptScenesLocked;
     delete (next as any).script;
@@ -1112,7 +1112,7 @@ export function revertToStage(
 }
 
 /**
- * qc12: Clear a single stage's data + set scriptStage to that stage
+ * Clear a single stage's data + set scriptStage to that stage
  * so user can re-enter active mode to regenerate from scratch.
  *
  * Use case: user clicks "🔄 Regen / Edit" on a DONE stage that has no
@@ -1133,10 +1133,10 @@ export function clearStageData(
     delete (next as any).scriptBeats;
   } else if (stage === "twists") {
     delete (next as any).scriptTwists;
-    delete (next as any).scriptTwistsLocked; // qc18
+    delete (next as any).scriptTwistsLocked;
   } else if (stage === "scenes") {
     delete (next as any).scriptIntermediateScenes;
-    delete (next as any).scriptScenesLocked; // qc20
+    delete (next as any).scriptScenesLocked;
   } else if (stage === "dialogues") {
     delete (next as any).script;
   }
@@ -1145,7 +1145,7 @@ export function clearStageData(
 }
 
 // ============================================================================
-// qc16 — Scene-level grids (paradigm shift from per-shot grids)
+// Scene-level grids (paradigm shift from per-shot grids)
 // ============================================================================
 
 import {
@@ -1194,7 +1194,7 @@ function patchScene(
  * Set scene's grid format + re-pack shots into grids.
  * Preserves existing cropped frames where shotIds still match.
  *
- * qc21: This is the USER OVERRIDE path. Marks `gridFormatManual: true` so
+ * This is the USER OVERRIDE path. Marks `gridFormatManual: true` so
  * future ensureSceneGrids/repackSceneGrids preserve user's choice and
  * Storyboard UI shows "↺ Reset to Auto" button.
  */
@@ -1211,13 +1211,13 @@ export function setSceneGridFormat(
   return patchScene(project, sceneId, (s) => ({
     ...s,
     gridFormat: format,
-    gridFormatManual: true, // qc21: explicit user choice
+    gridFormatManual: true, // explicit user choice
     grids: newGrids,
   }));
 }
 
 /**
- * qc21 Q21.4: Reset scene's grid format to auto-pick.
+ * Reset scene's grid format to auto-pick.
  *
  * Clears `gridFormat` + `gridFormatManual` flags so `ensureSceneGrids` /
  * `repackSceneGrids` will re-evaluate optimal format from current shot count + aspect.
@@ -1237,7 +1237,7 @@ export function resetSceneGridFormatToAuto(
   return patchScene(project, sceneId, (s) => ({
     ...s,
     gridFormat: resolvedFormat,
-    gridFormatManual: false, // qc21: explicitly auto
+    gridFormatManual: false, // explicitly auto
     grids: newGrids,
   }));
 }
@@ -1246,12 +1246,12 @@ export function resetSceneGridFormatToAuto(
  * Ensure scene has grids initialized. Idempotent.
  * Used when user first opens Storyboard for a scene.
  *
- * qc19 Hướng F-9: If scene.gridFormat undefined (new scene), auto-pick optimal
+ * 9: If scene.gridFormat undefined (new scene), auto-pick optimal
  * format from shot count + project aspect ratio. If user already chose a format
  * (manual override), preserve it.
  *
- * qc21: When auto-picking, sets `gridFormatManual: false` so UI can distinguish
- * auto vs manual. When preserving existing format from qc17/qc18 project (legacy
+ * When auto-picking, sets `gridFormatManual: false` so UI can distinguish
+ * auto vs manual. When preserving existing format from /project (legacy
  * where gridFormatManual is undefined), the format is preserved and the
  * Storyboard UI shows a migration hint allowing user to opt into auto.
  */
@@ -1271,12 +1271,12 @@ export function ensureSceneGrids(
   // User can still override manually via gridFormat dropdown.
   const isFilmMode = (project as any).settingV2?.mode === "film";
   const desiredFormat = scene.gridFormat ?? (isFilmMode ? "3x3" : undefined);
-  // qc19: pass undefined → packShotsIntoGrids auto-picks via pickOptimalGridFormat.
+  // pass undefined → packShotsIntoGrids auto-picks via pickOptimalGridFormat.
   // If scene.gridFormat already set (legacy or manual override), honor it.
   // r7: Film mode forces 3x3 unless user manually picked something else.
   const newGrids = packShotsIntoGrids(shots, desiredFormat, scene.grids, aspectRatio);
   const resolvedFormat = newGrids[0]?.gridFormat ?? desiredFormat ?? "3x3";
-  // qc21: If gridFormat was undefined before this call, auto-pick happened → mark as auto.
+  // If gridFormat was undefined before this call, auto-pick happened → mark as auto.
   // r7: Film mode 3x3 default still counted as "auto" (user can change).
   const isAutoPickNow = scene.gridFormat === undefined;
   return patchScene(project, sceneId, (s) => ({
@@ -1291,7 +1291,7 @@ export function ensureSceneGrids(
  * Re-pack grids for a scene (call after shots are added/removed/reordered).
  * Preserves existing cropped frames where shotIds still match.
  *
- * qc19: If scene.gridFormat is undefined (auto-pick mode), re-evaluate optimal
+ * If scene.gridFormat is undefined (auto-pick mode), re-evaluate optimal
  * format based on new shot count. If user chose a format manually, preserve it.
  */
 export function repackSceneGrids(
@@ -1805,7 +1805,12 @@ export function applyBeatsAndPhysicalLock(
   project: PromptProject,
   resultsBySceneId: Record<
     string,
-    { beats: Beat[]; physicalConsistencyLockEn?: string }
+    {
+      beats: Beat[];
+      physicalConsistencyLockEn?: string;
+      filmReferencesEn?: string[];
+      colorScript?: { dominantEn: string; accent1En: string; accent2En: string };
+    }
   >
 ): Partial<ProjWithFilm> {
   const data = ensureFilmData(project);
@@ -1821,6 +1826,10 @@ export function applyBeatsAndPhysicalLock(
           ...s,
           beats: result.beats,
           physicalConsistencyLockEn: result.physicalConsistencyLockEn,
+          // Sprint G1e2 Phase 2B: persist AI-suggested film reference atmospheres
+          filmReferencesEn: result.filmReferencesEn,
+          // Sprint G1e2 Phase 3: persist AI-suggested color script
+          colorScript: result.colorScript,
         };
       }),
       updatedAt: Date.now(),

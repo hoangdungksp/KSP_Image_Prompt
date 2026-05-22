@@ -1,5 +1,5 @@
 /**
- * KSP Image qc15 — Grid Crop Preview Modal
+ * KSP Image Grid Crop Preview Modal
  *
  * Opens after user uploads a grid PNG. Shows live preview with overlay grid
  * + cell numbers, allows tuning:
@@ -26,7 +26,7 @@ export interface GridCropPreviewModalProps {
   /** Grid format from scene, e.g. "3x3" (CxR convention: 3 cols × 3 rows) */
   gridFormat: string;
   /**
-   * qc22 hotfix: Project aspect ratio (e.g. "16:9", "9:16", "1:1").
+   * hotfix: Project aspect ratio (e.g. "16:9", "9:16", "1:1").
    * Used to compute target cell aspect — cells will be center-cropped to this ratio
    * so Storyboard displays cells without further distortion.
    */
@@ -94,7 +94,7 @@ export function GridCropPreviewModal({
     return [parts[0] || 3, parts[1] || 3];
   }, [localGridFormat]);
 
-  // qc22 hotfix: compute target cell aspect ratio from project setting.
+  // hotfix: compute target cell aspect ratio from project setting.
   // Cells will be center-cropped to this aspect, so Storyboard displays them
   // without further distortion.
   const targetCellAspect = useMemo(() => {
@@ -156,7 +156,7 @@ export function GridCropPreviewModal({
   );
   const cellAspect = useMemo(() => (cellH > 0 ? cellW / cellH : 0), [cellW, cellH]);
 
-  // qc22 hotfix: output cell dims AFTER target aspect crop.
+  // hotfix: output cell dims AFTER target aspect crop.
   // Source cell may be square-ish (e.g. 904×758 from 16:9 image / 3x2 grid),
   // but we center-crop to target aspect (16:9 → 904×508).
   const outputCell = useMemo(() => {
@@ -403,7 +403,7 @@ function PreviewOverlay({
   const gutterWPct = (gutterPx / totalWidth) * 100;
   const gutterHPct = (gutterPx / totalHeight) * 100;
 
-  // qc22 hotfix: compute inner crop zone within each cell to indicate target aspect crop
+  // hotfix: compute inner crop zone within each cell to indicate target aspect crop
   const cellWPx = (totalWidth - gutterPx * (cols - 1)) / cols;
   const cellHPx = (totalHeight - gutterPx * (rows - 1)) / rows;
   const sourceCellAspect = cellHPx > 0 ? cellWPx / cellHPx : 1;

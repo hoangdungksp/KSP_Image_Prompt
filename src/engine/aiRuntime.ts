@@ -72,7 +72,25 @@ interface GenerateOptions {
 
 async function generateText(opts: GenerateOptions): Promise<string> {
   const apiKeys = useGlobalStore.getState().apiKeys;
-  const { provider, systemPrompt, userPrompt, expectJson = true, maxTokens = 4096, temperature = 0.7 } = opts;
+  let { provider, systemPrompt, userPrompt, expectJson = true, maxTokens = 4096, temperature = 0.7 } = opts;
+
+  // Auto-fallback if preferred provider's API key is missing.
+  // Mirrors resolveProvider() in filmScriptStages.ts so both code paths behave
+  // identically when only one API key is configured.
+  const hasGemini = !!apiKeys.gemini;
+  const hasOpenAI = !!apiKeys.openai;
+  const needsGemini = provider === "gemini-flash" || provider === "gemini-pro";
+  if (needsGemini && !hasGemini && hasOpenAI) {
+    console.warn(`[KSP AI fallback] Provider "${provider}" thiếu Gemini key — auto-fallback OpenAI 4o.`);
+    provider = "openai-4o";
+  } else if (provider === "openai-4o" && !hasOpenAI && hasGemini) {
+    console.warn(`[KSP AI fallback] Provider "openai-4o" thiếu key — auto-fallback Gemini Flash.`);
+    provider = "gemini-flash";
+  } else if (!hasGemini && !hasOpenAI) {
+    throw new Error(
+      "Chưa có API key nào (Gemini hoặc OpenAI). Vào Project Setting → API Keys để thêm ít nhất 1 key."
+    );
+  }
 
   if (provider === "openai-4o") {
     if (!apiKeys.openai) {

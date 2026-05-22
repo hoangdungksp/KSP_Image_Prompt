@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore, createEmptyProject, createEmptyShot } from "../store/useAppStore";
 import { listProjects, saveProject, deleteProject, deleteAllReferenceImages, listReferenceImages, type StoredProject } from "../store/db";
 import { SHOT_MODES, INDUSTRIES } from "../engine/themes_industry/_modes_industries";
 
@@ -11,6 +11,21 @@ export function Projects() {
   const refresh = async () => {
     const list = await listProjects();
     setProjects(list);
+  };
+
+  /**
+   * r7.23: Create + open new project directly from Project List header.
+   * Previously the only way to create a project was via Editor's empty state
+   * (had to delete all projects first to see it). Now accessible anytime.
+   */
+  const handleCreateNewProject = async () => {
+    const empty = createEmptyProject();
+    empty.shots = [createEmptyShot(1)];
+    await saveProject(empty);
+    setCurrentProject(empty);
+    setActiveView("editor");
+    showToast("Đã tạo project mới", "success");
+    refresh();
   };
 
   useEffect(() => {
@@ -56,15 +71,35 @@ export function Projects() {
   };
 
   const handleDuplicate = async (project: StoredProject) => {
-    // Sprint 1.0 r4.1: When duplicating a Film project, auto-clear shotsBySceneId.
-    // Shots are tightly coupled to scene action/title content — duplicate often
-    // signals user wants to iterate the story differently, so shots from the
-    // template are stale by definition. Force regenerate via "✨ Sinh lại".
-    // Other Film data preserved: characters, script, structure, beats, etc.
+    // r7.28-fix: When duplicating a Film project, clear ALL generated script data
+    // — not just shotsBySceneId (Sprint 1.0 r4.1 was too narrow).
+    //
+    // Root cause of "Gấu Bự → Robot N.A.M.O" bug (May 21, 2026): if user duplicated
+    // a finished project then edited the idea, Stage 1-4 would regenerate cleanly
+    // from new idea + direction, but film.script (Stage 5 output) leaked from the
+    // template and contaminated all downstream (Shot List, Storyboard).
+    //
+    // Preserved on duplicate: characters (concept sheets reusable), settingV2, idea.
+    // Cleared on duplicate: script, structure, beats, twists, intermediateScenes,
+    // narrativeDirection, sceneGrids, shotsBySceneId, and their lock flags.
     const isFilmMode =
       (project as any).settingV2?.mode === "film" || (project as any).filmV093 !== undefined;
     const newFilmV093 = isFilmMode && (project as any).filmV093
-      ? { ...(project as any).filmV093, shotsBySceneId: {} }
+      ? {
+          ...(project as any).filmV093,
+          // Clear all generated script + storyboard data so duplicate starts fresh
+          script: undefined,
+          scriptStructure: undefined,
+          scriptBeats: undefined,
+          scriptTwists: undefined,
+          scriptTwistsLocked: undefined,
+          scriptIntermediateScenes: undefined,
+          scriptScenesLocked: undefined,
+          scriptStage: undefined,
+          narrativeDirection: undefined,
+          sceneGrids: undefined,
+          shotsBySceneId: {},
+        }
       : (project as any).filmV093;
 
     const newProject: StoredProject = {
@@ -78,7 +113,7 @@ export function Projects() {
     await saveProject(newProject);
     showToast(
       isFilmMode
-        ? "Đã clone project — shots cũ bị xóa, click ✨ Sinh lại trong Shot List để đồng bộ"
+        ? "Đã clone project — script + storyboard cũ bị xóa, giữ characters + setting + idea"
         : "Đã clone project",
       "success"
     );
@@ -107,12 +142,22 @@ export function Projects() {
     <div className="p-3 space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">📁 Projects ({projects.length})</h2>
-        <button
-          onClick={refresh}
-          className="text-[11px] px-2 py-1 bg-ksp-panel border border-ksp-border rounded hover:border-ksp-accent"
-        >
-          🔄
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCreateNewProject}
+            className="text-[11px] px-2 py-1 bg-ksp-accent text-black font-semibold rounded hover:opacity-90"
+            title="Tạo project mới + mở Editor"
+          >
+            + New
+          </button>
+          <button
+            onClick={refresh}
+            className="text-[11px] px-2 py-1 bg-ksp-panel border border-ksp-border rounded hover:border-ksp-accent"
+            title="Refresh project list"
+          >
+            🔄
+          </button>
+        </div>
       </div>
 
       {projects.length > 3 && (

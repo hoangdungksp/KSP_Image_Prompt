@@ -1,5 +1,5 @@
 /**
- * KSP Image qc17 — Video Provider Duration Constraints
+ * KSP Image Video Provider Duration Constraints
  *
  * Each AI video provider supports specific durations:
  *   - Seedance 2.0 Pro: 4-15s flexible (any integer)
@@ -7,12 +7,13 @@
  *   - Kling 2: 5s or 10s (two modes)
  *   - Sora: 5s, 10s, or 20s
  *   - Grok Imagine: 6s or 10s
+ *   - Gemini Omni: 4s, 6s, 8s, or 10s
  *
  * Used by:
  *   1. AI Shot List generation — prompt constrains AI to use only supported durations
  *   2. Animation prompt copy — validates shot duration vs provider, offers auto-clamp
  *
- * Jason confirmed Hướng D (qc16 conversation):
+ * Jason confirmed Hướng D (conversation):
  *   - Project Setting `defaultVideoProvider` → AI Shot List uses these durations
  *   - Per-shot override possible (existing schema `shot.videoProviderId`)
  *   - On copy animation prompt → validate + offer clamp if mismatch
@@ -80,6 +81,12 @@ export const PROVIDER_DURATIONS: ProviderDurationSpec[] = [
     label: "Grok Imagine",
     mode: "discrete",
     values: [6, 10],
+  },
+  {
+    providerId: "gemini-omni",
+    label: "Gemini Omni",
+    mode: "discrete",
+    values: [4, 6, 8, 10],
   },
 ];
 

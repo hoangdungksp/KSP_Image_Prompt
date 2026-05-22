@@ -186,6 +186,12 @@ export interface ShotImagePromptInput {
   visualReferences?: string[];
 }
 
+/**
+ * @deprecated r7.23 — DEAD CODE. No callers in src/ or test/ as of May 2026.
+ * Belongs to legacy TVC FilmCharacterV2 codepath. Use buildSceneGridImagePrompt
+ * (sceneImagePromptBuilder.ts) or buildSingleShotImagePrompt (filmShotPromptBuilder.ts)
+ * for current Film mode prompts. Safe to remove in a future cleanup sprint.
+ */
 export function buildShotImagePrompt(input: ShotImagePromptInput): string {
   const numFrames = input.frames.length;
   const [rows, cols] = input.shot.gridFormat.split("x").map(Number);

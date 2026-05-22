@@ -23,6 +23,7 @@ import type {
   ShotFrame,
 } from "../types/project";
 import { formatTimeRange } from "../types/project";
+import { getEnglishTerm } from "../types/cameraMovement";
 
 // ============================================================================
 // PROVIDER CONFIGS
@@ -225,7 +226,7 @@ export function buildChunkPrompt(input: BuildChunkPromptInput): string {
     : "";
 
   // Style line
-  const styleLine = `Visual style: ${animationStyle.replace(/_/g, " ")}, cinematic ${aspectRatio} aspect, ${shot.cameraMovement.replace(/_/g, " ")}.`;
+  const styleLine = `Visual style: ${animationStyle.replace(/_/g, " ")}, cinematic ${aspectRatio} aspect, ${getEnglishTerm(shot.cameraMovement)}.`;
 
   // Frame breakdown for this chunk
   const chunkFrames = frames.slice(chunk.frameStart, chunk.frameEnd);
@@ -247,7 +248,7 @@ export function buildChunkPrompt(input: BuildChunkPromptInput): string {
       ``,
       styleLine,
       ``,
-      `Camera: ${shot.cameraMovement.replace(/_/g, " ")}.`,
+      `Camera: ${getEnglishTerm(shot.cameraMovement)}.`,
       ``,
       ...frameLines,
       ``,

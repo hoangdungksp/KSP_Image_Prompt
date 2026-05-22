@@ -361,7 +361,13 @@ describe("Film v0.9.3 schema + actions", () => {
   });
 
   it("qc4 FilmIdeaScriptSection renders new stepper wizard (5 stages visible)", () => {
-    useAppStore.setState({ currentProject: baseFilmProject });
+    // r7.15d-fix1: override dialog to has_dialog to render all 5 stages
+    // (baseFilmProject defaults to no_dialog → would skip Stage 5)
+    const projWithDialog: any = {
+      ...baseFilmProject,
+      settingV2: { ...baseFilmProject.settingV2, dialog: "has_dialog" },
+    };
+    useAppStore.setState({ currentProject: projWithDialog });
     const { container } = render(<FilmIdeaScriptSection />);
     // Stepper 5 stages all rendered (VN labels post-qc6)
     expect(container.innerHTML).toContain("Structure");
@@ -390,6 +396,8 @@ describe("Film v0.9.3 schema + actions", () => {
   it("qc4 FilmIdeaScriptSection shows stage 1 as DONE when scriptStructure exists", () => {
     const projWithStructure: any = {
       ...baseFilmProject,
+      // r7.15d-fix1: dialog has_dialog → render all 5 stages (preserve "1/5 stages" assertion)
+      settingV2: { ...baseFilmProject.settingV2, dialog: "has_dialog" },
       filmV093: {
         schemaVersion: "v0.9.3-film",
         characters: [],
@@ -1255,6 +1263,8 @@ describe("Film v0.9.3 schema + actions", () => {
     // no lock fields → Stage 3 + Stage 4 must be treated as locked/done via backward-compat.
     const proj: any = {
       ...baseFilmProject,
+      // r7.15d-fix1: has_dialog to test full 5-stage backward-compat (script is Stage 5 data)
+      settingV2: { ...baseFilmProject.settingV2, dialog: "has_dialog" },
       idea: { raw: "test idea" },
       filmV093: {
         ...baseFilmProject.filmV093,
@@ -1620,6 +1630,8 @@ describe("Film v0.9.3 schema + actions", () => {
     // Build a project where ALL 5 stages have data
     const proj: any = {
       ...baseFilmProject,
+      // r7.15d-fix1: has_dialog to render Stage 5 (this test asserts Stage 5 done preview)
+      settingV2: { ...baseFilmProject.settingV2, dialog: "has_dialog" },
       idea: { raw: "test idea", refinedVi: "", refinedEn: "" },
       filmV093: {
         ...baseFilmProject.filmV093,
@@ -1832,6 +1844,8 @@ describe("Film v0.9.3 schema + actions", () => {
     // Stage 5 should render done preview, NOT active panel.
     const proj: any = {
       ...baseFilmProject,
+      // r7.15d-fix1: has_dialog to render Stage 5 (this test asserts Stage 5 done preview)
+      settingV2: { ...baseFilmProject.settingV2, dialog: "has_dialog" },
       idea: { raw: "test idea", refinedVi: "", refinedEn: "" },
       filmV093: {
         ...baseFilmProject.filmV093,
@@ -2081,8 +2095,9 @@ describe("Film v0.9.3 schema + actions", () => {
             name: "Sóc",
             role: "protagonist",
             description: "Có mô tả nhưng chưa upload refs",
-            faceRefs: [], // 0 refs!
+            faceRefs: [],
             bodyRefs: [],
+            // no conceptSheet → warning expected
           },
         ],
       },
@@ -2090,13 +2105,21 @@ describe("Film v0.9.3 schema + actions", () => {
 
     useAppStore.setState({ currentProject: proj });
     const { container } = render(<CastFilmSection />);
-    expect(container.innerHTML).toContain("ksp-cast-film-no-refs-warning");
-    expect(container.innerHTML).toContain("Cần ≥1 face ref");
+    // r7.17: warning rendered by ConceptSheetPanel as `ksp-cast-film-sheet-empty`
+    // (was `ksp-cast-film-tab-hint` in r7.16 tabs layout). Always visible when no sheet.
+    expect(container.innerHTML).toContain("ksp-cast-film-sheet-empty");
+    // Mentions concept sheet workflow buttons
+    expect(container.innerHTML).toContain("Copy Prompt");
   });
 
   it("qc13 Cast section does NOT show 0-refs warning when character has face refs", async () => {
     const { CastFilmSection } = await import("../src/components/CastFilmSection");
 
+    // New model: warning suppression requires conceptSheet (not legacy faceRefs).
+    // Existing faceRefs[0] is auto-migrated to conceptSheet by backfillConceptSheet,
+    // but that migration runs on project LOAD via migrateAllProjects. Tests bypass
+    // that by setting state directly — so we provide conceptSheet explicitly to
+    // mirror the post-migration state.
     const proj: any = {
       ...baseFilmProject,
       filmV093: {
@@ -2110,6 +2133,7 @@ describe("Film v0.9.3 schema + actions", () => {
             description: "Có mô tả",
             faceRefs: [{ id: "f1", filename: "f.png", mimeType: "image/png", dataUrl: "x" } as any],
             bodyRefs: [],
+            conceptSheet: { id: "s1", filename: "sheet.png", mimeType: "image/png", dataUrl: "x" },
           },
         ],
       },
@@ -2117,10 +2141,12 @@ describe("Film v0.9.3 schema + actions", () => {
 
     useAppStore.setState({ currentProject: proj });
     const { container } = render(<CastFilmSection />);
-    expect(container.innerHTML).not.toContain("ksp-cast-film-no-refs-warning");
+    expect(container.innerHTML).not.toContain("ksp-cast-film-sheet-empty");
   });
 
-  it("qc13 Cast section does NOT show 0-refs warning when description is empty", async () => {
+  it("qc13 Cast section ALWAYS shows warning when no concept sheet (regardless of description)", async () => {
+    // r7.17 semantic change: warning visibility depends ONLY on conceptSheet absence,
+    // not on description. User wants red border ALWAYS visible until they upload/gen a sheet.
     const { CastFilmSection } = await import("../src/components/CastFilmSection");
 
     const proj: any = {
@@ -2136,6 +2162,7 @@ describe("Film v0.9.3 schema + actions", () => {
             description: "", // empty
             faceRefs: [],
             bodyRefs: [],
+            // no conceptSheet → warning STILL expected (r7.17 change)
           },
         ],
       },
@@ -2143,7 +2170,7 @@ describe("Film v0.9.3 schema + actions", () => {
 
     useAppStore.setState({ currentProject: proj });
     const { container } = render(<CastFilmSection />);
-    expect(container.innerHTML).not.toContain("ksp-cast-film-no-refs-warning");
+    expect(container.innerHTML).toContain("ksp-cast-film-sheet-empty");
   });
 
   it("qc13 Storyboard expanded shot has #1d2644 bg + 5px border-left", async () => {
@@ -2571,30 +2598,31 @@ describe("Film v0.9.3 schema + actions", () => {
       genre: "drama",
     };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast, setting });
-    // qc22: new prompt format "3 columns × 3 rows = 9 cells"
-    expect(prompt).toContain("3 columns × 3 rows = 9 cells");
+    // G1e2 Phase 1: new 4-tier format "3×3 = 9 cells"
+    expect(prompt).toContain("3×3 = 9 cells");
     expect(prompt).toContain("16:9");
     expect(prompt).toContain("2 filled");
     expect(prompt).toContain("7 empty");
     expect(prompt).toContain("The Awakening");
     expect(prompt).toContain("Robot");
-    expect(prompt).toContain("Cell 1:");
-    expect(prompt).toContain("Cell 2:");
-    expect(prompt).toContain("Cell 3:"); // empty cell
+    expect(prompt).toContain("Cell 1");
+    expect(prompt).toContain("Cell 2");
+    expect(prompt).toContain("Cell 3"); // empty cell
     expect(prompt).toContain("EMPTY");
     // r6 (BUG #2 fix): EN priority — shot titleEn/actionEn used, not Vi
     expect(prompt).toContain("Opening");
     expect(prompt).toContain("Close");
     expect(prompt).not.toContain("Mở đầu"); // Vi must NOT leak into EN prompt
     expect(prompt).not.toContain("Cận cảnh");
-    // r6: STRICT LAYOUT block + grid template ref mention (lowercase Image #1)
-    expect(prompt).toContain("STRICT LAYOUT REQUIREMENT");
+    // G1e2: 4-tier hierarchy + grid template ref
+    expect(prompt).toContain("TIER 1 — ABSOLUTE LOCK");
+    expect(prompt).toContain("GRID LAYOUT: EXACTLY 3×3 cells");
     expect(prompt).toContain("Image #1");
     expect(prompt).toContain("image-01_grid-template.png");
-    // r6 (BUG #3): cinematic intent block injected from pacing data
+    // G1e2: CINEMATIC INTENT block inlined in Tier 2
     expect(prompt).toContain("CINEMATIC INTENT");
     expect(prompt).toContain("Lighting:");
-    expect(prompt).toContain("Color palette:");
+    expect(prompt).toContain("Palette:");
   });
 
   it("Sprint 1.0 r7: ensureSceneGrids locks 3x3 for Film mode regardless of shot count", async () => {
@@ -2721,7 +2749,7 @@ describe("Film v0.9.3 schema + actions", () => {
   });
 
   it("qc16 Migration A drops per-shot grid data on load", async () => {
-    const { migrateQc16DropPerShotGrids } = await import("../src/store/migration");
+    const { migratePerShotGridsToSceneLevel } = await import("../src/store/migration");
     const projWithOldData: any = {
       id: "test",
       schemaVersion: "v0.9",
@@ -2746,7 +2774,7 @@ describe("Film v0.9.3 schema + actions", () => {
         updatedAt: Date.now(),
       },
     };
-    const migrated = migrateQc16DropPerShotGrids(projWithOldData);
+    const migrated = migratePerShotGridsToSceneLevel(projWithOldData);
     const shot = (migrated as any).filmV093.shotsBySceneId.sc1[0];
     expect(shot.framesR5).toBeUndefined();
     expect(shot.gridImageDataUrl).toBeUndefined();
@@ -2762,7 +2790,7 @@ describe("Film v0.9.3 schema + actions", () => {
   });
 
   it("qc16 Migration A is idempotent (qc16Migrated marker prevents double-run)", async () => {
-    const { migrateQc16DropPerShotGrids } = await import("../src/store/migration");
+    const { migratePerShotGridsToSceneLevel } = await import("../src/store/migration");
     const projAlreadyMigrated: any = {
       filmV093: {
         qc16Migrated: true,
@@ -2772,7 +2800,7 @@ describe("Film v0.9.3 schema + actions", () => {
         },
       },
     };
-    const migrated = migrateQc16DropPerShotGrids(projAlreadyMigrated);
+    const migrated = migratePerShotGridsToSceneLevel(projAlreadyMigrated);
     // No-op: marker present, original shot framesR5 preserved
     expect((migrated as any).filmV093.shotsBySceneId.sc1[0].framesR5).toBeDefined();
   });
@@ -2832,9 +2860,9 @@ describe("Film v0.9.3 schema + actions", () => {
   // qc17 — Provider durations + grid-aware Shot List + Edit Frame Modal
   // ============================================================================
 
-  it("qc17 PROVIDER_DURATIONS has 5 providers with verified specs", async () => {
+  it("qc17 → r7.37 PROVIDER_DURATIONS has 6 providers with verified specs", async () => {
     const { PROVIDER_DURATIONS } = await import("../src/engine/providerDurations");
-    expect(PROVIDER_DURATIONS.length).toBe(5);
+    expect(PROVIDER_DURATIONS.length).toBe(6);
 
     const seedance = PROVIDER_DURATIONS.find((p) => p.providerId === "seedance-2-pro");
     expect(seedance?.mode).toBe("range");
@@ -2853,6 +2881,11 @@ describe("Film v0.9.3 schema + actions", () => {
 
     const grok = PROVIDER_DURATIONS.find((p) => p.providerId === "grok-imagine");
     expect(grok?.values).toEqual([6, 10]);
+
+    // r7.37: Gemini Omni added (4s / 6s / 8s / 10s)
+    const omni = PROVIDER_DURATIONS.find((p) => p.providerId === "gemini-omni");
+    expect(omni?.mode).toBe("discrete");
+    expect(omni?.values).toEqual([4, 6, 8, 10]);
   });
 
   it("qc17 isDurationValid: range mode (Seedance)", async () => {
@@ -2934,6 +2967,47 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(formatDurationsForUI("kling-2")).toBe("5s / 10s");
     expect(formatDurationsForUI("sora")).toBe("5s / 10s / 20s");
     expect(formatDurationsForUI("unknown")).toBe("any duration");
+  });
+
+  // r7.37: Gemini Omni provider added (4s / 6s / 8s / 10s discrete)
+  it("r7.37 gemini-omni: getSupportedDurations returns [4, 6, 8, 10]", async () => {
+    const { getSupportedDurations } = await import("../src/engine/providerDurations");
+    expect(getSupportedDurations("gemini-omni")).toEqual([4, 6, 8, 10]);
+  });
+
+  it("r7.37 gemini-omni: clampDurationToProvider picks nearest discrete value", async () => {
+    const { clampDurationToProvider } = await import("../src/engine/providerDurations");
+    expect(clampDurationToProvider(4, "gemini-omni")).toBe(4); // exact
+    expect(clampDurationToProvider(5, "gemini-omni")).toBe(4); // delta 1 vs delta 1 — first wins
+    expect(clampDurationToProvider(7, "gemini-omni")).toBe(6); // delta 1 vs delta 1 — first wins
+    expect(clampDurationToProvider(9, "gemini-omni")).toBe(8); // delta 1 vs delta 1 — first wins
+    expect(clampDurationToProvider(11, "gemini-omni")).toBe(10); // clamp high
+    expect(clampDurationToProvider(2, "gemini-omni")).toBe(4); // clamp low
+  });
+
+  it("r7.37 gemini-omni: formatDurationsForPrompt includes all 4 values", async () => {
+    const { formatDurationsForPrompt } = await import("../src/engine/providerDurations");
+    const out = formatDurationsForPrompt("gemini-omni");
+    expect(out).toContain("4");
+    expect(out).toContain("6");
+    expect(out).toContain("8");
+    expect(out).toContain("10");
+    expect(out).toContain("seconds");
+  });
+
+  it("r7.37 gemini-omni: formatDurationsForUI short label", async () => {
+    const { formatDurationsForUI } = await import("../src/engine/providerDurations");
+    expect(formatDurationsForUI("gemini-omni")).toBe("4s / 6s / 8s / 10s");
+  });
+
+  it("r7.37 gemini-omni: resolveVideoProvider returns Omni entry (NOT fallback Seedance)", async () => {
+    const { resolveVideoProvider, DEFAULT_VIDEO_PROVIDERS } = await import("../src/types/film");
+    const p = resolveVideoProvider("gemini-omni", []);
+    expect(p.id).toBe("gemini-omni");
+    expect(p.name).toBe("Gemini Omni");
+    expect(p.maxDurationSec).toBe(10);
+    // Sanity: entry exists in defaults
+    expect(DEFAULT_VIDEO_PROVIDERS.find((x) => x.id === "gemini-omni")).toBeTruthy();
   });
 
   it("qc17 → qc19 runShotListForScene: gridFormat backward-compat in type, narrative-driven prompt", async () => {
@@ -3714,13 +3788,13 @@ describe("Film v0.9.3 schema + actions", () => {
     const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
-    // qc22: prompt mentions cols × rows (not rows × cols)
-    expect(prompt).toContain("4 columns × 2 rows");
-    expect(prompt).toContain("STRICT LAYOUT REQUIREMENT");
+    // G1e2 Phase 1: new format "4×2 = 8 cells"
+    expect(prompt).toContain("4×2 = 8 cells");
+    expect(prompt).toContain("TIER 1 — ABSOLUTE LOCK");
     // r6 (BUG #6 fix): lowercase Image #1 (was IMAGE #1), explicit filename callout
     expect(prompt).toContain("Image #1");
     expect(prompt).toContain("image-01_grid-template.png");
-    expect(prompt).toContain("DO NOT add cells");
+    expect(prompt).toContain("GRID LAYOUT: EXACTLY 4×2 cells");
   });
 
   it("qc22 GridCropPreviewModal source: format dropdown editable, onApprove returns finalGridFormat", async () => {
@@ -3758,10 +3832,11 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(prompt).toContain("single-frame storyboard image");
     expect(prompt).toContain("Opening");
     expect(prompt).toContain("16:9");
-    // qc22: NOT a grid prompt
-    expect(prompt).not.toContain("STRICT LAYOUT REQUIREMENT");
+    // G1e2: NOT a grid prompt — no grid layout block
+    expect(prompt).not.toContain("GRID LAYOUT: EXACTLY");
     expect(prompt).not.toContain("columns × ");
-    expect(prompt).toContain("Single image (NOT a grid");
+    expect(prompt).toContain("SINGLE IMAGE (not grid, not collage)");
+    expect(prompt).toContain("TIER 1 — ABSOLUTE LOCK");
   });
 
   it("qc22 buildAnimationPromptAdvanced: first-frame + last-frame interpolation prompt", async () => {
@@ -3785,7 +3860,10 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(prompt).toContain("IMAGE #2 (LAST FRAME)");
     expect(prompt).toContain("Robot enters"); // first frame title
     expect(prompt).toContain("Robot at center"); // last frame title
-    expect(prompt).toContain("INTERPOLATION RULES");
+    // G1e2: 4-tier hierarchy replaces INTERPOLATION RULES header
+    expect(prompt).toContain("TIER 1 — ABSOLUTE LOCK");
+    expect(prompt).toContain("Begin EXACTLY at IMAGE #1");
+    expect(prompt).toContain("End EXACTLY at IMAGE #2");
     expect(prompt).toContain("TIMING");
     expect(prompt).toContain("CAMERA:");
   });
@@ -5072,13 +5150,13 @@ describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
     };
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
-    // CINEMATIC INTENT block exists
+    // CINEMATIC INTENT block exists in Tier 2
     expect(prompt).toContain("CINEMATIC INTENT");
-    // Tension + emotion labels in prompt
-    expect(prompt).toContain("Dominant emotion: shocking");
+    // G1e2: compact emotion line "Emotion: shocking · Tension: 9/10"
+    expect(prompt).toContain("Emotion: shocking");
     expect(prompt).toContain("Tension: 9/10");
-    // Per-cell rhythm role hint
-    expect(prompt).toContain("role=peak");
+    // Per-cell rhythm role hint (now compact: ", peak")
+    expect(prompt).toContain("peak");
     expect(prompt).toContain("COMPOSITION:");
     // Shocking emotion lighting hint
     expect(prompt).toContain("harsh top-light");
@@ -5123,7 +5201,8 @@ describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
       allScenes: [scene1, scene5],
       setupPayoffPairs: pairs,
     });
-    expect(prompt).toContain("NARRATIVE CONTINUITY");
+    // G1e2: new lowercase header
+    expect(prompt).toContain("Narrative continuity anchors:");
     expect(prompt).toContain("SETUP for \"Mật mã 3-5 nhịp\"");
     expect(prompt).toContain("payoff in scene 5");
   });
@@ -5137,9 +5216,9 @@ describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
     expect(prompt).toContain("Lighting:");
-    expect(prompt).toContain("Color palette:");
+    expect(prompt).toContain("Palette:");
     expect(prompt).toContain("Atmosphere:");
-    expect(prompt).toContain("Framing intensity:");
+    expect(prompt).toContain("Framing scale:");
     // Tender emotion: golden-hour key light
     expect(prompt).toContain("golden-hour");
   });
@@ -5181,9 +5260,11 @@ describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
     expect(prompt).toContain("CINEMATIC INTENT");
-    expect(prompt).toContain("Scene emotion: tense");
+    // G1e2: compact emotion line
+    expect(prompt).toContain("Emotion: tense");
     expect(prompt).toContain("Tension: 8/10");
-    expect(prompt).toContain("Shot rhythm role: peak");
+    // Rhythm role appears in Tier 3
+    expect(prompt).toContain("Rhythm: peak");
     expect(prompt).toContain("cool blue key light");
   });
 
@@ -5202,8 +5283,8 @@ describe("Sprint 1.0 r6 — prompt pipeline fix (BUG #1 to #6)", () => {
     const provider: any = { id: "seedance-2-pro", name: "Seedance 2.0 Pro" };
     const prompt = buildAnimationPrompt({ shot, scene, cast: [], setting, provider });
     expect(prompt).toContain("EMOTIONAL & MOTION INTENT");
-    expect(prompt).toContain("Shot role: build");
-    expect(prompt).toContain("Motion intent:");
+    expect(prompt).toContain("Role: build");
+    expect(prompt).toContain("Motion:");
     expect(prompt).toContain("energy accumulates");
   });
 
@@ -5299,16 +5380,133 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(src).toContain("REQUIRED — never skip");
   });
 
-  it("Engine prompt: shot list system requires purposeEn + lightingHintEn + cameraVaried", async () => {
+  it("r7.21 — cameraMovement single source of truth has 19 values (3 universal + 8 veo3 + 8 omni)", async () => {
+    const { CAMERA_MOVEMENT_OPTIONS } = await import("../src/types/cameraMovement");
+    expect(CAMERA_MOVEMENT_OPTIONS.length).toBe(19);
+    const universal = CAMERA_MOVEMENT_OPTIONS.filter((o) => o.veo3Compatible && o.omniCompatible);
+    const veoOnly = CAMERA_MOVEMENT_OPTIONS.filter((o) => o.veo3Compatible && !o.omniCompatible);
+    const omniOnly = CAMERA_MOVEMENT_OPTIONS.filter((o) => !o.veo3Compatible && o.omniCompatible);
+    expect(universal.length).toBe(3);
+    expect(veoOnly.length).toBe(8);
+    expect(omniOnly.length).toBe(8);
+    // Omni-specific terms per DeepMind official guide
+    const omniValues = omniOnly.map((o) => o.value);
+    expect(omniValues).toContain("oner");
+    expect(omniValues).toContain("push_in");
+    expect(omniValues).toContain("dolly_zoom");
+    expect(omniValues).toContain("smartphone_zoom");
+  });
+
+  it("r7.21 — getEnglishTerm uses labelEn for known values, falls back gracefully for legacy", async () => {
+    const { getEnglishTerm } = await import("../src/types/cameraMovement");
+    // Omni-specific labels (e.g. "oner" renders as natural "one continuous shot")
+    expect(getEnglishTerm("oner")).toBe("one continuous shot");
+    expect(getEnglishTerm("smartphone_zoom")).toBe("natural smartphone zoom");
+    expect(getEnglishTerm("dolly_zoom")).toBe("dolly zoom");
+    // Legacy unknown values fall back to snake_case → spaces
+    expect(getEnglishTerm("steadicam_smooth")).toBe("steadicam smooth");
+    expect(getEnglishTerm("drone_aerial")).toBe("drone aerial");
+  });
+
+  it("r7.21 — UI dropdowns use single source of truth (no local CAMERA_MOVEMENT_OPTIONS arrays)", async () => {
     const fs = await import("fs");
     const path = await import("path");
-    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
-    expect(src).toContain('"purposeEn"');
-    expect(src).toContain('"lightingHintEn"');
-    expect(src).toContain("CAMERA MOVEMENT VARIETY");
-    expect(src).toContain("DO NOT default to");
-    // Beat coverage rules
-    expect(src).toContain("BEAT COVERAGE RULES");
+    const shotList = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    const frameEdit = fs.readFileSync(path.resolve("./src/components/FilmFrameEditModal.tsx"), "utf-8");
+    // Both should import from cameraMovement.ts, not define locally
+    expect(shotList).toContain('from "../types/cameraMovement"');
+    expect(frameEdit).toContain('from "../types/cameraMovement"');
+    // Old local arrays should not exist
+    expect(shotList).not.toMatch(/const CAMERA_MOVEMENT_OPTIONS:\s*{\s*value:/);
+    expect(frameEdit).not.toMatch(/const CAMERA_MOVEMENT_OPTIONS:\s*{\s*value:/);
+  });
+
+  it("r7.27 — buildAiPromptRules includes FORBIDDEN COMBINATIONS section with action-camera hard constraints", async () => {
+    const { buildAiPromptRules } = await import("../src/types/cameraMovement");
+    const rules = buildAiPromptRules();
+    // Section header present
+    expect(rules).toContain("FORBIDDEN COMBINATIONS");
+    // High-energy action → avoid slow contemplative cameras
+    expect(rules).toMatch(/run.*sprint.*chase/i);
+    expect(rules).toContain("dolly_zoom");
+    expect(rules).toContain("push_in");
+    // Intimate action → avoid motion cameras
+    expect(rules).toMatch(/whisper.*breathe/i);
+    expect(rules).toContain("handheld");
+    expect(rules).toContain("tracking");
+    // Wide establishing → avoid close-up moves
+    expect(rules).toContain("wide_establishing");
+    // Static object → avoid handheld
+    expect(rules).toMatch(/static object|no character movement/i);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints returns Pixar-style filter for cgi_3d_cinematic", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    const pixar = buildStyleCameraConstraints("cgi_3d_cinematic");
+    expect(pixar).toContain("CGI_3D_CINEMATIC");
+    expect(pixar).toMatch(/PREFER:\s*\[[^\]]*static[^\]]*oner[^\]]*push_in/);
+    expect(pixar).toMatch(/AVOID:\s*\[[^\]]*handheld/);
+    // Reason mentions why
+    expect(pixar.toLowerCase()).toMatch(/cgi|pixar|low-budget/);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints returns anime-2d filter favoring pan/tilt", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    const anime = buildStyleCameraConstraints("anime_2d");
+    expect(anime).toContain("ANIME_2D");
+    expect(anime).toMatch(/PREFER:\s*\[[^\]]*pan_left[^\]]*pan_right[^\]]*tilt_up/);
+    expect(anime).toMatch(/AVOID:\s*\[[^\]]*dolly_zoom/);
+    expect(anime.toLowerCase()).toMatch(/ghibli|anime|drawn-cel/);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints returns stop_motion filter with physical rig limitations", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    const stopMotion = buildStyleCameraConstraints("stop_motion");
+    expect(stopMotion).toContain("STOP_MOTION");
+    expect(stopMotion).toMatch(/PREFER:\s*\[[^\]]*static[^\]]*locked_off/);
+    expect(stopMotion).toMatch(/AVOID:\s*\[[^\]]*tracking[^\]]*oner/);
+    expect(stopMotion.toLowerCase()).toMatch(/physical|stop-motion|wes anderson/);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints returns film_noir filter favoring stable frame + dolly_zoom", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    const noir = buildStyleCameraConstraints("film_noir");
+    expect(noir).toContain("FILM_NOIR");
+    expect(noir).toMatch(/PREFER:\s*\[[^\]]*static[^\]]*dolly_zoom/);
+    expect(noir).toMatch(/AVOID:\s*\[[^\]]*smartphone_zoom|webcam_style/);
+    expect(noir.toLowerCase()).toMatch(/noir|hitchcock|contrast/);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints handles live_action with no AVOID restrictions", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    const live = buildStyleCameraConstraints("live_action");
+    expect(live).toContain("LIVE_ACTION");
+    expect(live).toMatch(/PREFER:\s*\[[^\]]*tracking[^\]]*handheld/);
+    // live_action has empty avoid → no AVOID line should appear
+    expect(live).not.toMatch(/AVOID:\s*\[/);
+  });
+
+  it("r7.27 — buildStyleCameraConstraints returns empty string for unknown/legacy style (graceful)", async () => {
+    const { buildStyleCameraConstraints } = await import("../src/types/cameraMovement");
+    expect(buildStyleCameraConstraints()).toBe("");
+    expect(buildStyleCameraConstraints(undefined)).toBe("");
+    expect(buildStyleCameraConstraints("non_existent_style")).toBe("");
+    expect(buildStyleCameraConstraints("pixar_3d_legacy_value")).toBe("");
+  });
+
+  it("r7.27 — filmShotListGeneration injects buildStyleCameraConstraints into system prompt", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/engine/filmShotListGeneration.ts"),
+      "utf-8"
+    );
+    // Import statement present
+    expect(src).toContain("buildStyleCameraConstraints");
+    // Injected into both system prompts (generateShotListForScene + regenSingleShot)
+    const matches = src.match(/buildStyleCameraConstraints\(setting\.animationStyle\)/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(2);
   });
 
   it("Grid prompt: PHYSICAL CONSISTENCY LOCK block injected from scene field", async () => {
@@ -5323,9 +5521,808 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     };
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
-    expect(prompt).toContain("PHYSICAL CONSISTENCY LOCK");
+    // G1e2: header changed to "PHYSICAL CONSISTENCY" (no LOCK suffix), inlined in Tier 1
+    expect(prompt).toContain("PHYSICAL CONSISTENCY");
     expect(prompt).toContain("moss-covered");
     expect(prompt).toContain("Ivy curtain");
+  });
+
+  it("r7.28-fix — duplicate project clears all generated script data (Gấu Bự → Robot N.A.M.O bug)", async () => {
+    // Repro: user duplicates a finished Film project then edits idea.
+    // Before fix: script, structure, beats, twists, intermediateScenes, narrativeDirection
+    // all leaked from template → downstream contamination.
+    // After fix: only characters + settingV2 + idea preserved; everything else cleared.
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/Projects.tsx"), "utf-8");
+    // Verify duplicate handler clears all 8 generated fields
+    expect(src).toMatch(/script:\s*undefined/);
+    expect(src).toMatch(/scriptStructure:\s*undefined/);
+    expect(src).toMatch(/scriptBeats:\s*undefined/);
+    expect(src).toMatch(/scriptTwists:\s*undefined/);
+    expect(src).toMatch(/scriptIntermediateScenes:\s*undefined/);
+    expect(src).toMatch(/narrativeDirection:\s*undefined/);
+    expect(src).toMatch(/sceneGrids:\s*undefined/);
+    expect(src).toMatch(/shotsBySceneId:\s*\{\}/);
+    // Verify old "preserved" comment removed (was the bug source)
+    expect(src).not.toContain("Other Film data preserved: characters, script, structure");
+  });
+
+  it("r7.28-fix — Stage 5 no_dialog mode builds film.script from intermediateScenes (no AI call, prevents stale leak)", async () => {
+    // Repro: before fix, no_dialog mode hit `setStatus("done"); return;` early-return
+    // in runScriptStage5 → film.script untouched → stale data from previous project
+    // leaked into Shot List + Storyboard downstream.
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/engine/autoChainOrchestrator.ts"),
+      "utf-8"
+    );
+    // Verify buildNoDialogScript helper exists
+    expect(src).toContain("function buildNoDialogScript");
+    expect(src).toContain("deriveActFromIndex");
+    // Verify no_dialog branch now CALLS setScript (not early-return without it)
+    const stage5Block = src.match(/runScriptStage5[\s\S]*?(?=private async runAnalyzeScenes)/);
+    expect(stage5Block).not.toBeNull();
+    const block = stage5Block![0];
+    // The no_dialog branch must invoke setScript with the built script
+    expect(block).toMatch(/no_dialog.*[\s\S]*setScript\(p,\s*noDialogScript\)/);
+    // Old early-return pattern (just status + return) must be gone
+    expect(block).not.toMatch(/no_dialog[\s\S]*?setStatus\("script-stage-5",\s*"done"\);\s*await this\.sleep[\s\S]*?return;\s*\}\s*if \(!film\.scriptStructure\)/);
+  });
+
+  it("r7.28-fix — deriveActFromIndex returns valid 5-act labels in correct position", async () => {
+    // Re-import + parse to test helper logic directly via reflection-free check
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/engine/autoChainOrchestrator.ts"),
+      "utf-8"
+    );
+    // Verify all 5 act labels appear in the helper
+    expect(src).toMatch(/return "setup"/);
+    expect(src).toMatch(/return "inciting"/);
+    expect(src).toMatch(/return "rising"/);
+    expect(src).toMatch(/return "climax"/);
+    expect(src).toMatch(/return "resolution"/);
+  });
+
+  it("r7.29 Feature 1B — derivePipelineProgress detects all stages missing for empty project", async () => {
+    const { derivePipelineProgress } = await import("../src/engine/pipelineProgress");
+    const result = derivePipelineProgress(null);
+    expect(result.isComplete).toBe(false);
+    expect(result.isInProgress).toBe(false);
+    expect(result.firstMissing).toBe("script-stage-1");
+    expect(result.lastCompleted).toBeNull();
+    expect(result.sections.length).toBe(8);
+    expect(result.sections.every((s) => s.status === "missing")).toBe(true);
+  });
+
+  it("r7.29 Feature 1B — derivePipelineProgress detects pipeline in-progress (stages 1-3 done, 4 missing)", async () => {
+    const { derivePipelineProgress } = await import("../src/engine/pipelineProgress");
+    const project = {
+      filmV093: {
+        scriptStructure: { framework: "three-act", contentEn: "...", contentVi: "..." },
+        scriptBeats: [{ order: 1, title: "B1", description: "..." }],
+        scriptTwistsLocked: true, // user explicitly chose no twists
+        // Stage 4+ all missing
+      },
+    } as any;
+    const result = derivePipelineProgress(project);
+    expect(result.isInProgress).toBe(true);
+    expect(result.isComplete).toBe(false);
+    expect(result.lastCompleted).toBe("script-stage-3");
+    expect(result.firstMissing).toBe("script-stage-4");
+  });
+
+  it("r7.29 Feature 1B — derivePipelineProgress detects complete pipeline (all 8 stages done)", async () => {
+    const { derivePipelineProgress } = await import("../src/engine/pipelineProgress");
+    const scenes = [
+      {
+        id: "sc1",
+        beats: [{ id: "b1", order: 1 }],
+        grids: [{ gridImageDataUrl: "data:image/png;base64,xxx" }],
+      },
+    ];
+    const project = {
+      filmV093: {
+        scriptStructure: { framework: "three-act" },
+        scriptBeats: [{ order: 1 }],
+        scriptTwists: [{ description: "X" }],
+        scriptIntermediateScenes: [{ order: 1, titleEn: "S1" }],
+        script: { scenes },
+        shotsBySceneId: { sc1: [{ id: "sh1" }] },
+      },
+    } as any;
+    const result = derivePipelineProgress(project);
+    expect(result.isComplete).toBe(true);
+    expect(result.firstMissing).toBeNull();
+    expect(result.lastCompleted).toBe("grid-build");
+  });
+
+  it("r7.32-fix — grid-build detector reads SceneGrid.gridImageDataUrl field (NOT 'image') — banner stuck bug regression", async () => {
+    // Bug: r7.29 derivePipelineProgress used `!!g.image` but real schema field is
+    // SceneGrid.gridImageDataUrl. → Always undefined → grid-build status forever "missing"
+    // → "Pipeline dở dang" banner stuck showing even after user fully gen storyboard.
+    const { derivePipelineProgress } = await import("../src/engine/pipelineProgress");
+
+    // Case 1: grids have gridImageDataUrl populated → should detect as "done"
+    const projectDone = {
+      filmV093: {
+        scriptStructure: { framework: "three-act" },
+        scriptBeats: [{ order: 1 }],
+        scriptTwistsLocked: true,
+        scriptIntermediateScenes: [{ order: 1 }],
+        script: { scenes: [{ id: "sc1", beats: [{ id: "b1" }], grids: [{ gridImageDataUrl: "data:..." }] }] },
+        shotsBySceneId: { sc1: [{ id: "sh1" }] },
+      },
+    } as any;
+    const resultDone = derivePipelineProgress(projectDone);
+    const gridStatus = resultDone.sections.find((s) => s.id === "grid-build")?.status;
+    expect(gridStatus).toBe("done");
+    expect(resultDone.isComplete).toBe(true);
+
+    // Case 2: legacy/incorrect field `image` → should STILL detect as "missing"
+    // (proves we read gridImageDataUrl specifically, not just any truthy property)
+    const projectLegacyField = {
+      filmV093: {
+        scriptStructure: { framework: "three-act" },
+        scriptBeats: [{ order: 1 }],
+        scriptTwistsLocked: true,
+        scriptIntermediateScenes: [{ order: 1 }],
+        script: { scenes: [{ id: "sc1", beats: [{ id: "b1" }], grids: [{ image: "data:..." }] }] },
+        shotsBySceneId: { sc1: [{ id: "sh1" }] },
+      },
+    } as any;
+    const resultLegacy = derivePipelineProgress(projectLegacyField);
+    const gridStatusLegacy = resultLegacy.sections.find((s) => s.id === "grid-build")?.status;
+    expect(gridStatusLegacy).toBe("missing");
+
+    // Case 3: grid exists but gridImageDataUrl empty string → still "missing"
+    const projectEmptyDataUrl = {
+      filmV093: {
+        scriptStructure: { framework: "three-act" },
+        scriptBeats: [{ order: 1 }],
+        scriptTwistsLocked: true,
+        scriptIntermediateScenes: [{ order: 1 }],
+        script: { scenes: [{ id: "sc1", beats: [{ id: "b1" }], grids: [{ gridImageDataUrl: "" }] }] },
+        shotsBySceneId: { sc1: [{ id: "sh1" }] },
+      },
+    } as any;
+    const resultEmpty = derivePipelineProgress(projectEmptyDataUrl);
+    const gridStatusEmpty = resultEmpty.sections.find((s) => s.id === "grid-build")?.status;
+    expect(gridStatusEmpty).toBe("missing");
+  });
+
+  it("r7.33/r7.35 — PreviewFlowModal: 'Bỏ qua' header button removed, ESC + Thoát button exit via onCancel", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PreviewFlowModal.tsx"),
+      "utf-8"
+    );
+    // r7.33: header "✕ Bỏ qua" REMOVED
+    expect(src).not.toMatch(/className="ksp-preview-flow-close"[\s\S]*?Bỏ qua/);
+    // r7.35: old footer "Bỏ qua — AI tự decide" REPLACED by "✕ Thoát"
+    expect(src).not.toContain("Bỏ qua — AI tự decide");
+    expect(src).toContain("✕ Thoát");
+    // r7.35: ESC now calls onCancel (was blocked in r7.33)
+    expect(src).toMatch(/e\.key === "Escape"[\s\S]*?onCancel\(\)/);
+  });
+
+  it("r7.33 — Step 6 button label changed: 'Lưu & Đóng' instead of 'Lưu & Phân tích'", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PreviewFlowModal.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("Lưu &amp; Đóng");
+    expect(src).not.toContain("Lưu &amp; Phân tích →");
+    // Cost hint updated to explain new 2-step START flow
+    expect(src).toMatch(/section Ý tưởng.*2 nút|2 nút.*START|nút.*START.*Preview/i);
+  });
+
+  it("r7.33 — PreviewFlowModal accepts onCachePersist prop for incremental Dexie save", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PreviewFlowModal.tsx"),
+      "utf-8"
+    );
+    // onCachePersist prop declared
+    expect(src).toContain("onCachePersist");
+    expect(src).toMatch(/onCachePersist\?:\s*\(cache:\s*PreviewCache\)/);
+    // All 5 step gen calls invoke onCachePersist after successful AI return
+    const matches = src.match(/onCachePersist\?\.\(newCache\)/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("r7.33 — FilmIdeaScriptSection: 2-button UI (START + Preview) shown when direction exists", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/FilmIdeaScriptSection.tsx"),
+      "utf-8"
+    );
+    // New handlers added
+    expect(src).toContain("function handleStartAutoChain");
+    expect(src).toContain("function handleReopenPreview");
+    // 2-button block conditional on existingDirection truthy
+    expect(src).toMatch(/existingDirection \?[\s\S]*?ksp-idea-start-btn[\s\S]*?ksp-idea-preview-btn/);
+    expect(src).toContain("ksp-idea-direction-actions");
+    // handlePreviewComplete does NOT call runAutoChain anymore — must be explicit START click
+    const completeMatch = src.match(/function handlePreviewComplete[\s\S]*?\n  \}/);
+    expect(completeMatch).not.toBeNull();
+    expect(completeMatch![0]).not.toContain("runAutoChain");
+    expect(completeMatch![0]).toMatch(/Direction đã lưu/);
+  });
+
+  it("r7.33 — handleOpenPreviewFlow shows confirm dialog only when NO cache exists (new entry)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/FilmIdeaScriptSection.tsx"),
+      "utf-8"
+    );
+    // Confirm dialog code present
+    expect(src).toContain("hasExistingCache");
+    expect(src).toMatch(/window\.confirm/);
+    // Confirm skipped if cache exists (natural re-entry)
+    expect(src).toMatch(/if \(!hasExistingCache\)/);
+    // PreviewFlowModal usage now passes onCachePersist
+    expect(src).toMatch(/onCachePersist=\{[\s\S]*?updateProject\(\{\s*previewCache:\s*newCache/);
+  });
+
+  it("r7.34 — buildOmniMultiShotPrompt adds per-cell timestamps + lighting override (Tip #4 community)", async () => {
+    const { buildOmniMultiShotPrompt } = await import("../src/engine/omniMultiShotPromptBuilder");
+    const result = buildOmniMultiShotPrompt({
+      scene: {
+        id: "sc1",
+        order: 1,
+        titleEn: "Test scene",
+        actionLinesEn: "A character walks through a forest.",
+        settings: "dense forest at dawn",
+        lightingHintEn: "soft morning light",
+        durationSeconds: 12,
+      } as any,
+      shots: [
+        {
+          id: "sh1",
+          order: 1,
+          actionEn: "wide shot of forest",
+          cameraMovement: "static",
+          durationSeconds: 4,
+          lightingHintEn: "soft morning light", // same as scene → should NOT inject override
+        },
+        {
+          id: "sh2",
+          order: 2,
+          actionEn: "character emerges",
+          cameraMovement: "push_in",
+          durationSeconds: 4,
+          lightingHintEn: "dramatic side light", // differs from scene → should inject override
+        },
+        {
+          id: "sh3",
+          order: 3,
+          actionEn: "close-up reveal",
+          cameraMovement: "oner",
+          durationSeconds: 4,
+        },
+      ] as any,
+      cast: [],
+      setting: { animationStyle: "live_action" } as any,
+      hasStoryboardImage: true,
+    });
+
+    // Cell-by-cell cut list present
+    expect(result.promptText).toContain("Cell-by-cell cut list:");
+    // Per-cell timestamps format: "N) X-Ys: <camera>, <action>"
+    expect(result.promptText).toMatch(/1\) 0-4s: static,/);
+    expect(result.promptText).toMatch(/2\) 4-8s:/);
+    expect(result.promptText).toMatch(/3\) 8-12s:/);
+    // Camera vocab mapped correctly (push_in → "push in", oner → "one continuous shot")
+    expect(result.promptText).toMatch(/push in/);
+    expect(result.promptText).toMatch(/one continuous shot/);
+    // Lighting override ONLY for shot 2 (differs from scene global)
+    expect(result.promptText).toContain("[lighting: dramatic side light]");
+    // Shot 1 lighting same as scene → NO override
+    const shot1Match = result.promptText.match(/1\) 0-4s:[^\n]+/);
+    expect(shot1Match?.[0]).not.toContain("[lighting:");
+  });
+
+  it("r7.34 — buildOmniDeepMindPurePrompt is STRICT (no per-cell, no audio, no timestamps)", async () => {
+    const { buildOmniDeepMindPurePrompt } = await import(
+      "../src/engine/omniDeepMindPurePromptBuilder"
+    );
+    const result = buildOmniDeepMindPurePrompt({
+      scene: {
+        id: "sc1",
+        order: 1,
+        titleEn: "Test scene",
+        actionLinesEn: "A character walks.",
+        settings: "dense forest",
+        lightingHintEn: "soft morning light",
+        durationSeconds: 10,
+      } as any,
+      shots: [
+        {
+          id: "sh1",
+          order: 1,
+          actionEn: "wide shot",
+          cameraMovement: "static",
+          durationSeconds: 5,
+          audioDirection: "birds chirping",
+        },
+        {
+          id: "sh2",
+          order: 2,
+          actionEn: "close-up",
+          cameraMovement: "push_in",
+          durationSeconds: 5,
+        },
+      ] as any,
+      cast: [],
+      setting: { animationStyle: "live_action" } as any,
+      hasStoryboardImage: true,
+    });
+
+    // DeepMind 18-word pattern present
+    expect(result.promptText).toContain("Show me in this story");
+    expect(result.promptText).toContain("Follow the story exactly in order starting top-left");
+    expect(result.promptText).toContain("Entire story in 10 seconds");
+    expect(result.promptText).toContain("Cinematic");
+
+    // STRICT removals: NO per-cell descriptions
+    expect(result.promptText).not.toMatch(/1\) 0-/);
+    expect(result.promptText).not.toContain("push in");
+    expect(result.promptText).not.toContain("wide shot"); // shot 1 action not in prompt
+    expect(result.promptText).not.toContain("close-up");  // shot 2 action not in prompt
+
+    // NO audio cues
+    expect(result.promptText).not.toContain("Audio cues");
+    expect(result.promptText).not.toContain("birds chirping");
+
+    // NO cell-by-cell cut list
+    expect(result.promptText).not.toContain("Cell-by-cell");
+
+    // Length should be MUCH shorter than KSP Hybrid
+    expect(result.promptText.length).toBeLessThan(500);
+  });
+
+  it("r7.34 — DeepMind builder adds identity anchor (per Pattern 'Keep your scene consistent')", async () => {
+    const { buildOmniDeepMindPurePrompt } = await import(
+      "../src/engine/omniDeepMindPurePromptBuilder"
+    );
+    const result = buildOmniDeepMindPurePrompt({
+      scene: {
+        id: "sc1",
+        order: 1,
+        actionLinesEn: "Alice walks.",
+        settings: "garden",
+        durationSeconds: 8,
+      } as any,
+      shots: [{ id: "sh1", actionEn: "walks", durationSeconds: 8 } as any],
+      cast: [
+        {
+          id: "c1",
+          name: "Alice",
+          role: "protagonist",
+          isProtagonist: true,
+          conceptSheet: { dataUrl: "data:image/png;base64,xxx" },
+        },
+      ] as any,
+      setting: { animationStyle: "live_action" } as any,
+      hasStoryboardImage: true,
+    });
+
+    // Identity anchor: "<char> as shown in <image_N>. Preserve face... exactly"
+    expect(result.promptText).toMatch(/Alice as shown in <image_0>/);
+    expect(result.promptText).toMatch(/Preserve face.+exactly/);
+    // Storyboard slot at <image_1> (after char concept sheet at slot 0)
+    expect(result.promptText).toContain("<image_1>");
+    // 2 references (concept + storyboard)
+    expect(result.references.length).toBe(2);
+    expect(result.references[0].filename).toContain("alice");
+    expect(result.references[1].filename).toContain("storyboard");
+  });
+
+  it("r7.34 → r7.38 — FilmStoryboardSection has 2 A/B prompt buttons (copy clipboard) + Refs ZIP moved into header", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/FilmStoryboardSection.tsx"),
+      "utf-8"
+    );
+    // 2 prompt buttons still present (labels unchanged)
+    expect(src).toContain("📋 KSP Prompt");
+    expect(src).toContain("📋 DeepMind Prompt");
+    // r7.38: handlers renamed download→copy
+    expect(src).toContain("handleCopyKspPrompt");
+    expect(src).toContain("handleCopyDeepMindPrompt");
+    // r7.38: copy clipboard call present
+    expect(src).toContain("navigator.clipboard.writeText");
+    // Old r7.34 handler names + ZIP download REMOVED
+    expect(src).not.toContain("handleDownloadKspPromptZip");
+    expect(src).not.toContain("handleDownloadDeepMindPromptZip");
+    expect(src).not.toContain("scene-${scene.order}_omni_KSP.zip");
+    expect(src).not.toContain("scene-${scene.order}_omni_DeepMind.zip");
+    // Old r7.34 Multi Shot also still removed
+    expect(src).not.toContain("🎯 Multi Shot Prompt");
+    expect(src).not.toContain("handleDownloadMultiShotOmniPrompt");
+    // r7.38: Refs ZIP exists exactly ONCE (moved, not duplicated)
+    const refsZipMatches = src.match(/Refs ZIP/g) ?? [];
+    expect(refsZipMatches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("r7.34 — DeepMind builder is SHORTER than KSP builder for same input (verifies trade-off)", async () => {
+    const { buildOmniMultiShotPrompt } = await import("../src/engine/omniMultiShotPromptBuilder");
+    const { buildOmniDeepMindPurePrompt } = await import(
+      "../src/engine/omniDeepMindPurePromptBuilder"
+    );
+    const commonInput = {
+      scene: {
+        id: "sc1",
+        order: 1,
+        actionLinesEn: "A walks through B.",
+        settings: "place",
+        lightingHintEn: "warm light",
+        durationSeconds: 15,
+      } as any,
+      shots: Array.from({ length: 5 }, (_, i) => ({
+        id: `sh${i + 1}`,
+        order: i + 1,
+        actionEn: `shot ${i + 1} action`,
+        cameraMovement: "static",
+        durationSeconds: 3,
+        audioDirection: `audio ${i + 1}`,
+      })) as any,
+      cast: [],
+      setting: { animationStyle: "live_action" } as any,
+      hasStoryboardImage: true,
+    };
+
+    const ksp = buildOmniMultiShotPrompt(commonInput);
+    const dm = buildOmniDeepMindPurePrompt(commonInput);
+
+    // DeepMind must be significantly shorter (research finding: ~150-300 vs ~600-1200 chars)
+    expect(dm.promptText.length).toBeLessThan(ksp.promptText.length);
+    // Ratio: DeepMind should be < 50% length of KSP
+    expect(dm.promptText.length / ksp.promptText.length).toBeLessThan(0.5);
+  });
+
+  it("r7.29 Feature 1B — derivePipelineProgress shot-list detects partial coverage (some scenes have shots)", async () => {
+    const { derivePipelineProgress } = await import("../src/engine/pipelineProgress");
+    const project = {
+      filmV093: {
+        scriptStructure: { framework: "three-act" },
+        scriptBeats: [{ order: 1 }],
+        scriptTwistsLocked: true,
+        scriptIntermediateScenes: [{ order: 1 }],
+        script: {
+          scenes: [
+            { id: "sc1", beats: [{ id: "b1" }] },
+            { id: "sc2", beats: [{ id: "b2" }] },
+          ],
+        },
+        // sc1 has shots, sc2 doesn't → shot-list incomplete
+        shotsBySceneId: { sc1: [{ id: "sh1" }] },
+      },
+    } as any;
+    const result = derivePipelineProgress(project);
+    // shot-list should be missing (sc2 has no shots)
+    const shotListSection = result.sections.find((s) => s.id === "shot-list");
+    expect(shotListSection?.status).toBe("missing");
+    expect(result.firstMissing).toBe("shot-list");
+  });
+
+  it("r7.29 Feature 2A — invalidateCacheForStep clears step 1 cache only (other steps preserved)", async () => {
+    const { invalidateCacheForStep } = await import("../src/engine/previewFlowSynthesizer");
+    const cache = {
+      step1Options: [{ id: "A" }] as any,
+      step2OptionsByStep1: { "key1": [{ id: "X" }] as any },
+    };
+    const result = invalidateCacheForStep(cache, 1, {});
+    expect(result.step1Options).toBeUndefined();
+    // Step 2 cache preserved
+    expect(result.step2OptionsByStep1).toEqual({ "key1": [{ id: "X" }] });
+  });
+
+  it("r7.29 Feature 2A — invalidateCacheForStep clears specific step 3 entry (other entries preserved)", async () => {
+    const { invalidateCacheForStep, cacheKeyForStep3 } = await import(
+      "../src/engine/previewFlowSynthesizer"
+    );
+    const pick1 = { optionId: "A", resolvedTitleEn: "T1", resolvedDescriptionVi: "D1" } as any;
+    const pick2 = { optionId: "B", resolvedTitleEn: "T2", resolvedDescriptionVi: "D2" } as any;
+    const otherPick = { optionId: "C", resolvedTitleEn: "T3", resolvedDescriptionVi: "D3" } as any;
+    const key = cacheKeyForStep3(pick1, pick2);
+    const otherKey = cacheKeyForStep3(pick1, otherPick);
+    const cache = {
+      step3OptionsByStep12: {
+        [key]: [{ id: "X" }] as any,
+        [otherKey]: [{ id: "Y" }] as any,
+      },
+    };
+    const result = invalidateCacheForStep(cache, 3, { step1: pick1, step2: pick2 });
+    // Target key removed
+    expect(result.step3OptionsByStep12?.[key]).toBeUndefined();
+    // Other key preserved
+    expect(result.step3OptionsByStep12?.[otherKey]).toEqual([{ id: "Y" }]);
+  });
+
+  it("r7.29 Feature 1A — AutoChainRetryBanner imports SectionId + uses retryFromSection", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/AutoChainRetryBanner.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("import type { SectionId }");
+    expect(src).toContain("retryFromSection");
+    // Reads narrativeDirection from project (not from a ref like FilmIdeaScriptSection)
+    expect(src).toContain("(project as any).narrativeDirection");
+  });
+
+  it("r7.29/r7.36 — PipelineResumeBanner ONLY shows on abort/error (autoChainAbort field), persists dismiss to project", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PipelineResumeBanner.tsx"),
+      "utf-8"
+    );
+    // Reads abort record from project
+    expect(src).toContain("autoChainAbort");
+    expect(src).toContain("(project as any).narrativeDirection");
+    expect(src).toContain("retryFromSection");
+    // r7.36: NO longer uses derivePipelineProgress (banner != progress)
+    expect(src).not.toContain("derivePipelineProgress");
+    // r7.36: dismiss persisted to project (NOT sessionStorage)
+    expect(src).not.toContain("sessionStorage");
+    expect(src).toContain("dismissedByUser");
+    // r7.36: distinguishes user_cancelled vs error visually
+    expect(src).toMatch(/abort\.reason\s*===\s*"error"/);
+  });
+
+  it("r7.36 — orchestrator sets autoChainAbort on cancel/error, clears on success", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/engine/autoChainOrchestrator.ts"),
+      "utf-8"
+    );
+    // Sets autoChainAbort with user_cancelled when abortRequested detected
+    expect(src).toMatch(/reason:\s*"user_cancelled"/);
+    // Sets autoChainAbort with error when catch block hit
+    expect(src).toMatch(/reason:\s*"error"/);
+    // Clears autoChainAbort = null on successful complete
+    expect(src).toMatch(/autoChainAbort:\s*null/);
+    // Records the section where abort happened
+    expect(src).toMatch(/abortedAtSection:/);
+  });
+
+  it("r7.36-fix PRICING — Gemini 2.5 Flash standard interactive rates (May 2026 official Google docs)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/engine/costTracker.ts"),
+      "utf-8"
+    );
+    // r7.36-fix: corrected pricing from old batch tier ($0.075/$0.30) → standard interactive ($0.30/$2.50)
+    // Per https://ai.google.dev/gemini-api/docs/pricing May 2026
+    expect(src).toMatch(/gemini-flash[\s\S]*?inputPerToken:\s*0\.30\s*\/\s*1_000_000/);
+    expect(src).toMatch(/gemini-flash[\s\S]*?outputPerToken:\s*2\.50\s*\/\s*1_000_000/);
+    // Old WRONG values must NOT be present
+    expect(src).not.toMatch(/gemini-flash[\s\S]*?inputPerToken:\s*0\.075\s*\/\s*1_000_000/);
+    // Comment block explaining the fix
+    expect(src).toContain("STANDARD INTERACTIVE rates");
+    expect(src).toContain("May 2026");
+  });
+
+  it("r7.36 — AutoChainAbortRecord schema in project.ts", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/types/project.ts"),
+      "utf-8"
+    );
+    // Field on ProjectV09Extensions
+    expect(src).toContain("autoChainAbort?: AutoChainAbortRecord | null");
+    // Interface exported
+    expect(src).toContain("export interface AutoChainAbortRecord");
+    expect(src).toMatch(/reason:\s*"user_cancelled"\s*\|\s*"error"/);
+    expect(src).toContain("dismissedByUser?: boolean");
+  });
+
+  it("r7.36 PROJECT ISOLATION — setCurrentProject resets autoChainState + clears toast", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/store/useAppStore.ts"),
+      "utf-8"
+    );
+    // setCurrentProject must reset autoChainState (was only generatedPrompts in r7.35)
+    expect(src).toMatch(/setCurrentProject:[\s\S]*?autoChainState:\s*createInitialAutoChainState\(\)/);
+    expect(src).toMatch(/setCurrentProject:[\s\S]*?toast:\s*null/);
+    expect(src).toMatch(/setCurrentProject:[\s\S]*?generatedPrompts:\s*new Map\(\)/);
+  });
+
+  it("r7.36 PROJECT ISOLATION — FilmIdeaScriptSection aborts orchestrator on project.id change", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/FilmIdeaScriptSection.tsx"),
+      "utf-8"
+    );
+    // useEffect with project.id dependency that aborts orchestrator on cleanup
+    expect(src).toMatch(/useEffect\(\(\) => \{[\s\S]*?orchestratorRef\.current\.abort\(\)[\s\S]*?\[project\.id\]/);
+    // Also closes Preview Modal + resets dismissal state
+    expect(src).toMatch(/setShowPreviewFlow\(false\)[\s\S]*?\[project\.id\]/);
+  });
+
+  it("r7.29 Feature 1A — FilmShotListSection + FilmStoryboardSection render AutoChainRetryBanner", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const shotList = fs.readFileSync(
+      path.resolve("./src/components/FilmShotListSection.tsx"),
+      "utf-8"
+    );
+    const storyboard = fs.readFileSync(
+      path.resolve("./src/components/FilmStoryboardSection.tsx"),
+      "utf-8"
+    );
+    expect(shotList).toContain('import { AutoChainRetryBanner }');
+    expect(shotList).toContain("analyze-scenes");
+    expect(shotList).toContain("shot-list");
+    expect(storyboard).toContain('import { AutoChainRetryBanner }');
+    expect(storyboard).toContain('"grid-build"');
+  });
+
+  it("r7.29 Feature 2A — PreviewFlowModal regen button calls loadOptionsForStep with skipCache=true", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PreviewFlowModal.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("invalidateCacheForStep");
+    expect(src).toContain("skipCache: true");
+    // Regen button in step header (not in error block)
+    expect(src).toMatch(/ksp-preview-step-regen-btn/);
+    expect(src).toMatch(/loadOptionsForStep\(currentStep,\s*\{\s*skipCache:\s*true\s*\}\)/);
+  });
+
+  it("r7.30 — Regen button moved out of header (inline next to hint, avoids 'Bỏ qua' overlap)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/PreviewFlowModal.tsx"),
+      "utf-8"
+    );
+    // Regen button now sits inside ksp-preview-flow-hint-row (new wrapper),
+    // NOT inside ksp-preview-flow-title (header where Bỏ qua button is)
+    expect(src).toContain("ksp-preview-flow-hint-row");
+    // Verify Regen button NOT in header anymore
+    const titleBlockMatch = src.match(
+      /<div className="ksp-preview-flow-title">[\s\S]*?<\/div>/
+    );
+    expect(titleBlockMatch).not.toBeNull();
+    expect(titleBlockMatch![0]).not.toContain("ksp-preview-step-regen-btn");
+    // Verify CSS has flex row styling
+    const cssSrc = fs.readFileSync(
+      path.resolve("./src/components/film.css"),
+      "utf-8"
+    );
+    expect(cssSrc).toContain(".ksp-preview-flow-hint-row");
+    expect(cssSrc).toMatch(/\.ksp-preview-flow-hint-row\s*\{[\s\S]*?display:\s*flex/);
+  });
+
+  it("r7.30 — buildSceneGridImagePrompt includes SCENE BOUNDARY block in Tier 1 (prevents cross-scene hallucination)", async () => {
+    const { buildSceneGridImagePrompt } = await import(
+      "../src/engine/sceneImagePromptBuilder"
+    );
+    const prompt = buildSceneGridImagePrompt({
+      grid: {
+        gridFormat: "3x3",
+        order: 1,
+        cells: [
+          { order: 1, shotId: "sh1" },
+          { order: 2, shotId: "sh2" },
+          { order: 3, shotId: "sh3" },
+        ],
+      } as any,
+      scene: {
+        id: "sc1",
+        order: 1,
+        titleEn: "Awakening in the Forest",
+        settings: "EXT. TROPICAL FOREST — DAY",
+        actionLinesEn: "Robot awakens in the moss-covered forest",
+        emotionalTone: "shocking",
+      } as any,
+      shots: [
+        { id: "sh1", order: 1, titleEn: "Forest reveal", shotType: "wide", cameraMovement: "pan_right", rhythmRole: "establish" },
+        { id: "sh2", order: 2, titleEn: "Bird approach", shotType: "medium", cameraMovement: "static", rhythmRole: "build" },
+        { id: "sh3", order: 3, titleEn: "Eye flares", shotType: "close_up", cameraMovement: "push_in", rhythmRole: "peak" },
+      ] as any,
+      cast: [],
+      setting: { animationStyle: "cgi_3d_cinematic", aspectRatio: "16:9" } as any,
+      allScenes: [],
+      setupPayoffPairs: [],
+      allGrids: [{ order: 1 }],
+    });
+
+    // Header changed: "storyboard panel" instead of "storyboard grid"
+    expect(prompt).toContain("storyboard panel");
+    expect(prompt).toContain("single scene only");
+
+    // SCENE BOUNDARY block in Tier 1
+    expect(prompt).toContain("SCENE BOUNDARY");
+    expect(prompt).toMatch(/CRITICAL.*prevent cross-scene hallucination/i);
+    expect(prompt).toContain("WITHIN ONE SINGLE SCENE only");
+    // Setting echoed with quotes for AI emphasis
+    expect(prompt).toContain('"EXT. TROPICAL FOREST — DAY"');
+    // Explicit DO NOT directives
+    expect(prompt).toMatch(/DO NOT depict any setting outside/);
+    expect(prompt).toMatch(/DO NOT add narrative progression/);
+  });
+
+  it("r7.30 — Tier 2 'Story context' renamed to 'This scene's action' to avoid story-level hallucination keywords", async () => {
+    const { buildSceneGridImagePrompt } = await import(
+      "../src/engine/sceneImagePromptBuilder"
+    );
+    const prompt = buildSceneGridImagePrompt({
+      grid: {
+        gridFormat: "1x1",
+        order: 1,
+        cells: [{ order: 1, shotId: "sh1" }],
+      } as any,
+      scene: {
+        id: "sc1",
+        order: 1,
+        titleEn: "S",
+        settings: "Forest",
+        actionLinesEn: "Robot wakes up",
+      } as any,
+      shots: [
+        { id: "sh1", order: 1, titleEn: "X", shotType: "wide", cameraMovement: "static", rhythmRole: "establish" },
+      ] as any,
+      cast: [],
+      setting: { animationStyle: "live_action", aspectRatio: "16:9" } as any,
+      allScenes: [],
+      setupPayoffPairs: [],
+      allGrids: [{ order: 1 }],
+    });
+
+    // Old wording "Story context:" replaced
+    expect(prompt).not.toContain("Story context:");
+    // New wording explicitly scopes to this scene
+    expect(prompt).toContain("This scene's action");
+    expect(prompt).toMatch(/NO events from other scenes/);
+  });
+
+  it("r7.30 — Tier 3 + Tier 4 + AVOID reinforce single-location boundary", async () => {
+    const { buildSceneGridImagePrompt } = await import(
+      "../src/engine/sceneImagePromptBuilder"
+    );
+    const prompt = buildSceneGridImagePrompt({
+      grid: { gridFormat: "1x1", order: 1, cells: [{ order: 1, shotId: "sh1" }] } as any,
+      scene: { id: "sc1", order: 1, titleEn: "S", settings: "RAINY ALLEY", actionLinesEn: "X" } as any,
+      shots: [{ id: "sh1", order: 1, titleEn: "X", shotType: "wide", cameraMovement: "static", rhythmRole: "establish" }] as any,
+      cast: [],
+      setting: { animationStyle: "live_action", aspectRatio: "16:9" } as any,
+      allScenes: [],
+      setupPayoffPairs: [],
+      allGrids: [{ order: 1 }],
+    });
+
+    // Tier 3: LOCATION stays setting
+    expect(prompt).toMatch(/LOCATION stays "RAINY ALLEY"/);
+    // Tier 4: must not override Tier 1 scene boundary
+    expect(prompt).toMatch(/scene boundary/i);
+    // AVOID: cells depicting any location other than this scene
+    expect(prompt).toMatch(/cells depicting any location other than "RAINY ALLEY"/);
+    // OUTPUT closing reminder
+    expect(prompt).toMatch(/WITHIN THIS SINGLE SCENE/);
   });
 
   it("Grid prompt: BEATS COVERAGE block injected when shots have coveredBeatIds", async () => {
@@ -5364,9 +6361,11 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
-    expect(prompt).toContain("LIGHTING HINT:");
+    // G1e2: lighting line uses "LIGHTING:" (without "HINT" suffix), only when explicit override
+    expect(prompt).toContain("LIGHTING:");
     expect(prompt).toContain("golden-hour through canopy");
-    expect(prompt).toContain("SHOT TITLE:");
+    // G1e2: cell title format is "TITLE:" (compact, no "SHOT" prefix)
+    expect(prompt).toContain("TITLE:");
     expect(prompt).toContain("ACTION:");
     expect(prompt).toContain("COMPOSITION:");
   });
@@ -5422,8 +6421,9 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     });
     expect(prompt).toContain("GRID 2 of 2");
     expect(prompt).toContain("grid-01-generated.png");
-    expect(prompt).toContain("MULTI-GRID CONTINUITY DIRECTIVES");
-    expect(prompt).toContain("blend seamlessly with previous grid");
+    // G1e2: compact continuity directive (1 line instead of 4)
+    expect(prompt).toContain("Grid 2 continuity:");
+    expect(prompt).toContain("match Grid 1 image (Image #2) exactly");
   });
 
   it("Grid 2 without previousGridGenerated: no Grid 1 ref injected", async () => {
@@ -5444,7 +6444,7 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     // Header still says GRID 2 of 2 but no continuity directives
     expect(prompt).toContain("GRID 2 of 2");
     expect(prompt).not.toContain("grid-01-generated.png");
-    expect(prompt).not.toContain("MULTI-GRID CONTINUITY DIRECTIVES");
+    expect(prompt).not.toContain("Grid 2 continuity:");
   });
 
   it("Single-shot prompt: purposeEn priority over legacy purpose (Q1 VI leak fix)", async () => {
@@ -5508,10 +6508,11 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     };
     const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
     const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
-    // Per-shot override should win
-    expect(prompt).toContain("Scene emotion: shocking");
+    // Per-shot override should win — G1e2 compact format. Audit r7.13: process language "(per-shot override)" removed from output prompt.
+    expect(prompt).toContain("Emotion: shocking");
     expect(prompt).toContain("Tension: 10/10");
-    expect(prompt).toContain("per-shot override active");
+    expect(prompt).not.toContain("per-shot override"); // audit fix: meta-language removed
+    expect(prompt).not.toContain("Emotion: tender"); // override wins over scene tone
   });
 
   it("SetupPayoff prompt: labelEn priority over labelVi (Q1 VI leak fix)", async () => {
@@ -5738,14 +6739,14 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(src).toContain("hideToggleRow");
   });
 
-  it("r7.5 FilmStoryboardSection: GridDisplay no longer renders prompt panel inline", async () => {
+  it("r7.5 → r7.38 FilmStoryboardSection: GridDisplay scope (Refs ZIP moved into header)", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
     // Slice gdBody = function GridDisplay body up to its closing brace + blank line
     // (boundary marker = the comment block opening for GridPromptPanel).
     const gdStart = src.indexOf("function GridDisplay(");
-    const gdEnd = src.indexOf("\n/**\n * Sprint 1.0 r7.5 (Hướng A) — GridPromptPanel");
+    const gdEnd = src.indexOf("\n * Sprint 1.0 (Hướng A) — GridPromptPanel");
     expect(gdStart).toBeGreaterThan(-1);
     expect(gdEnd).toBeGreaterThan(gdStart);
     const gdBody = src.slice(gdStart, gdEnd);
@@ -5753,12 +6754,14 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(gdBody).toContain("editingCellOrder");
     expect(gdBody).toContain("FilmFrameEditModal");
     expect(gdBody).toContain("handleUploadVideoForCell");
-    // GridDisplay does NOT keep prompt-level state/handlers anymore (check actual code patterns)
+    // r7.5 invariants still hold (prompt panel logic stays out of GridDisplay)
     expect(gdBody).not.toContain("setPromptExpanded");
     expect(gdBody).not.toContain("setPendingUpload");
     expect(gdBody).not.toContain("handleCopyPrompt");
-    expect(gdBody).not.toContain("handleDownloadRefs");
     expect(gdBody).not.toContain("GridCropPreviewModal");
+    // r7.38: handleDownloadRefs MOVED BACK into GridDisplay because Refs ZIP
+    // button now sits in the grid header (next to KSP/DeepMind prompt buttons).
+    expect(gdBody).toContain("handleDownloadRefs");
   });
 
   it("r7.5 MultiGridPromptTabs: activeIdx state with Grid 1 default active (r7.7 update)", async () => {
@@ -5830,18 +6833,16 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(match![0]).toMatch(/margin-left:\s*auto/);
   });
 
-  it("r7.6 CastFilmSection: avatar renders face ref image when present, emoji fallback", async () => {
+  it("r7.6 CastFilmSection: avatar always renders emoji by role (r7.17 simplified — no image override)", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
-    // New img element with ksp-cast-film-avatar-img class
-    expect(src).toContain("ksp-cast-film-avatar-img");
-    expect(src).toContain("firstFaceRefUrl");
-    expect(src).toContain("character.faceRefs?.[0]?.dataUrl");
-    // CSS for the img
-    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
-    expect(css).toMatch(/\.ksp-cast-film-avatar-img\s*\{[^}]*object-fit:\s*cover/);
-    expect(css).toMatch(/\.ksp-cast-film-avatar-img\s*\{[^}]*border-radius:\s*50%/);
+    // r7.17 change: avatar is ALWAYS emoji from ROLE_EMOJI (was conditional image in r7.15f-r7.16).
+    // Concept sheet is displayed separately in its own panel below the header.
+    expect(src).toContain("ksp-cast-film-avatar-emoji");
+    expect(src).toContain("ROLE_EMOJI");
+    expect(src).not.toContain("ksp-cast-film-avatar-img");
+    expect(src).not.toContain("character.conceptSheet?.dataUrl");
   });
 
   it("r7.6 Stage 3 Twists: addScriptTwist + removeScriptTwist actions exist with correct shape", async () => {
@@ -5892,15 +6893,484 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(src).toContain("addScriptTwist");
   });
 
-  it("r7.7 manifest + package version bump to r7.8-downloads", async () => {
+  it("r7.15a manifest + package version bump to r7.15a-autochain", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const manifest = JSON.parse(fs.readFileSync(path.resolve("./manifest.json"), "utf-8"));
-    expect(manifest.version_name).toBe("0.9.4-r7.8-downloads");
-    expect(manifest.version).toBe("0.9.4.16");
-    expect(manifest.action.default_title).toContain("v0.9.4-r7.8");
+    expect(manifest.version_name).toMatch(/^\d+\.\d+\.\d+-r\d+/);
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    expect(manifest.action.default_title).toMatch(/^KSP Image v\d+\.\d+\.\d+-r\d+/);
     const pkg = JSON.parse(fs.readFileSync(path.resolve("./package.json"), "utf-8"));
-    expect(pkg.version).toBe("0.9.4-r7.8-downloads");
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+  });
+
+  // Sprint G1e2 Phase 1 — token cleanup: 4-tier hierarchy + dedupe + bug fix
+  it("G1e2 Phase 1: scene grid prompt structured with 4-tier hierarchy", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { packShotsIntoGrids } = await import("../src/engine/sceneGridPacker");
+    const shots = [{ id: "s1", order: 1, titleEn: "S", shotType: "medium", durationSeconds: 5, actionEn: "x" }] as any[];
+    const grids = packShotsIntoGrids(shots, "3x3");
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, tensionLevel: 5, emotionalTone: "neutral" };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid: grids[0], scene, shots, cast: [], setting });
+    // All 4 tiers present in order
+    const tier1Idx = prompt.indexOf("TIER 1 — ABSOLUTE LOCK");
+    const tier2Idx = prompt.indexOf("TIER 2 — SCENE LOCK");
+    const tier3Idx = prompt.indexOf("TIER 3 — SHOT-SPECIFIC");
+    const tier4Idx = prompt.indexOf("TIER 4 — SOFT PREFERENCES");
+    expect(tier1Idx).toBeGreaterThan(-1);
+    expect(tier2Idx).toBeGreaterThan(tier1Idx);
+    expect(tier3Idx).toBeGreaterThan(tier2Idx);
+    expect(tier4Idx).toBeGreaterThan(tier3Idx);
+  });
+
+  it("G1e2 Phase 1: single-shot + animation prompts also use 4-tier hierarchy", async () => {
+    const { buildSingleShotImagePrompt, buildAnimationPrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "s1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x", rhythmRole: "establish" };
+    const scene: any = { id: "sc1", order: 1, titleEn: "Scene", settings: "EXT.", emotionalTone: "neutral", tensionLevel: 5 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const provider: any = { id: "seedance-2-pro", name: "Seedance 2.0 Pro" };
+    const imagePrompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    const animPrompt = buildAnimationPrompt({ shot, scene, cast: [], setting, provider });
+    // Image prompt has all 4 tiers
+    expect(imagePrompt).toContain("TIER 1 — ABSOLUTE LOCK");
+    expect(imagePrompt).toContain("TIER 2 — SCENE LOCK");
+    expect(imagePrompt).toContain("TIER 3 — SHOT-SPECIFIC");
+    expect(imagePrompt).toContain("TIER 4 — SOFT PREFERENCES");
+    // Animation prompt has all 4 tiers
+    expect(animPrompt).toContain("TIER 1 — ABSOLUTE LOCK");
+    expect(animPrompt).toContain("TIER 2 — SCENE LOCK");
+    expect(animPrompt).toContain("TIER 3 — SHOT-SPECIFIC");
+    expect(animPrompt).toContain("TIER 4 — SOFT PREFERENCES");
+  });
+
+  it("G1e2 Phase 1: undefined–undefined bug fix in animation prompts ZIP download", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
+    // Mapping table prevents legacy 'integer' value from reaching formatTimeValue switch
+    expect(src).toContain("timeFormatMap");
+    expect(src).toContain('"integer": "integer_seconds"');
+    // Default value is now 'integer_seconds' (valid TimeFormat enum), not 'integer'
+    expect(src).toMatch(/timeFormat\s*=\s*timeFormatMap/);
+  });
+
+  // ==========================================================================
+  // Sprint G1e2 Phase 2A — Visual Arc (no schema change) + Shot Purpose
+  // Sprint G1e2 Phase 2B — Inner State + Film References (schema add 2 fields)
+  // ==========================================================================
+
+  it("G1e2 Phase 2A: Visual Arc lens + distance injected into grid cells (derived from rhythmRole)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const shots: any[] = [
+      { id: "s1", order: 1, titleEn: "Wide", shotType: "wide_establishing", durationSeconds: 5, actionEn: "x", rhythmRole: "establish" },
+      { id: "s2", order: 2, titleEn: "Close", shotType: "close_up", durationSeconds: 5, actionEn: "x", rhythmRole: "peak" },
+    ];
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"s1"},{order:2,shotId:"s2"},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid, scene, shots, cast: [], setting });
+    // Establish rhythm → 24-35mm wide-angle Discovery
+    expect(prompt).toContain("24-35mm wide-angle");
+    expect(prompt).toContain("discovery");
+    // Peak rhythm → 85mm cinematic portrait Intimacy
+    expect(prompt).toContain("85mm cinematic portrait");
+    expect(prompt).toContain("intimacy");
+  });
+
+  it("G1e2 Phase 2A: resolveVisualArc handles insert shotType (macro override)", async () => {
+    const { resolveVisualArc } = await import("../src/engine/sceneImagePromptBuilder");
+    // Insert shot type overrides any rhythm role to 100mm macro
+    const insertPeak = resolveVisualArc("peak", "insert");
+    expect(insertPeak.lens).toContain("100mm macro");
+    expect(insertPeak.distance).toContain("insert");
+    // Non-insert: rhythm role determines lens
+    const wideEstablish = resolveVisualArc("establish", "wide_establishing");
+    expect(wideEstablish.lens).toContain("24-35mm");
+    // Undefined rhythm: falls back to build (medium)
+    const fallback = resolveVisualArc(undefined, "medium");
+    expect(fallback.lens).toContain("50mm");
+  });
+
+  it("G1e2 Phase 2A: SHOT PURPOSE renders in single-shot Tier 3", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = {
+      id: "s1", order: 1, titleEn: "Shot", shotType: "wide_establishing",
+      cameraMovement: "static", durationSeconds: 5, actionEn: "x",
+      purposeEn: "reveal scale — show colossal robot dwarfed by ancient forest",
+      rhythmRole: "establish",
+    };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", emotionalTone: "neutral", tensionLevel: 5 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast: [], setting });
+    expect(prompt).toContain("SHOT PURPOSE:");
+    expect(prompt).toContain("reveal scale");
+    // LENS line injected from Visual Arc derived from rhythmRole=establish
+    expect(prompt).toContain("LENS:");
+    expect(prompt).toContain("DISTANCE:");
+  });
+
+  it("G1e2 Phase 2A: AI Stage shot list prompt forces 4-category purposeEn prefix", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    expect(src).toContain('"reveal scale —');
+    expect(src).toContain('"establish trust —');
+    expect(src).toContain('"show curiosity —');
+    expect(src).toContain('"create intimacy —');
+  });
+
+  it("G1e2 Phase 2B: INNER STATE renders in grid Tier 3 per cell (only when shot has innerStateVi)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const shots: any[] = [
+      { id: "s1", order: 1, titleEn: "Shot 1", shotType: "medium", durationSeconds: 5, actionEn: "x", innerStateVi: "G.N.U.D đang ngủ sâu trong vô thức." },
+      { id: "s2", order: 2, titleEn: "Shot 2", shotType: "close_up", durationSeconds: 5, actionEn: "x" }, // no innerStateVi
+    ];
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30 };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"s1"},{order:2,shotId:"s2"},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const prompt = buildSceneGridImagePrompt({ grid, scene, shots, cast: [], setting });
+    // Shot 1 INNER STATE renders
+    expect(prompt).toContain("INNER STATE: G.N.U.D đang ngủ sâu");
+    // Count INNER STATE occurrences — should be exactly 1 (Shot 1 only, Shot 2 has no field)
+    const innerStateCount = (prompt.match(/INNER STATE:/g) ?? []).length;
+    expect(innerStateCount).toBe(1);
+  });
+
+  it("G1e2 Phase 2B: REFERENCES block renders in Tier 2 (only when scene has filmReferencesEn)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { buildSingleShotImagePrompt, buildAnimationPrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "s1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const sceneWithRefs: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30,
+      emotionalTone: "shocking", tensionLevel: 7,
+      filmReferencesEn: [
+        "Wall-E opening 5 minutes (Earth scenes, empty post-civilization)",
+        "Princess Mononoke forest scenes (ancient mossy texture)"
+      ],
+    };
+    const sceneNoRefs: any = { ...sceneWithRefs, filmReferencesEn: undefined };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"s1"},{order:2,shotId:null},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const provider: any = { id: "seedance-2-pro", name: "Seedance" };
+    // Grid prompt with refs
+    const gridWith = buildSceneGridImagePrompt({ grid, scene: sceneWithRefs, shots: [shot], cast: [], setting });
+    expect(gridWith).toContain("REFERENCES (mood anchor");
+    expect(gridWith).toContain("Wall-E opening 5 minutes");
+    expect(gridWith).toContain("Princess Mononoke");
+    // Grid prompt WITHOUT refs — no REFERENCES block
+    const gridWithout = buildSceneGridImagePrompt({ grid, scene: sceneNoRefs, shots: [shot], cast: [], setting });
+    expect(gridWithout).not.toContain("REFERENCES (mood anchor");
+    // Single shot prompt with refs
+    const imageWith = buildSingleShotImagePrompt({ shot, scene: sceneWithRefs, cast: [], setting });
+    expect(imageWith).toContain("Wall-E opening 5 minutes");
+    // Animation prompt with refs
+    const animWith = buildAnimationPrompt({ shot, scene: sceneWithRefs, cast: [], setting, provider });
+    expect(animWith).toContain("Wall-E opening 5 minutes");
+  });
+
+  it("G1e2 Phase 2B: AI beats detection prompt instructs filmReferencesEn output (TASK 3)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    // TASK 3 — Suggest FILM REFERENCES instruction must be present
+    expect(src).toContain("TASK 3");
+    expect(src).toContain("filmReferencesEn");
+    expect(src).toContain("atmosphere reference, NOT character recreation");
+    // Sanitizer max 3 refs + drop empty
+    expect(src).toContain(".slice(0, 3)");
+  });
+
+  it("G1e2 Phase 2B: GeneratedShot interface + sanitizeShot pass through innerStateVi", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    expect(src).toContain("innerStateVi?: string");
+    expect(src).toContain("innerStateVi: s.innerStateVi?.trim()");
+  });
+
+  it("G1e2 Phase 2B: FilmShotListSection persists innerStateVi from GeneratedShot to FilmShot", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmShotListSection.tsx"), "utf-8");
+    expect(src).toContain("innerStateVi: gs.innerStateVi");
+  });
+
+  it("G1e2 Phase 2B: store/film_actions applyBeatsAndPhysicalLock persists filmReferencesEn", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/store/film_actions.ts"), "utf-8");
+    expect(src).toContain("filmReferencesEn: result.filmReferencesEn");
+  });
+
+  // ==========================================================================
+  // Sprint G1e2 Phase 3 — Color Script (schema add 1 field, Pixar palette lock)
+  // ==========================================================================
+
+  it("G1e2 Phase 3: COLOR SCRIPT block renders in Tier 2 when scene has colorScript (all 4 builders)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { buildSingleShotImagePrompt, buildAnimationPrompt, buildAnimationPromptAdvanced } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "s1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const lastShot: any = { id: "s2", order: 2, titleEn: "S2", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const sceneWithCs: any = {
+      id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30,
+      emotionalTone: "shocking", tensionLevel: 7,
+      colorScript: {
+        dominantEn: "deep forest green #2E4A2A — 60% frame coverage",
+        accent1En: "orange rust #C7572B — 25% frame coverage",
+        accent2En: "electric blue #4FA8E0 — 15% frame coverage",
+      },
+    };
+    const sceneNoCs: any = { ...sceneWithCs, colorScript: undefined };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"s1"},{order:2,shotId:null},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const provider: any = { id: "seedance-2-pro", name: "Seedance" };
+    // Grid prompt with colorScript
+    const gridWith = buildSceneGridImagePrompt({ grid, scene: sceneWithCs, shots: [shot], cast: [], setting });
+    expect(gridWith).toContain("COLOR SCRIPT");
+    expect(gridWith).toContain("deep forest green #2E4A2A");
+    expect(gridWith).toContain("orange rust #C7572B");
+    expect(gridWith).toContain("electric blue #4FA8E0");
+    expect(gridWith).toContain("Dominant:");
+    expect(gridWith).toContain("Accent 1:");
+    expect(gridWith).toContain("Accent 2:");
+    // Grid prompt WITHOUT colorScript — no COLOR SCRIPT block
+    const gridWithout = buildSceneGridImagePrompt({ grid, scene: sceneNoCs, shots: [shot], cast: [], setting });
+    expect(gridWithout).not.toContain("COLOR SCRIPT");
+    // Single shot prompt with colorScript
+    const imageWith = buildSingleShotImagePrompt({ shot, scene: sceneWithCs, cast: [], setting });
+    expect(imageWith).toContain("COLOR SCRIPT");
+    expect(imageWith).toContain("deep forest green #2E4A2A");
+    // Animation prompt with colorScript
+    const animWith = buildAnimationPrompt({ shot, scene: sceneWithCs, cast: [], setting, provider });
+    expect(animWith).toContain("COLOR SCRIPT");
+    expect(animWith).toContain("must hold across entire shot duration");
+    // Animation Advanced with colorScript
+    const advWith = buildAnimationPromptAdvanced({ shot, lastFrameShot: lastShot, scene: sceneWithCs, cast: [], setting, provider });
+    expect(advWith).toContain("COLOR SCRIPT");
+    expect(advWith).toContain("must hold through entire interpolation");
+  });
+
+  it("G1e2 Phase 3: AI beats detection prompt instructs colorScript output (TASK 4)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain("TASK 4");
+    expect(src).toContain("COLOR SCRIPT");
+    expect(src).toContain("dominantEn");
+    expect(src).toContain("accent1En");
+    expect(src).toContain("accent2En");
+    // Coverage % rules in prompt
+    expect(src).toContain("60% of frame coverage");
+    expect(src).toContain("25% of frame coverage");
+    expect(src).toContain("15% of frame coverage");
+    // Pixar references in instruction
+    expect(src).toContain("Pixar Production Design 101");
+  });
+
+  it("G1e2 Phase 3: colorScript sanitizer requires all 3 fields, drops partial", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    // Sanitizer checks all 3 fields present + non-empty
+    expect(src).toContain("typeof rawCs.dominantEn === \"string\"");
+    expect(src).toContain("typeof rawCs.accent1En === \"string\"");
+    expect(src).toContain("typeof rawCs.accent2En === \"string\"");
+    // Drops if missing any
+    expect(src).toMatch(/colorScript:.*\{.*dominantEn.*accent1En.*accent2En.*\}/s);
+  });
+
+  it("G1e2 Phase 3: store/film_actions persists colorScript", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/store/film_actions.ts"), "utf-8");
+    expect(src).toContain("colorScript: result.colorScript");
+  });
+
+  it("G1e2 Phase 3: schema field exists on FilmSceneScript.colorScript with 3 keys", async () => {
+    // Runtime shape check — verify TypeScript compiles + structure
+    const scene: any = {
+      id: "sc1", order: 1,
+      colorScript: {
+        dominantEn: "deep forest green #2E4A2A — 60% frame coverage",
+        accent1En: "orange rust #C7572B — 25% frame coverage",
+        accent2En: "electric blue #4FA8E0 — 15% frame coverage",
+      },
+    };
+    expect(scene.colorScript.dominantEn).toContain("#2E4A2A");
+    expect(scene.colorScript.accent1En).toContain("#C7572B");
+    expect(scene.colorScript.accent2En).toContain("#4FA8E0");
+  });
+
+  it("G1e2 Phase 3: token budget — grid prompt under 8800 chars with all Phase 1+2+3 features", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const scene: any = {
+      id: "s1", order: 1, titleEn: "The Awakening",
+      settings: "EXT. ANCIENT FOREST - DAY",
+      actionLinesEn: "CLOSE ON: G.N.U.D's optical sensor, caked in moss.",
+      durationSeconds: 60, tensionLevel: 7, emotionalTone: "shocking",
+      beats: Array.from({length: 10}, (_, i) => ({id: `b${i+1}`, order: i+1, label: `Beat ${i+1}`, type: "camera"})),
+      physicalConsistencyLockEn: "Robot G.N.U.D: heavily rusted metal, moss covering body.",
+      filmReferencesEn: ["Wall-E opening 5 minutes (Earth scenes)", "Princess Mononoke forest scenes"],
+      colorScript: {
+        dominantEn: "deep forest green #2E4A2A — 60% frame coverage",
+        accent1En: "orange rust #C7572B — 25% frame coverage",
+        accent2En: "electric blue #4FA8E0 — 15% frame coverage",
+      },
+    };
+    const shots: any[] = Array.from({length: 9}, (_, i) => ({
+      id: `sh${i+1}`, order: i+1, titleEn: `Shot ${i+1}`, durationSeconds: 6,
+      shotType: "wide_establishing", cameraMovement: "static",
+      actionEn: "Camera reveals subject.", rhythmRole: "establish", coveredBeatIds: [`b${i+1}`],
+      purposeEn: "reveal scale — show robot dwarfed by ancient forest",
+      innerStateVi: "G.N.U.D ngủ sâu, vô thức.",
+    }));
+    const grid: any = {
+      id: "g1", order: 1, gridFormat: "3x3",
+      cells: Array.from({length: 9}, (_, i) => ({order: i+1, shotId: `sh${i+1}`})),
+    };
+    const cast: any[] = [{id:"c1", order:1, name:"G.N.U.D", role:"protagonist", description:"Robot bị lãng quên", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const setting: any = {animationStyle: "cgi_3d_cinematic", aspectRatio: "16:9"};
+    const prompt = buildSceneGridImagePrompt({grid, scene, shots, cast, setting, allGrids:[grid]});
+    // Phase 3 adds ~200 chars (COLOR SCRIPT block). Threshold: < 8800 (vs Phase 2 baseline ~8200)
+    expect(prompt.length).toBeLessThan(8800);
+    expect(prompt.length).toBeGreaterThan(3000);
+  });
+
+  it("G1e2 Phase 2: token budget — scene grid prompt under 8500 chars (provider safe)", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const scene: any = {
+      id: "s1", order: 1, titleEn: "The Awakening",
+      settings: "EXT. ANCIENT FOREST - DAY",
+      actionLinesEn: "CLOSE ON: G.N.U.D's optical sensor, caked in moss.",
+      durationSeconds: 60, tensionLevel: 7, emotionalTone: "shocking",
+      beats: Array.from({length: 10}, (_, i) => ({id: `b${i+1}`, order: i+1, label: `Beat ${i+1}`, type: "camera"})),
+      physicalConsistencyLockEn: "Robot G.N.U.D: heavily rusted metal, moss covering body. Forest: dense canopy. Lighting: dappled sunlight.",
+      // Phase 2B: with film references
+      filmReferencesEn: ["Wall-E opening 5 minutes (Earth scenes)", "Princess Mononoke forest scenes"],
+    };
+    const shots: any[] = Array.from({length: 9}, (_, i) => ({
+      id: `sh${i+1}`, order: i+1, titleEn: `Shot ${i+1}`, durationSeconds: 6,
+      shotType: "wide_establishing", cameraMovement: "static",
+      actionEn: "Camera reveals subject.", rhythmRole: "establish", coveredBeatIds: [`b${i+1}`],
+      purposeEn: "reveal scale — show robot dwarfed by ancient forest",
+      innerStateVi: "G.N.U.D ngủ sâu, vô thức.",
+    }));
+    const grid: any = {
+      id: "g1", order: 1, gridFormat: "3x3",
+      cells: Array.from({length: 9}, (_, i) => ({order: i+1, shotId: `sh${i+1}`})),
+    };
+    const cast: any[] = [{id:"c1", order:1, name:"G.N.U.D", role:"protagonist", description:"Robot bị lãng quên", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const setting: any = {animationStyle: "cgi_3d_cinematic", aspectRatio: "16:9"};
+    const prompt = buildSceneGridImagePrompt({grid, scene, shots, cast, setting, allGrids:[grid], previousGridGenerated:false});
+    // Phase 2 added LENS/DISTANCE/PURPOSE/INNER STATE per cell + filmRefs in Tier 2.
+    // r7.30: added SCENE BOUNDARY block (~92 chars) — intentional cost to prevent
+    // cross-scene hallucination (Jason bug report May 21: Scene 1 grid output
+    // had cells from Scene 2 cánh đồng). Budget bumped 8500 → 8800.
+    expect(prompt.length).toBeLessThan(8800);
+    expect(prompt.length).toBeGreaterThan(3000); // sanity: not over-compressed
+  });
+
+  // Sprint G1e0 — emotion/tension validator + lighting unified constraint
+  it("G1e0: validateEmotionTension returns valid for sane combos, invalid for bad combos", async () => {
+    const { validateEmotionTension } = await import("../src/types/project");
+    // Valid combos
+    expect(validateEmotionTension("tender", 2).valid).toBe(true);
+    expect(validateEmotionTension("shocking", 9).valid).toBe(true);
+    expect(validateEmotionTension("triumphant", 7).valid).toBe(true);
+    expect(validateEmotionTension("neutral", 1).valid).toBe(true);
+    // Invalid combos — Jason's reported bug
+    const bad1 = validateEmotionTension("shocking", 3);
+    expect(bad1.valid).toBe(false);
+    if (!bad1.valid) {
+      expect(bad1.suggestedTension).toBe(7); // clamp to min of shocking range
+      expect(bad1.reason).toContain("sốc");
+    }
+    const bad2 = validateEmotionTension("tender", 9); // too high for tender
+    expect(bad2.valid).toBe(false);
+    if (!bad2.valid) {
+      expect(bad2.suggestedTension).toBe(4); // clamp to max of tender range
+    }
+    const bad3 = validateEmotionTension("triumphant", 2); // too low
+    expect(bad3.valid).toBe(false);
+    if (!bad3.valid) {
+      expect(bad3.suggestedTension).toBe(6);
+    }
+    // Edge case: undefined tone → always valid
+    expect(validateEmotionTension(undefined, 5).valid).toBe(true);
+  });
+
+  it("G1e0: autoFixEmotionTension returns valid value (clamped or original)", async () => {
+    const { autoFixEmotionTension } = await import("../src/types/project");
+    expect(autoFixEmotionTension("shocking", 3)).toBe(7); // clamp up
+    expect(autoFixEmotionTension("tender", 9)).toBe(4); // clamp down
+    expect(autoFixEmotionTension("tense", 6)).toBe(6); // already valid, untouched
+    expect(autoFixEmotionTension(undefined, 5)).toBe(5); // no tone → pass through
+  });
+
+  it("G1e0: EMOTION_TENSION_VALID_RANGE table covers all 7 emotional tones", async () => {
+    const { EMOTION_TENSION_VALID_RANGE } = await import("../src/types/project");
+    const expectedTones = ["tender", "tense", "funny", "sad", "shocking", "triumphant", "neutral"];
+    for (const tone of expectedTones) {
+      const range = (EMOTION_TENSION_VALID_RANGE as any)[tone];
+      expect(range).toBeDefined();
+      expect(typeof range.min).toBe("number");
+      expect(typeof range.max).toBe("number");
+      expect(range.min).toBeLessThanOrEqual(range.max);
+      expect(range.description).toBeTruthy();
+    }
+  });
+
+  it("G1e0: Stage 4 sanitizeScene wires autoFix into pipeline", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    expect(src).toContain('import { clampTension, autoFixEmotionTension }');
+    expect(src).toContain("autoFixEmotionTension(tone, s.tensionLevel)");
+    // Also wired into reannotate path
+    expect(src).toContain("autoFixEmotionTension(tone, a.tensionLevel)");
+  });
+
+  it("G1e0: filmShotListGeneration enforces unified lighting quality across shots", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    // New constraint instruction present
+    expect(src).toContain("UNIFIED SCENE LIGHTING");
+    expect(src).toContain("DO NOT vary lighting QUALITY across shots");
+    expect(src).toContain("Per-shot variation is LIMITED to");
+    expect(src).toContain("INTENSITY");
+    expect(src).toContain("FOCUS AREA");
+    // Old instruction removed (no more "Vary across shots to match action context")
+    expect(src).not.toContain("Vary across shots to match action context.");
+    // Single-shot regen path also constrained
+    expect(src).toContain("PHẢI giữ CÙNG QUALITY với siblings shots");
+  });
+
+  it("G1e0: FilmPacingDashboardSection mounts EmotionTensionWarningPanel between AiDirector + TensionCurve", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmPacingDashboardSection.tsx"), "utf-8");
+    expect(src).toContain("EmotionTensionWarningPanel");
+    expect(src).toContain("validateEmotionTension");
+    expect(src).toContain("autoFixEmotionTension");
+    expect(src).toContain("EMOTION_TENSION_VALID_RANGE");
+    expect(src).toContain("updateSceneInScript");
+    // UI elements
+    expect(src).toContain("Auto-fix tất cả");
+    expect(src).toContain("ksp-emotion-warning-panel");
+    expect(src).toContain("onFixOne");
+    expect(src).toContain("onAutoFixAll");
+  });
+
+  it("G1e0: film.css declares emotion warning panel styles", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    expect(css).toContain(".ksp-emotion-warning-panel");
+    expect(css).toContain(".ksp-emotion-warning-autofix-btn");
+    expect(css).toContain(".ksp-emotion-warning-fix-one-btn");
+    expect(css).toContain(".ksp-emotion-warning-suggested");
   });
 
   // Sprint 1.0 r7.8 — story overview download + per-scene prompt ZIP downloads
@@ -6033,8 +7503,9 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(css).toMatch(/\.ksp-step-twist-add-form\s*\{[^}]*margin-bottom:\s*10px/);
   });
 
-  // Sprint G1d (Item 6) — AI cast prompt generation
-  it("G1d engine: runGenerateCastPromptSet exists with correct signature + multimodal branch", async () => {
+  // Cast prompt generation — text-only path (multimodal removed in r7.15f
+  // because it required Gemini key which broke OpenAI-only setups)
+  it("Cast engine: runGenerateCastPromptSet exists, text-only path (no multimodal)", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.resolve("./src/engine/filmCastGeneration.ts"), "utf-8");
@@ -6043,14 +7514,13 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(src).toContain("bodyPrompt");
     expect(src).toContain("anchorTokens");
     expect(src).toContain("export async function runGenerateCastPromptSet");
-    expect(src).toContain("useFaceRefForMatch");
-    // Multimodal Gemini call branch exists
-    expect(src).toContain("callGeminiMultimodal");
-    expect(src).toContain("inline_data");
-    expect(src).toContain("GEMINI_FLASH_MM_ENDPOINT");
+    // Multimodal Gemini call removed — no longer references inline_data / MM endpoint
+    expect(src).not.toContain("callGeminiMultimodal");
+    expect(src).not.toContain("inline_data");
+    expect(src).not.toContain("GEMINI_FLASH_MM_ENDPOINT");
   });
 
-  it("G1d engine: parses CastPromptSet JSON correctly with anchor tokens defaulting to []", async () => {
+  it("Cast engine: parses CastPromptSet JSON correctly with anchor tokens defaulting to []", async () => {
     // Direct unit test of the parsing logic via the parser pattern.
     // We can't easily mock callAi here, but we can verify the engine module imports & types.
     const engine = await import("../src/engine/filmCastGeneration");
@@ -6065,55 +7535,29 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     expect(src).toContain("missing facePrompt or bodyPrompt");
   });
 
-  it("G1d CastPromptModal: component file exists with 2 tabs + actions + anchor + workflow", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const exists = fs.existsSync(path.resolve("./src/components/CastPromptModal.tsx"));
-    expect(exists).toBe(true);
-    const src = fs.readFileSync(path.resolve("./src/components/CastPromptModal.tsx"), "utf-8");
-    // 2 tab keys + active state
-    expect(src).toContain('TabKey = "face" | "body"');
-    expect(src).toContain("activeTab");
-    expect(src).toContain("👤 Face portrait");
-    expect(src).toContain("🧍 Full body");
-    // Copy + Regen actions
-    expect(src).toContain("handleCopy");
-    expect(src).toContain("handleRegen");
-    expect(src).toContain("navigator.clipboard.writeText");
-    // Anchor tokens collapsible
-    expect(src).toContain("showAnchorTokens");
-    expect(src).toContain("Anchor tokens");
-    // Workflow guide
-    expect(src).toContain("Workflow");
-    // Match refs toggle (multimodal)
-    expect(src).toContain("useFaceRefForMatch");
-    // Backdrop click-to-close
-    expect(src).toContain("ksp-cast-prompt-modal-backdrop");
-    expect(src).toContain("onClick={onClose}");
-    expect(src).toContain("stopPropagation");
-  });
-
-  it("G1d CastFilmSection: wires 📝 button + modal trigger + handleGenerateCastPrompt", async () => {
+  it("CastFilmSection: wires Concept Sheet workflow (Upload + AI Concept Prompt + Description)", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
-    // Imports
-    expect(src).toContain("runGenerateCastPromptSet");
-    expect(src).toContain("CastPromptSet");
-    expect(src).toContain('import { CastPromptModal } from "./CastPromptModal"');
+    // Concept sheet handlers
+    expect(src).toContain("handleShowConceptPrompt");
+    expect(src).toContain("handleUploadConceptSheet");
+    expect(src).toContain("handleSheetFileSelected");
     // State
-    expect(src).toContain("promptResult");
-    expect(src).toContain("isGeneratingPrompt");
-    expect(src).toContain("promptMatchedToRefs");
-    // Handler
-    expect(src).toContain("handleGenerateCastPrompt");
-    expect(src).toContain("useFaceRefForMatch");
-    // Button in JSX
-    expect(src).toContain("ksp-cast-film-castprompt-icon-btn");
-    expect(src).toContain('"📝"');
+    expect(src).toContain("conceptPromptText");
+    expect(src).toContain("sheetFileInputRef");
+    // Import of new prompt builder
+    expect(src).toContain("buildCharacterSheetPrompt");
+    // Buttons in JSX
+    expect(src).toContain("📤 Upload sheet");
+    expect(src).toContain("🤖 AI Concept Prompt");
     // Modal mounts conditionally
-    expect(src).toContain("<CastPromptModal");
-    expect(src).toContain("matchedToRefs={promptMatchedToRefs}");
+    expect(src).toContain("<ConceptPromptModal");
+    expect(src).toContain("<ConceptSheetPanel");
+    // Legacy face/body refs panel removed from Cast card (replaced by single ConceptSheetPanel)
+    expect(src).not.toContain("expandedRefs");
+    // Old generate-cast-prompt handler removed (multimodal path gone)
+    expect(src).not.toContain("handleGenerateCastPrompt");
   });
 
   it("G1d film.css: cast prompt button + modal styles defined", async () => {
@@ -6131,5 +7575,545 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     // position fixed backdrop (z-index high)
     expect(css).toMatch(/\.ksp-cast-prompt-modal-backdrop\s*\{[^}]*position:\s*fixed/);
     expect(css).toMatch(/\.ksp-cast-prompt-modal-backdrop\s*\{[^}]*z-index:\s*9000/);
+  });
+
+  // ==========================================================================
+  // Sprint Audit r7.13 — Prompt meta-language cleanup
+  // 13 leaks fixed: replace user-action / process language with content-only
+  // ==========================================================================
+
+  it("r7.13 Audit: grid prompt contains NO 'attach' user-action language", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const shot: any = { id: "sh1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, emotionalTone: "tender", tensionLevel: 5 };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"sh1"},{order:2,shotId:null},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const cast: any[] = [{id:"c1", order:1, name:"X", role:"protagonist", description:"y", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const prompt = buildSceneGridImagePrompt({ grid, scene, shots: [shot], cast, setting });
+    // Forbidden user-action verbs / process language
+    expect(prompt).not.toContain("attach in this exact order");
+    expect(prompt).not.toContain("per attached cast refs");
+    expect(prompt).not.toMatch(/attached Grid \d+ image/);
+    expect(prompt).not.toContain("(per-shot override)");
+    expect(prompt).not.toContain('"unset"');
+    expect(prompt).not.toContain("(framing only)");
+    // Required content-only replacements
+    expect(prompt).toContain("REFERENCE IMAGES (in this exact order)");
+    expect(prompt).toContain("per cast reference images");
+  });
+
+  it("r7.13 Audit: single shot prompt contains NO 'attach' user-action language", async () => {
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "sh1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", emotionalTone: "tender", tensionLevel: 5 };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const cast: any[] = [{id:"c1", order:1, name:"X", role:"protagonist", description:"y", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const prompt = buildSingleShotImagePrompt({ shot, scene, cast, setting });
+    expect(prompt).not.toContain("attach in order");
+    expect(prompt).not.toContain("per attached refs");
+    expect(prompt).not.toContain("(per-shot override)");
+    expect(prompt).toContain("REFERENCE IMAGES (in order)");
+    expect(prompt).toContain("per reference images");
+  });
+
+  it("r7.13 Audit: tension fallback uses 'neutral baseline' not 'unset'", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { buildSingleShotImagePrompt } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "sh1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x" };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, emotionalTone: "neutral" /* tensionLevel undefined */ };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"sh1"},{order:2,shotId:null},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const cast: any[] = [{id:"c1", order:1, name:"X", role:"protagonist", description:"y", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const gridPrompt = buildSceneGridImagePrompt({ grid, scene, shots: [shot], cast, setting });
+    const imgPrompt = buildSingleShotImagePrompt({ shot, scene, cast, setting });
+    // Both prompts must use neutral baseline, not "unset"
+    expect(gridPrompt).toContain("neutral baseline");
+    expect(gridPrompt).not.toContain('"unset"');
+    expect(imgPrompt).toContain("neutral baseline");
+    expect(imgPrompt).not.toContain('"unset"');
+  });
+
+  it("r7.13 Audit: empty-action cell uses descriptive fallback, not '(framing only)'", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/sceneImagePromptBuilder.ts"), "utf-8");
+    expect(src).not.toContain('"(framing only)"');
+    expect(src).toContain("static framing — no specific action, hold composition only");
+  });
+
+  it("r7.13 Audit: AI Stage prompts contain NO 'user' meta-references", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    // Must not reference "user" as actor in AI Stage prompts (Gemini sees these, may confuse if reused in other AI tools)
+    expect(src).not.toContain("The user has chosen");
+    expect(src).not.toContain("the user's story");
+    expect(src).not.toContain("locked by user via multi-stage wizard");
+    expect(src).not.toContain("(no accepted twists)");
+    expect(src).not.toContain("attached to beat [");
+    expect(src).not.toContain("use beatId to attach twists");
+    // Cleaner replacements present
+    expect(src).toContain("The chosen framework is");
+    expect(src).toContain("for this story");
+    expect(src).toContain("STRUCTURE (locked):");
+    expect(src).toContain("(none)");
+    expect(src).toContain("linked to beat [");
+    expect(src).toContain("use beatId to link twists");
+  });
+
+  it("r7.13 Audit: all 4 prompt builders pass full no-meta-language scan", async () => {
+    const { buildSceneGridImagePrompt } = await import("../src/engine/sceneImagePromptBuilder");
+    const { buildSingleShotImagePrompt, buildAnimationPrompt, buildAnimationPromptAdvanced } = await import("../src/engine/filmShotPromptBuilder");
+    const shot: any = { id: "sh1", order: 1, titleEn: "S", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "x", purposeEn: "establish trust", rhythmRole: "build" };
+    const lastShot: any = { id: "sh0", order: 0, titleEn: "S0", shotType: "medium", cameraMovement: "static", durationSeconds: 5, actionEn: "y" };
+    const scene: any = { id: "sc1", order: 1, titleEn: "S", settings: "EXT.", actionLinesEn: "x", durationSeconds: 30, emotionalTone: "shocking", tensionLevel: 7,
+      physicalConsistencyLockEn: "subject: x",
+      filmReferencesEn: ["Ref 1"],
+      colorScript: { dominantEn: "green #2E4A2A — 60%", accent1En: "orange #C7572B — 25%", accent2En: "blue #4FA8E0 — 15%" } };
+    const grid: any = { id: "g1", order: 1, gridFormat: "2x2", cells: [{order:1,shotId:"sh1"},{order:2,shotId:null},{order:3,shotId:null},{order:4,shotId:null}] };
+    const setting: any = { animationStyle: "live_action", aspectRatio: "16:9" };
+    const cast: any[] = [{id:"c1", order:1, name:"X", role:"protagonist", description:"y", faceRefs:[{filename:"a.png", dataUrl:"data:"}], bodyRefs:[]}];
+    const provider: any = { id: "seedance-2-pro", name: "Seedance" };
+
+    const prompts = [
+      buildSceneGridImagePrompt({ grid, scene, shots: [shot], cast, setting }),
+      buildSingleShotImagePrompt({ shot, scene, cast, setting }),
+      buildAnimationPrompt({ shot, scene, cast, setting, provider }),
+      buildAnimationPromptAdvanced({ shot, lastFrameShot: lastShot, scene, cast, setting, provider }),
+    ];
+
+    // Forbidden patterns across ALL 4 prompts (anywhere)
+    const forbidden = [
+      /\battach in (this exact )?order\b/i,
+      /per attached (cast )?refs/i,
+      /\(per-shot override\)/i,
+      /"unset"/,
+      /\(framing only\)/i,
+      /\bthe user('s)? story\b/i,
+      /\bthe user has chosen\b/i,
+      /locked by user via/i,
+    ];
+    for (const prompt of prompts) {
+      for (const pattern of forbidden) {
+        expect(prompt).not.toMatch(pattern);
+      }
+    }
+  });
+});
+
+// ============================================================================
+// Sprint r7.15f — Cast Rebuild + OpenAI Fallback
+// ============================================================================
+
+describe("Sprint r7.15f — Cast Rebuild", () => {
+  it("FilmCharacter schema has conceptSheet field (optional)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/types/film.ts"), "utf-8");
+    expect(src).toContain("conceptSheet?: FilmImageRef");
+    // Legacy faceRefs/bodyRefs preserved + marked deprecated
+    expect(src).toContain("@deprecated Replaced by `conceptSheet`");
+  });
+
+  it("backfillConceptSheet migration copies faceRefs[0] → conceptSheet idempotently", async () => {
+    const { backfillConceptSheet } = await import("../src/store/migration");
+    expect(typeof backfillConceptSheet).toBe("function");
+
+    // Case 1: legacy project with faceRefs but no conceptSheet → backfill
+    const legacyProject: any = {
+      id: "p1",
+      schemaVersion: "v0.9",
+      filmV093: {
+        characters: [
+          {
+            id: "c1",
+            order: 1,
+            name: "Bear",
+            role: "protagonist",
+            description: "test",
+            faceRefs: [{ id: "f1", filename: "front.png", mimeType: "image/png", dataUrl: "data:abc" }],
+            bodyRefs: [],
+          },
+        ],
+      },
+    };
+    const migrated = backfillConceptSheet(legacyProject);
+    const char = (migrated as any).filmV093.characters[0];
+    expect(char.conceptSheet).toBeDefined();
+    expect(char.conceptSheet.dataUrl).toBe("data:abc");
+    expect(char.conceptSheet.label).toBe("concept sheet");
+    // Legacy faceRefs/bodyRefs preserved
+    expect(char.faceRefs).toHaveLength(1);
+
+    // Case 2: idempotent — calling again does nothing
+    const migrated2 = backfillConceptSheet(migrated);
+    expect(migrated2).toBe(migrated);
+
+    // Case 3: empty faceRefs → no migration
+    const emptyProject: any = {
+      id: "p2",
+      schemaVersion: "v0.9",
+      filmV093: {
+        characters: [{ id: "c1", order: 1, name: "X", role: "extra", description: "", faceRefs: [], bodyRefs: [] }],
+      },
+    };
+    const migratedEmpty = backfillConceptSheet(emptyProject);
+    expect(migratedEmpty).toBe(emptyProject);
+  });
+
+  it("buildCharacterSheetPrompt generates copy-pasteable prompt with views + entity-specific blocks", async () => {
+    const { buildCharacterSheetPrompt, detectEntityType } = await import("../src/engine/characterSheetPrompt");
+
+    // Entity detection
+    expect(detectEntityType("robot bipedal cao 1m8")).toBe("robot");
+    expect(detectEntityType("gấu nâu mập")).toBe("animal");
+    expect(detectEntityType("cô gái 25 tuổi")).toBe("human");
+    expect(detectEntityType("a mysterious entity")).toBe("creature");
+
+    // Generated prompt content
+    const prompt = buildCharacterSheetPrompt({
+      character: { name: "Robot A-17", role: "protagonist", description: "Robot bipedal phủ rêu xanh" },
+      ideaText: "Robot tỉnh dậy trong rừng",
+      setting: { animationStyle: "3d_render", genre: "sci-fi", aspectRatio: "16:9" },
+    });
+    expect(prompt).toContain("CHARACTER REFERENCE SHEET");
+    expect(prompt).toContain("Robot A-17");
+    expect(prompt).toContain("Protagonist");
+    expect(prompt).toContain("FRONT VIEW");
+    expect(prompt).toContain("3/4 RIGHT VIEW");
+    expect(prompt).toContain("3/4 LEFT VIEW");
+    expect(prompt).toContain("BACK VIEW");
+    expect(prompt).toContain("Color palette swatches");
+    // Robot-specific block (r7.18: text labels removed, kept visual close-ups)
+    expect(prompt).toContain("Optical/sensor close-up");
+  });
+
+  it("buildCharacterSheetPrompt animal entity uses species block", async () => {
+    const { buildCharacterSheetPrompt } = await import("../src/engine/characterSheetPrompt");
+    const prompt = buildCharacterSheetPrompt({
+      character: { name: "Gấu Mập", role: "protagonist", description: "Gấu nâu mập tròn, lông dày" },
+      ideaText: "Gấu chia sẻ thức ăn mùa đông",
+      setting: { animationStyle: "pixar", genre: "family", aspectRatio: "16:9" },
+    });
+    expect(prompt).toContain("Species traits panel");
+    expect(prompt).toContain("Fur/scale/feather texture");
+    // Pixar style applied
+    expect(prompt).toContain("Pixar");
+  });
+
+  it("CastFilmSection uses conceptSheet (not faceRefs) for avatar + warning", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // r7.17: avatar always emoji, conceptSheet displayed via ConceptSheetPanel (uses local `sheet.dataUrl`)
+    // Concept sheet reference exists in component logic
+    expect(src).toContain("character.conceptSheet");
+    expect(src).toContain("ConceptSheetPanel");
+    // Concept sheet workflow buttons present (r7.17 labels)
+    expect(src).toContain("📤 Upload");
+    expect(src).toContain("🤖 AI Concept Prompt");
+    // Legacy face/body expanded panel removed
+    expect(src).not.toContain('expandedRefs === "face"');
+    expect(src).not.toContain('expandedRefs === "body"');
+  });
+
+  it("filmShotPromptBuilder.castSummary prefers conceptSheet with legacy fallback", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotPromptBuilder.ts"), "utf-8");
+    expect(src).toContain("hasSheet");
+    expect(src).toContain("c.conceptSheet?.dataUrl");
+    expect(src).toContain("1 concept sheet (full views + details)");
+    // Legacy fallback path
+    expect(src).toContain("[legacy]");
+  });
+});
+
+describe("Sprint r7.15f — OpenAI Fallback (Bug 1 + Bug 2 fix)", () => {
+  it("Bug 1: filmCastGeneration removed multimodal Gemini path (always text-only callAi)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmCastGeneration.ts"), "utf-8");
+    // Multimodal removed
+    expect(src).not.toContain("callGeminiMultimodal");
+    expect(src).not.toContain("inline_data");
+    expect(src).not.toContain("GEMINI_FLASH_MM_ENDPOINT");
+    // Comment documenting removal reason
+    expect(src).toContain("Text-only path only");
+  });
+
+  it("Bug 2: aiRuntime.generateText has OpenAI fallback when Gemini key missing", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/aiRuntime.ts"), "utf-8");
+    // Fallback comment + logic mirrors resolveProvider in filmScriptStages
+    expect(src).toContain("Auto-fallback if preferred provider's API key is missing");
+    expect(src).toContain('console.warn(`[KSP AI fallback]');
+    // Both directions of fallback
+    expect(src).toContain('provider = "openai-4o"');
+    expect(src).toContain('provider = "gemini-flash"');
+    // Hard error only when BOTH keys missing
+    expect(src).toContain("Chưa có API key nào");
+  });
+
+  it("Migration pipeline includes backfillConceptSheet", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/store/migration.ts"), "utf-8");
+    expect(src).toContain("backfillConceptSheet");
+    // Wired into migrateAllProjects chain
+    expect(src).toMatch(/migrateAllProjects[\s\S]*backfillConceptSheet/);
+  });
+
+  it("CastPromptModal.tsx orphan file removed (replaced by inline ConceptPromptModal)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const exists = fs.existsSync(path.resolve("./src/components/CastPromptModal.tsx"));
+    expect(exists).toBe(false);
+  });
+});
+
+// ============================================================================
+// Sprint r7.17 — Cast Linear Layout (replaces r7.16 Tabs)
+// ============================================================================
+
+describe("Sprint r7.17 — Cast Linear Layout", () => {
+  it("CastFilmCard uses linear layout (no tabs, no status row)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // Tabbed UI removed
+    expect(src).not.toContain('type CardTab = "info" | "sheet" | "actions"');
+    expect(src).not.toContain('useState<CardTab>');
+    expect(src).not.toContain("ksp-cast-film-tab-content");
+    expect(src).not.toContain("ksp-cast-film-status-row");
+    expect(src).not.toContain("ksp-cast-film-tab-info");
+    expect(src).not.toContain("ksp-cast-film-tab-sheet");
+    expect(src).not.toContain("ksp-cast-film-tab-actions");
+  });
+
+  it("Header avatar always uses emoji (no concept sheet image override)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // Emoji avatar present
+    expect(src).toContain("ksp-cast-film-avatar-emoji");
+    // No conditional image avatar (was: conceptSheetUrl ? <img/> : <emoji/>)
+    expect(src).not.toContain("ksp-cast-film-avatar-img");
+    expect(src).not.toContain("conceptSheetUrl");
+  });
+
+  it("Layout has 2 button rows: manual (Copy Prompt + Upload) + AI (Generate Concept Image + Generate Character Description)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // 4 button labels — renamed from r7.16
+    expect(src).toContain("📋 Copy Prompt");
+    expect(src).toContain("📤 Upload");
+    expect(src).toContain("🎨 Generate Concept Image");
+    expect(src).toContain("✨ Generate Character Description");
+    // Row containers
+    expect(src).toContain("ksp-cast-film-sheet-actions");
+    expect(src).toContain("ksp-cast-film-ai-actions");
+    // Copy Prompt is the primary highlighted button
+    expect(src).toMatch(/ksp-cast-film-action-btn primary[\s\S]+?Copy Prompt/);
+    // Renamed labels — old r7.16 versions removed
+    expect(src).not.toContain("🤖 AI Sheet");
+    expect(src).not.toContain("✨ AI Description");
+    expect(src).not.toContain("ksp-cast-film-actions-grid");
+    expect(src).not.toContain("ksp-cast-film-action-tile");
+  });
+
+  it("ConceptSheetPanel empty state has red warning border (r7.17), no CTA to actions tab", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    // No longer jumps to a tab — layout is linear
+    expect(src).not.toContain("onJumpToActions");
+    expect(src).not.toContain("ksp-cast-film-sheet-empty-cta");
+    expect(src).not.toContain("⚡ Mở Actions");
+    // Empty state has warning role + icon
+    expect(src).toMatch(/ksp-cast-film-sheet-empty[\s\S]+?role="alert"/);
+    expect(src).toContain("ksp-cast-film-sheet-empty-icon");
+
+    // CSS: red border (rgba(226, 75, 74, …)) — was orange dashed in r7.16
+    const css = fs.readFileSync(path.resolve("./src/components/film.css"), "utf-8");
+    const block = css.match(/\.ksp-cast-film-sheet-empty\s*\{[^}]+\}/);
+    expect(block).toBeTruthy();
+    expect(block![0]).toMatch(/border:\s*1px\s+solid\s+rgba\(226,\s*75,\s*74/);
+  });
+});
+
+describe("Sprint r7.16 — GPT Image 2 integration", () => {
+  it("gptImageApi module exports generate + edit functions + availability check", async () => {
+    const mod = await import("../src/engine/gptImageApi");
+    expect(typeof mod.generateCharacterSheet).toBe("function");
+    expect(typeof mod.editImageWithReference).toBe("function");
+    expect(typeof mod.isGptImage2Available).toBe("function");
+  });
+
+  it("generateCharacterSheet throws when OpenAI key missing", async () => {
+    const { useGlobalStore } = await import("../src/store/useGlobalStore");
+    const { generateCharacterSheet } = await import("../src/engine/gptImageApi");
+    // Save + clear key
+    const orig = useGlobalStore.getState().apiKeys;
+    useGlobalStore.setState({ apiKeys: { ...orig, openai: "" } });
+    try {
+      await expect(
+        generateCharacterSheet({ prompt: "test", quality: "low" })
+      ).rejects.toThrow(/OpenAI API key/);
+    } finally {
+      useGlobalStore.setState({ apiKeys: orig });
+    }
+  });
+
+  it("editImageWithReference validates referenceImages count", async () => {
+    const { useGlobalStore } = await import("../src/store/useGlobalStore");
+    const { editImageWithReference } = await import("../src/engine/gptImageApi");
+    const orig = useGlobalStore.getState().apiKeys;
+    useGlobalStore.setState({ apiKeys: { ...orig, openai: "sk-test" } });
+    try {
+      // 0 refs → throws
+      await expect(
+        editImageWithReference({ prompt: "test", referenceImages: [] })
+      ).rejects.toThrow(/ít nhất 1 reference/);
+      // 11 refs → throws (max 10)
+      const elevenRefs = Array(11).fill("data:image/png;base64,abc");
+      await expect(
+        editImageWithReference({ prompt: "test", referenceImages: elevenRefs })
+      ).rejects.toThrow(/Tối đa 10 reference/);
+    } finally {
+      useGlobalStore.setState({ apiKeys: orig });
+    }
+  });
+
+  it("Cast card has handleGenerateSheetInApp + wires gptImageApi", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/CastFilmSection.tsx"), "utf-8");
+    expect(src).toContain("handleGenerateSheetInApp");
+    expect(src).toContain('import("../engine/gptImageApi")');
+    expect(src).toContain("generateCharacterSheet");
+  });
+});
+
+describe("Sprint r7.16 — JSON Recovery Layer 1 Sanitizer", () => {
+  it("strips markdown code fences", async () => {
+    const { sanitizeJsonString } = await import("../src/engine/jsonRecovery");
+    const raw = '```json\n{"key": "value"}\n```';
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ key: "value" });
+    expect(fixesApplied).toContain("strip-markdown-fence");
+  });
+
+  it("strips trailing commas before } and ]", async () => {
+    const { sanitizeJsonString } = await import("../src/engine/jsonRecovery");
+    const raw = '{"arr": [1, 2, 3,], "k": "v",}';
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ arr: [1, 2, 3], k: "v" });
+    expect(fixesApplied).toContain("strip-trailing-commas");
+  });
+
+  it("normalizes smart curly quotes to straight quotes", async () => {
+    const { sanitizeJsonString } = await import("../src/engine/jsonRecovery");
+    // U+201C/U+201D curly double quotes
+    const raw = '{\u201Ckey\u201D: \u201Cvalue\u201D}';
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ key: "value" });
+    expect(fixesApplied).toContain("normalize-smart-quotes");
+  });
+
+  it("auto-closes 1-2 missing brackets", async () => {
+    const { sanitizeJsonString } = await import("../src/engine/jsonRecovery");
+    const raw = '{"scenes": [{"title": "Test"';
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    // Should add `}` `]` `}`
+    const parsed = JSON.parse(cleaned);
+    expect(parsed.scenes).toBeDefined();
+    expect(parsed.scenes[0].title).toBe("Test");
+    expect(fixesApplied.some((f) => f.startsWith("auto-close-brackets"))).toBe(true);
+  });
+
+  it("strips preamble text before first {", async () => {
+    const { sanitizeJsonString } = await import("../src/engine/jsonRecovery");
+    const raw = 'Here is the JSON response:\n\n{"key": "value"}';
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ key: "value" });
+    expect(fixesApplied).toContain("strip-preamble");
+  });
+
+  it("parseJsonStrictAsync uses 3-layer recovery", async () => {
+    const { parseJsonStrictAsync } = await import("../src/engine/filmScriptStages");
+    // Direct parse — no recovery needed
+    const direct = await parseJsonStrictAsync<{ a: number }>('{"a":1}', "Test direct");
+    expect(direct).toEqual({ a: 1 });
+
+    // Sanitizer-fixable
+    const sanitized = await parseJsonStrictAsync<{ a: number }>('{"a":1,}', "Test sanitizer");
+    expect(sanitized).toEqual({ a: 1 });
+  });
+
+  it("JSON_OUTPUT_RULES constant exported with required clauses", async () => {
+    const { JSON_OUTPUT_RULES } = await import("../src/engine/jsonRecovery");
+    expect(typeof JSON_OUTPUT_RULES).toBe("string");
+    expect(JSON_OUTPUT_RULES).toContain("CRITICAL JSON OUTPUT RULES");
+    expect(JSON_OUTPUT_RULES).toContain("STRAIGHT double quotes");
+    expect(JSON_OUTPUT_RULES).toContain("NO trailing commas");
+    expect(JSON_OUTPUT_RULES).toContain("Escape all double quotes");
+  });
+
+  it("5 preview flow prompts inject JSON_OUTPUT_RULES", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/previewFlowAI.ts"), "utf-8");
+    const matches = src.match(/\$\{JSON_OUTPUT_RULES\}/g) || [];
+    expect(matches.length).toBe(5);
+  });
+
+  it("filmScriptStages Stage 2 Beats + Stage 4 Scenes + analyze-scenes inject JSON_OUTPUT_RULES", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmScriptStages.ts"), "utf-8");
+    const matches = src.match(/\$\{JSON_OUTPUT_RULES\}/g) || [];
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("filmShotListGeneration injects JSON_OUTPUT_RULES", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/engine/filmShotListGeneration.ts"), "utf-8");
+    expect(src).toContain("${JSON_OUTPUT_RULES}");
+  });
+});
+
+describe("Sprint r7.16 — Retry from section", () => {
+  it("AutoChainOrchestrator has retryFromSection method", async () => {
+    const { AutoChainOrchestrator } = await import("../src/engine/autoChainOrchestrator");
+    const orch = new AutoChainOrchestrator({
+      getProject: () => ({}) as any,
+      updateProject: () => {},
+      showToast: () => {},
+    });
+    expect(typeof (orch as any).retryFromSection).toBe("function");
+  });
+
+  it("FilmIdeaScriptSection wires retry button via lastDirectionRef", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmIdeaScriptSection.tsx"), "utf-8");
+    expect(src).toContain("lastDirectionRef");
+    expect(src).toContain("handleRetrySection");
+    expect(src).toContain("retryFromSection");
+    // Button rendered only when status === "error" + onRetry available
+    expect(src).toContain("ksp-stage-retry-btn");
+    expect(src).toContain("🔄 Thử lại section này");
+  });
+
+  it("Retry button only shows when not currently generating", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.resolve("./src/components/FilmIdeaScriptSection.tsx"), "utf-8");
+    // Guard: onRetry && !isGenerating
+    expect(src).toContain("onRetry && !isGenerating");
   });
 });

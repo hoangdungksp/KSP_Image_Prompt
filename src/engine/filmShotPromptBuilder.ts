@@ -34,7 +34,9 @@ import {
   buildCharacterEmotionPhrase,
   buildSetupPayoffHints,
   castRefsBlockFiltered,
+  resolveVisualArc,
 } from "./sceneImagePromptBuilder";
+import { getEnglishTerm } from "../types/cameraMovement";
 
 // ============================================================================
 // SHARED HELPERS
@@ -68,7 +70,15 @@ function castSummary(cast: FilmCharacter[]): string {
   if (cast.length === 0) return "no characters specified";
   return cast
     .map((c, i) => {
-      const refs = `${c.faceRefs.length} face ref${c.faceRefs.length !== 1 ? "s" : ""} + ${c.bodyRefs.length} body ref${c.bodyRefs.length !== 1 ? "s" : ""}`;
+      // Prefer conceptSheet (new model). Fall back to legacy faceRefs/bodyRefs count
+      // for projects that haven't been migrated yet.
+      const hasSheet = !!c.conceptSheet?.dataUrl;
+      const legacyCount = (c.faceRefs?.length ?? 0) + (c.bodyRefs?.length ?? 0);
+      const refs = hasSheet
+        ? "1 concept sheet (full views + details)"
+        : legacyCount > 0
+          ? `${c.faceRefs?.length ?? 0} face ref(s) + ${c.bodyRefs?.length ?? 0} body ref(s) [legacy]`
+          : "no reference image yet";
       const desc = c.description ? ` — ${c.description}` : "";
       return `  Image #${i + 1}: ${c.name || `Character ${c.order}`} (${c.role}) [${refs}]${desc}`;
     })
@@ -76,7 +86,7 @@ function castSummary(cast: FilmCharacter[]): string {
 }
 
 // ============================================================================
-// SINGLE SHOT IMAGE PROMPT (qc22c — per-cell standalone generation)
+// SINGLE SHOT IMAGE PROMPT (c — per-cell standalone generation)
 // ============================================================================
 // Generates ONE image for ONE shot (single cell), not a grid. Used by
 // FilmFrameEditModal so user can regenerate or perfect a single frame in
@@ -103,7 +113,7 @@ export function buildSingleShotImagePrompt(
 
   const shotTitle = shot.titleEn || shot.titleVi || `Shot ${shot.order}`;
   const shotType = SHOT_TYPE_LABEL[shot.shotType] ?? shot.shotType;
-  const cameraMovement = (shot.cameraMovement || "static").replace(/_/g, " ");
+  const cameraMovement = getEnglishTerm(shot.cameraMovement || "static");
   const sceneTitle = scene?.titleEn || scene?.titleVi || "—";
   const sceneSettings = scene?.settings || "unspecified location";
   // BUG #2 fix: actionEn priority everywhere
@@ -136,7 +146,7 @@ export function buildSingleShotImagePrompt(
     overrideIntensity ?? (scene ? ((scene as any).tensionLevel as number | undefined) : undefined);
   const moodHints = EMOTION_CINEMA_HINTS[sceneTone];
   const tensionHint = tensionFramingHint(sceneTension);
-  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "unset";
+  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "neutral baseline";
   const rhythmRole = (shot as any).rhythmRole as RhythmRole | undefined;
   const compositionHint = rhythmRole
     ? RHYTHM_COMPOSITION_HINT[rhythmRole]
@@ -151,73 +161,94 @@ export function buildSingleShotImagePrompt(
   // Sprint 1.0 r7: per-shot lighting hint (user override or AI auto-fill)
   const lightingHint = (shot as any).lightingHintEn?.trim() || moodHints.lighting;
 
-  // Sprint 1.0 r7: Physical consistency lock from scene
+  // Sprint G1e2 Phase 2B: Inner emotional state per shot (Pixar core depth)
+  const innerStateVi = (shot as any).innerStateVi?.trim();
+  const innerStateBlock = innerStateVi
+    ? `\n\nINNER STATE (what character feels AT THIS EXACT FRAME):\n${innerStateVi}`
+    : "";
+
+  // Sprint G1e2 Phase 2B: Film references per scene (mood anchor)
+  const filmRefs = scene ? (((scene as any).filmReferencesEn as string[] | undefined) ?? []) : [];
+  const filmRefsBlock = filmRefs.length > 0
+    ? `\n\nREFERENCES (mood anchor — AI must lean toward these established cinematic atmospheres):\n${filmRefs.map((r) => `- ${r}`).join("\n")}`
+    : "";
+
+  // Sprint G1e2 Phase 3: Color Script per scene (Pixar palette lock)
+  const colorScript = scene
+    ? ((scene as any).colorScript as { dominantEn: string; accent1En: string; accent2En: string } | undefined)
+    : undefined;
+  const colorScriptBlock = colorScript
+    ? `\n\nCOLOR SCRIPT (STRICT palette — must match other shots in this scene):\n- Dominant: ${colorScript.dominantEn}\n- Accent 1: ${colorScript.accent1En}\n- Accent 2: ${colorScript.accent2En}`
+    : "";
+
+  // Sprint 1.0 r7: Physical consistency lock from scene (inlined in Tier 1)
   const physicalLockBody = scene
     ? ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim()
     : undefined;
-  const physicalLockBlock = physicalLockBody
-    ? `
 
-PHYSICAL CONSISTENCY LOCK (must match other shots in this scene):
-${physicalLockBody}`
-    : "";
-
-  // CINEMATIC INTENT block — per-shot, with override-aware values
-  const overrideNote = overrideTone || overrideIntensity ? " — per-shot override active" : "";
-  const cinematicMoodBlock = `CINEMATIC INTENT (per-shot, derived from pacing analysis${overrideNote}):
-- Scene emotion: ${sceneTone} · Tension: ${tensionLabel}${rhythmRole ? ` · Shot rhythm role: ${rhythmRole}` : ""}
-- Lighting: ${lightingHint}
-- Color palette: ${moodHints.palette}
-- Atmosphere: ${moodHints.atmosphere}
-- Framing intensity: ${tensionHint}
-- Composition direction: ${compositionHint}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}`;
+  // Per-shot override note for Tier 2 emotion line
+  const overrideNote = overrideTone || overrideIntensity ? "" : "";
 
   const setupPayoffBlock = setupPayoffHints.length > 0
-    ? `\n\nNARRATIVE CONTINUITY:
-${setupPayoffHints.map((h) => `- ${h}`).join("\n")}`
+    ? `\n\nNarrative continuity anchors:\n${setupPayoffHints.map((h) => `- ${h}`).join("\n")}`
     : "";
 
   // Sprint 1.0 r7: REFERENCE IMAGES block — only include cast subblock if any refs uploaded
   const refImageBlock = refBlock
-    ? `REFERENCE IMAGES (use for character consistency — filenames from Refs ZIP):
+    ? `REFERENCE IMAGES (in order):
 ${refBlock}`
-    : `REFERENCE IMAGES: (no cast references uploaded — AI must render character from description text alone)`;
+    : `REFERENCE IMAGES: (no cast refs — render character from description)`;
 
-  return `Cinematic single-frame storyboard image. ${aspect} aspect ratio.
+  return `Cinematic single-frame storyboard image. ${aspect} aspect.
 Style: ${styleHint}.
+
+═══════════════════════════════════════════════════════════════
+TIER 1 — ABSOLUTE LOCK
+═══════════════════════════════════════════════════════════════
+SINGLE IMAGE (not grid, not collage). One coherent cinematic frame.
+CHARACTER IDENTITY: identical face/body/outfit per reference images${refBlock ? "" : " (no references — render from description only)"}.${physicalLockBody ? `
+
+PHYSICAL CONSISTENCY (must match all other shots in this scene — appearance NEVER varies):
+${physicalLockBody}` : ""}
 
 ${refImageBlock}
 
+═══════════════════════════════════════════════════════════════
+TIER 2 — SCENE LOCK
+═══════════════════════════════════════════════════════════════
+SCENE: ${sceneTitle} — ${sceneSettings}
+CINEMATIC INTENT (must match other shots in same scene):
+- Emotion: ${sceneTone} · Tension: ${tensionLabel}${overrideNote}
+- Lighting: ${lightingHint}
+- Palette: ${moodHints.palette}
+- Atmosphere: ${moodHints.atmosphere}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}${filmRefsBlock}${colorScriptBlock}${setupPayoffBlock}
+
+═══════════════════════════════════════════════════════════════
+TIER 3 — SHOT-SPECIFIC
+═══════════════════════════════════════════════════════════════
 SHOT: ${shotTitle}
-Type: ${shotType}
-Camera framing: ${cameraMovement}
-Duration: ${shot.durationSeconds}s
-Scene: ${sceneTitle} — ${sceneSettings}
-${purpose}
-
-${cinematicMoodBlock}${physicalLockBlock}${setupPayoffBlock}
-
+Type: ${shotType} · Camera: ${cameraMovement} · Duration: ${shot.durationSeconds}s${rhythmRole ? ` · Rhythm: ${rhythmRole}` : ""}
+LENS: ${resolveVisualArc(rhythmRole, shot.shotType).lens}
+DISTANCE: ${resolveVisualArc(rhythmRole, shot.shotType).distance}
+Framing: ${tensionHint}
+Composition: ${compositionHint}
+${purposeEn || purposeFallback ? `SHOT PURPOSE: ${purposeEn || purposeFallback}\n` : ""}
 ACTION IN THIS FRAME:
-${actionEn}
+${actionEn}${innerStateBlock}
 
-FRAMING:
-- Single image (NOT a grid, NOT a collage). One coherent cinematic frame.
-- Capture the EXACT moment described in the action above — peak of the beat.
-- Maintain character identity (face, body, outfit) per reference images${refBlock ? "" : " (description only — no refs)"}.
+═══════════════════════════════════════════════════════════════
+TIER 4 — SOFT PREFERENCES
+═══════════════════════════════════════════════════════════════
+- Peak moment of the beat — capture the apex of the described action.
 - Cinematic ${aspect} framing with appropriate depth of field for shot type.
-- Honor the CINEMATIC INTENT block above — lighting, color, atmosphere, composition must match.${physicalLockBody ? "\n- Match PHYSICAL CONSISTENCY LOCK — appearance details locked across all shots of this scene." : ""}
 
-AVOID:
-- Multiple panels, frames, or split-screen.
-- Text overlays, dialogue captions, frame numbers.
-- Branded logos, watermarks, timestamps.
-- Generic neutral lighting that ignores the emotional intent above.${physicalLockBody ? "\n- Varying physical appearance details listed in PHYSICAL CONSISTENCY LOCK." : ""}
+AVOID: multiple panels/split-screen · text/captions/frame numbers · logos/watermarks · contradicting Tier 1 locks.
 
-OUTPUT: one high-resolution still image of the described shot.`;
+OUTPUT: one high-resolution still image.`;
 }
 
 // ============================================================================
-// IMAGE PROMPT (legacy — kept for backward-compat with qc11 callers)
+// IMAGE PROMPT (legacy — kept for backward-compat with callers)
 // ============================================================================
 
 export interface BuildImagePromptInput {
@@ -295,7 +326,7 @@ export interface BuildAnimationPromptInput {
  * AI needs concrete spatial verbs, not abstract labels like "tracking".
  */
 function cameraMovementDirection(cameraMovement: string, duration: number): string {
-  const cm = (cameraMovement || "static").toLowerCase().replace(/_/g, " ");
+  const cm = getEnglishTerm(cameraMovement || "static").toLowerCase();
   const speedHint = duration <= 4 ? "quick" : duration <= 8 ? "moderate" : "slow, deliberate";
   const map: Record<string, string> = {
     "static":
@@ -455,7 +486,7 @@ export function buildAnimationPrompt(input: BuildAnimationPromptInput): string {
   const sceneTension =
     overrideIntensity ?? (scene ? ((scene as any).tensionLevel as number | undefined) : undefined);
   const moodHints = EMOTION_CINEMA_HINTS[sceneTone];
-  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "unset";
+  const tensionLabel = sceneTension !== undefined ? `${sceneTension}/10` : "neutral baseline";
   const rhythmRole = (shot as any).rhythmRole as RhythmRole | undefined;
   const characterEmotionPhrase = scene
     ? buildCharacterEmotionPhrase(scene, cast)
@@ -476,79 +507,101 @@ export function buildAnimationPrompt(input: BuildAnimationPromptInput): string {
   // Sprint 1.0 r7: Per-shot lighting hint override
   const lightingHint = (shot as any).lightingHintEn?.trim() || moodHints.lighting;
 
-  // Sprint 1.0 r7: Physical consistency lock from scene
+  // Sprint G1e2 Phase 2B: Inner emotional state per shot (Pixar core depth)
+  const innerStateVi = (shot as any).innerStateVi?.trim();
+  const innerStateBlock = innerStateVi
+    ? `\n\nINNER STATE (what character feels AT THIS EXACT FRAME — animate this interiority across all frames):\n${innerStateVi}`
+    : "";
+
+  // Sprint G1e2 Phase 2B: Film references per scene (mood anchor)
+  const filmRefs = scene ? (((scene as any).filmReferencesEn as string[] | undefined) ?? []) : [];
+  const filmRefsBlock = filmRefs.length > 0
+    ? `\n\nREFERENCES (motion + atmosphere anchors — AI must lean toward these established cinematic atmospheres):\n${filmRefs.map((r) => `- ${r}`).join("\n")}`
+    : "";
+
+  // Sprint G1e2 Phase 3: Color Script per scene (palette must hold across full shot)
+  const colorScript = scene
+    ? ((scene as any).colorScript as { dominantEn: string; accent1En: string; accent2En: string } | undefined)
+    : undefined;
+  const colorScriptBlock = colorScript
+    ? `\n\nCOLOR SCRIPT (STRICT palette — must hold across entire shot duration, no drift mid-shot):\n- Dominant: ${colorScript.dominantEn}\n- Accent 1: ${colorScript.accent1En}\n- Accent 2: ${colorScript.accent2En}`
+    : "";
+
+  // Sprint 1.0 r7: Physical consistency lock from scene (inlined in Tier 1)
   const physicalLockBody = scene
     ? ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim()
     : undefined;
-  const physicalLockBlock = physicalLockBody
-    ? `
 
-PHYSICAL CONSISTENCY LOCK (must hold across entire shot duration):
-${physicalLockBody}`
-    : "";
-
-  const overrideNote = overrideTone || overrideIntensity ? " — per-shot override active" : "";
-  const cinematicMoodBlock = `EMOTIONAL & MOTION INTENT (from pacing analysis${overrideNote}):
-- Scene emotion: ${sceneTone} · Tension: ${tensionLabel}${rhythmRole ? ` · Shot role: ${rhythmRole}` : ""}
-- Lighting consistency target: ${lightingHint}
-- Atmosphere maintained throughout shot: ${moodHints.atmosphere}
-- Motion intent: ${motionIntent}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}`;
+  const overrideNote = overrideTone || overrideIntensity ? "" : "";
 
   const setupPayoffBlock = setupPayoffHints.length > 0
-    ? `\n\nNARRATIVE CONTINUITY: ${setupPayoffHints[0]}`
+    ? `\n\nNarrative continuity anchor: ${setupPayoffHints[0]}`
     : "";
 
   // Provider hints — ALL aligned to ONE CONTINUOUS SHOT (no multi-shot syntax).
   const providerHints: Record<string, string> = {
     "seedance-2-pro":
-      "Provider: Seedance 2.0 Pro. ONE continuous shot (no cuts inside). Up to 12s. Strong character/motion fidelity.",
+      "Provider: Seedance 2.0 Pro. ONE continuous shot (no cuts). Up to 12s. Strong character/motion fidelity.",
     "veo-3":
       "Provider: Veo 3. ONE continuous shot, max 8s. Photoreal motion, no edits.",
     "kling-2":
-      "Provider: Kling 2.0. ONE continuous shot, 5-10s. Strong character motion fidelity, no internal cuts.",
+      "Provider: Kling 2.0. ONE continuous shot, 5-10s. Strong character motion fidelity.",
     sora:
       "Provider: Sora. ONE continuous take. Strong physics. No internal cuts.",
   };
   const providerHint =
     providerHints[provider.id] ??
-    `Provider: ${provider.name}${provider.maxDurationSec ? ` (max ${provider.maxDurationSec}s)` : ""}. ONE continuous shot, no internal cuts.`;
+    `Provider: ${provider.name}${provider.maxDurationSec ? ` (max ${provider.maxDurationSec}s)` : ""}. ONE continuous shot.`;
 
   const base = `You are an experienced film director instructing a video AI to animate ONE shot.
 
-SHOT: ${shotTitle}  (Scene: ${sceneTitle})
+═══════════════════════════════════════════════════════════════
+TIER 1 — ABSOLUTE LOCK
+═══════════════════════════════════════════════════════════════
+ONE continuous shot, NO internal cuts/transitions/split-screens.
+CHARACTER IDENTITY: preserve face/outfit/body proportion per reference image throughout.
+REFERENCE IMAGE: first-frame_shot-${shot.order}.png — animate motion BEGINNING from this exact frame. Do not redraw, recompose, or restyle.${physicalLockBody ? `
+
+PHYSICAL CONSISTENCY (must hold frame-to-frame, never drift):
+${physicalLockBody}` : ""}
+
+═══════════════════════════════════════════════════════════════
+TIER 2 — SCENE LOCK
+═══════════════════════════════════════════════════════════════
+SHOT: ${shotTitle} · Scene: ${sceneTitle}
 Cast: ${castNames}
 Style: ${styleHint}
-Aspect ratio: ${aspect}
-Setting: ${settingHint}
-Duration: ${duration}s
-${purpose}
+Aspect: ${aspect} · Setting: ${settingHint}
 
-REFERENCE IMAGE — filename: first-frame_shot-${shot.order}.png.
-A single keyframe of THIS shot (the starting/anchor frame). Animate motion that BEGINS from this exact image. Do not redraw, recompose, or restyle the reference.
+EMOTIONAL & MOTION INTENT${overrideNote}:
+- Emotion: ${sceneTone} · Tension: ${tensionLabel}${rhythmRole ? ` · Role: ${rhythmRole}` : ""}
+- Lighting target: ${lightingHint}
+- Atmosphere: ${moodHints.atmosphere}
+- Motion: ${motionIntent}${characterEmotionPhrase ? `\n- ${characterEmotionPhrase}` : ""}${filmRefsBlock}${colorScriptBlock}${setupPayoffBlock}
 
-${cinematicMoodBlock}${physicalLockBlock}${setupPayoffBlock}
-
+═══════════════════════════════════════════════════════════════
+TIER 3 — SHOT-SPECIFIC
+═══════════════════════════════════════════════════════════════
+LENS: ${resolveVisualArc(rhythmRole, shot.shotType).lens}
+DISTANCE: ${resolveVisualArc(rhythmRole, shot.shotType).distance}
+${purpose ? `SHOT PURPOSE: ${purpose.replace(/^Narrative purpose: /, "")}\n` : ""}
 ACTION (this shot ONLY):
-${actionLines}
+${actionLines}${innerStateBlock}
 
+Duration: ${duration}s
 ${timing}
 
 CAMERA:
 ${cameraDirection}
 
-KEY DIRECTIONS:
-- ONE continuous shot, NO internal cuts or scene transitions.
-- Preserve character identity across the whole shot (face, outfit, body proportion) per reference.
-- Smooth motion arc only. Frame begins EXACTLY at reference image.
-- Lighting matches the EMOTIONAL & MOTION INTENT above. No style drift mid-shot.
-- ${aspect} framing throughout.
-- Motion pace and emotional weight match the rhythm role specified above.${physicalLockBody ? "\n- Physical appearance details (PHYSICAL CONSISTENCY LOCK) MUST stay identical frame-to-frame." : ""}
+═══════════════════════════════════════════════════════════════
+TIER 4 — SOFT PREFERENCES
+═══════════════════════════════════════════════════════════════
+- Smooth motion arc, no jitter/pop.
+- Lighting + style stay consistent end-to-end (no mid-shot drift).
+- Motion pace + emotional weight match the rhythm role above.
 
-AVOID:
-- Adding actions outside the listed ACTION (no extra characters appearing, no new locations).
-- Cuts, transitions, or split-screens inside the shot.
-- Style/lighting drift.
-- Generic neutral motion — the rhythm role + emotion above are authoritative.${physicalLockBody ? "\n- Drift in physical appearance details listed in PHYSICAL CONSISTENCY LOCK." : ""}
+AVOID: actions outside ACTION block · cuts/transitions/split-screens inside shot · style/lighting drift · contradicting Tier 1 locks.
 
 ${providerHint}`;
 
@@ -564,7 +617,7 @@ ${providerHint}`;
 }
 
 // ============================================================================
-// ADVANCED ANIMATION PROMPT (qc22c — first frame + last frame mode)
+// ADVANCED ANIMATION PROMPT (c — first frame + last frame mode)
 // ============================================================================
 // User picks a "last frame" cell from the same scene grid. Prompt instructs
 // video AI to interpolate from current cell's image (first frame) to picked
@@ -667,43 +720,79 @@ export function buildAnimationPromptAdvanced(
     timingBlock = `TIMING (${duration}s flash interpolation): single continuous tween from first-frame to last-frame.`;
   }
 
+  // G1e2: pull physical lock from scene for Tier 1 integration
+  const physicalLockBody = scene
+    ? ((scene as any).physicalConsistencyLockEn as string | undefined)?.trim()
+    : undefined;
+
+  // Sprint G1e2 Phase 2B: Inner emotional state per shot (animate first-frame interiority)
+  const innerStateVi = (shot as any).innerStateVi?.trim();
+  const innerStateBlock = innerStateVi
+    ? `\n\nINNER STATE (what character feels in the first frame — animate this interiority into the tween):\n${innerStateVi}`
+    : "";
+
+  // Sprint G1e2 Phase 2B: Film references per scene (mood anchor)
+  const filmRefs = scene ? (((scene as any).filmReferencesEn as string[] | undefined) ?? []) : [];
+  const filmRefsBlock = filmRefs.length > 0
+    ? `\n\nREFERENCES (motion + atmosphere anchors):\n${filmRefs.map((r) => `- ${r}`).join("\n")}`
+    : "";
+
+  // Sprint G1e2 Phase 3: Color Script per scene (palette must hold through tween)
+  const colorScript = scene
+    ? ((scene as any).colorScript as { dominantEn: string; accent1En: string; accent2En: string } | undefined)
+    : undefined;
+  const colorScriptBlock = colorScript
+    ? `\n\nCOLOR SCRIPT (STRICT palette — must hold through entire interpolation, no drift):\n- Dominant: ${colorScript.dominantEn}\n- Accent 1: ${colorScript.accent1En}\n- Accent 2: ${colorScript.accent2En}`
+    : "";
+
   const base = `You are an experienced film director instructing a video AI to animate ONE shot using FIRST-FRAME and LAST-FRAME reference images.
 
-SHOT: ${shotTitle}  (Scene: ${sceneTitle})
+═══════════════════════════════════════════════════════════════
+TIER 1 — ABSOLUTE LOCK
+═══════════════════════════════════════════════════════════════
+ONE continuous interpolation shot, NO internal cuts/transitions.
+ANCHORS:
+- IMAGE #1 (FIRST FRAME) — filename: first-frame_shot-${shot.order}.png. Start state.
+- IMAGE #2 (LAST FRAME) — filename: last-frame_shot-${lastFrameShot.order}.png. End state ("${lastTitle}").
+Begin EXACTLY at IMAGE #1. End EXACTLY at IMAGE #2. Do NOT redraw or restyle either anchor.
+CHARACTER IDENTITY: preserve across whole shot per anchor images.${physicalLockBody ? `
+
+PHYSICAL CONSISTENCY (must hold frame-to-frame, never drift):
+${physicalLockBody}` : ""}
+
+═══════════════════════════════════════════════════════════════
+TIER 2 — SCENE LOCK
+═══════════════════════════════════════════════════════════════
+SHOT: ${shotTitle} · Scene: ${sceneTitle}
 Cast: ${castNames}
 Style: ${styleHint}
-Aspect ratio: ${aspect}
-Setting: ${settingHint}
-Duration: ${duration}s
+Aspect: ${aspect} · Setting: ${settingHint}
 
-REFERENCE IMAGES (attach in this exact order):
-- IMAGE #1 (FIRST FRAME) — filename: first-frame_shot-${shot.order}.png. The starting state of this shot.
-- IMAGE #2 (LAST FRAME) — filename: last-frame_shot-${lastFrameShot.order}.png. The end state ("${lastTitle}") to interpolate toward.
+Lighting + style must transition naturally between IMAGE #1 and IMAGE #2 anchors. No mid-shot drift.${filmRefsBlock}${colorScriptBlock}
 
-INTERPOLATION RULES:
-- Begin EXACTLY at IMAGE #1 (do not redraw or restyle).
-- End EXACTLY at IMAGE #2 (do not redraw or restyle).
-- The intermediate motion is a SMOOTH NATURAL TRANSITION from IMAGE #1 to IMAGE #2.
+═══════════════════════════════════════════════════════════════
+TIER 3 — SHOT-SPECIFIC
+═══════════════════════════════════════════════════════════════
+LENS: ${resolveVisualArc((shot as any).rhythmRole, shot.shotType).lens}
+DISTANCE: ${resolveVisualArc((shot as any).rhythmRole, shot.shotType).distance}
 
 ACTION CONTEXT:
-- Start state action: ${firstAction}
-- End state action: ${lastAction}
+- Start state: ${firstAction}
+- End state: ${lastAction}${innerStateBlock}
 
+Duration: ${duration}s
 ${timingBlock}
 
 CAMERA:
 ${cameraDirection}
 
-KEY DIRECTIONS:
-- ONE continuous shot, NO internal cuts or transitions.
-- Preserve character identity across the whole shot per IMAGE #1 / IMAGE #2.
-- Lighting transitions naturally between IMAGE #1 and IMAGE #2 references.
+═══════════════════════════════════════════════════════════════
+TIER 4 — SOFT PREFERENCES
+═══════════════════════════════════════════════════════════════
+- Smooth natural tween from IMAGE #1 to IMAGE #2.
 - ${aspect} framing throughout.
 
-AVOID:
-- Adding actions outside the start→end interpolation.
-- Cuts or transitions inside the shot.
-- Style/lighting drift mid-shot.
+AVOID: actions outside start→end interpolation · cuts/transitions inside shot · style/lighting drift mid-shot · contradicting Tier 1 anchors.
 
 ${providerHint}`;
 

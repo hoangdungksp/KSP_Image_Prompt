@@ -1,6 +1,6 @@
 {
   "name": "ksp-image-extension",
-  "version": "0.9.4-r7.8-downloads",
+  "version": "0.9.4.56",
   "description": "KSP Image v0.9.0 - Multi-mode AI cinema prompt assembler (Photos, TVC, Product, Film)",
   "type": "module",
   "scripts": {

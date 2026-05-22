@@ -84,9 +84,19 @@ export async function exportFilmBundle(project: PromptProject): Promise<{
     zip.file("script.txt", buildScriptTxt(film.script));
   }
 
-  // cast/ — face + body refs
+  // cast/ — concept sheet (r7.15f+ primary) + legacy face/body refs (migrated projects)
   film.characters.forEach((c) => {
     const safeName = sanitize(c.name || `char${c.order}`);
+    // r7.18 fix: export concept sheet (new primary reference image)
+    if (c.conceptSheet) {
+      const ext = filenameExt(c.conceptSheet.filename);
+      zip.file(
+        `cast/${safeName}_concept.${ext}`,
+        dataUrlToBlob(c.conceptSheet.dataUrl)
+      );
+      stats.totalImages++;
+    }
+    // Legacy faceRefs/bodyRefs — kept for backwards-compat with v0.9.1-r12 + early v0.9.3 projects
     c.faceRefs.forEach((ref, i) => {
       const idx = String(i + 1).padStart(2, "0");
       const ext = filenameExt(ref.filename);
@@ -258,9 +268,9 @@ export function previewBundleTree(project: PromptProject): string {
   lines.push("├── README.md");
   if (film.script) lines.push("├── script.txt");
 
-  // cast/
+  // cast/ — concept sheet counts as 1, legacy face/body refs sum independently
   const castFiles = film.characters.reduce(
-    (sum, c) => sum + c.faceRefs.length + c.bodyRefs.length,
+    (sum, c) => sum + (c.conceptSheet ? 1 : 0) + c.faceRefs.length + c.bodyRefs.length,
     0
   );
   lines.push(`├── cast/                   (${castFiles} images, ${film.characters.length} characters)`);
@@ -363,13 +373,18 @@ function buildReadme(
   lines.push("");
   lines.push("## Cast");
   film.characters.forEach((c) => {
-    lines.push(`- **${c.name || `Character ${c.order}`}** (${c.role}) — ${c.faceRefs.length} face refs + ${c.bodyRefs.length} body refs`);
+    const parts: string[] = [];
+    if (c.conceptSheet) parts.push("1 concept sheet");
+    if (c.faceRefs.length > 0) parts.push(`${c.faceRefs.length} face refs (legacy)`);
+    if (c.bodyRefs.length > 0) parts.push(`${c.bodyRefs.length} body refs (legacy)`);
+    const refsStr = parts.length > 0 ? parts.join(" + ") : "no reference images";
+    lines.push(`- **${c.name || `Character ${c.order}`}** (${c.role}) — ${refsStr}`);
   });
   if (film.characters.length === 0) lines.push("(no characters yet)");
   lines.push("");
   lines.push("## How to use this bundle");
   lines.push("");
-  lines.push("1. **Cast references** (`cast/`): face + body images for each character. Use these as reference inputs when generating images in Banana Pro / Nano Banana.");
+  lines.push("1. **Cast references** (`cast/`): concept sheet (primary, multi-view) + optional legacy face/body refs. Use these as reference inputs when generating images in Banana Pro / Nano Banana.");
   lines.push("2. **Shots** (`shots/`): one folder per shot, named `scene{N}_shot{M}_{shotType}/`.");
   lines.push("   - `image_prompt.txt`: paste into Banana Pro along with cast refs → get the storyboard grid image.");
   lines.push("   - `grid_{NxM}.png`: the generated storyboard grid (if uploaded back to KSP).");

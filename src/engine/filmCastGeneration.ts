@@ -1,5 +1,5 @@
 /**
- * KSP Image qc8 — Film Cast Generation Engine
+ * KSP Image Film Cast Generation Engine
  *
  * Two AI operations:
  *  1. generateCharacterDescription() — text gen via Gemini Flash / OpenAI 4o
@@ -40,7 +40,7 @@ const ROLE_VN: Record<FilmCharacter["role"], string> = {
  * Generate a detailed VN visual description for a character.
  * Returns ~150-300 words plain text (no JSON wrapper).
  *
- * qc13 fix: Pass FULL script context (title + logline + 5 first scenes) to AI
+ * fix: Pass FULL script context (title + logline + 5 first scenes) to AI
  * to anchor character description in the actual story. Previously a filter
  * tried to match character name against EN action lines, which failed for
  * Vietnamese names ("Sóc" vs "squirrel") → AI fell back to generic
@@ -52,7 +52,7 @@ export async function generateCharacterDescription(
   const { character, idea, script, setting, provider = "gemini-flash" } = input;
   const charName = character.name.trim() || `Character ${character.order}`;
 
-  // qc13: Always inject script context if script exists — no filtering.
+  // Always inject script context if script exists — no filtering.
   // Include title + logline + first 5 scenes so AI understands the actual story
   // setting and other characters, even if this character isn't yet named in scenes.
   let scriptContext = "";
@@ -84,10 +84,11 @@ ${scenesSummary}`;
 - Cụ thể (không generic): màu tóc, kiểu tóc, màu da, dáng người, phong cách trang phục
 - KHÔNG đề cập câu chuyện / plot — chỉ visual properties
 - KHÔNG dùng markdown / bullet — viết liền 1-2 đoạn prose
+- KHÔNG wrap trong JSON object — chỉ trả TEXT THUẦN, không có { "..." : "..." }
 
 🚨 QUAN TRỌNG: Nếu user cung cấp STORY CONTEXT bên dưới, character phải PHÙ HỢP với bối cảnh đó (vd: nếu story về "Chú Sóc Lạc Lõng" trong rừng tuyết → character là sóc thật, không bịa "robot" / "human"). KHÔNG hallucinate visual không phù hợp với genre + setting + story context. Nếu character là động vật (sóc, chim, chó...) → mô tả ngoại hình động vật đó, KHÔNG mô tả như con người.
 
-Reply with PLAIN TEXT (không JSON, không markdown fences).`;
+Reply with PLAIN TEXT ONLY (không JSON object, không markdown fences, không quote wrap).`;
 
   const userPrompt = `IDEA: ${idea}
 
@@ -100,15 +101,38 @@ ${scriptContext}
 GENRE: ${setting.genre ?? "drama"}
 ANIMATION STYLE: ${setting.animationStyle ?? "live_action"}
 
-Generate visual description in Vietnamese for this character.`;
+Generate visual description in Vietnamese for this character. Return PLAIN TEXT, no JSON wrapper.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  // Strip any accidental markdown / JSON wrapping
-  const cleaned = raw
+  // Strip markdown fences first
+  let cleaned = raw
     .replace(/```\w*\s*/g, "")
     .replace(/```/g, "")
-    .replace(/^["']|["']$/g, "")
     .trim();
+
+  // Bug fix r7.18: AI sometimes wraps response in JSON despite plain-text instruction.
+  // Example bad output: {"character_name":"...", "visual_description":"...full text..."}
+  // Detect + parse + extract field. Field candidates by priority.
+  if (cleaned.startsWith("{") && cleaned.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(cleaned);
+      const extracted =
+        parsed.visual_description ??
+        parsed.character_description ??
+        parsed.description ??
+        parsed.text ??
+        parsed.content ??
+        parsed.value ??
+        null;
+      if (typeof extracted === "string" && extracted.trim().length >= 20) {
+        cleaned = extracted.trim();
+      }
+    } catch {
+      // Not valid JSON, leave as-is (will fail length check below if truly broken)
+    }
+  }
+
+  cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
 
   if (cleaned.length < 20) {
     throw new Error(`AI returned too-short description (${cleaned.length} chars). Try regen.`);
@@ -252,9 +276,6 @@ export interface GenerateCastPromptSetInput {
   useFaceRefForMatch?: boolean;
 }
 
-const GEMINI_FLASH_MM_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-
 /**
  * Generate 2 EN photo prompts (face + body) + anchor tokens for a single character.
  *
@@ -333,7 +354,7 @@ export async function runGenerateCastPromptSet(
 
 OUTPUT STRUCTURE — return ONLY valid JSON, no markdown fences:
 {
-  "anchorTokens": [3-7 short phrases that lock identity — e.g. "moss-covered grey-green metal body", "single glowing blue right sensor", "rust-streaked chest plates", "3.5m hulking humanoid"],
+  "anchorTokens": [3-7 short phrases that lock this CHARACTER's identity — derived from THIS character's description below. Format pattern: "<color/material> <body-part or wearing>", e.g. "<color> <fur/skin/metal/cloth> <noun>", "<distinguishing-feature> <noun>", "<size/age-marker> <body-type>". Do NOT use generic placeholder words. NEVER copy tokens from this instruction — derive from character description provided],
   "facePrompt": "Single-paragraph EN photo prompt for FACE REFERENCE (head + shoulders close-up, 1:1 portrait, neutral expression, front-facing, character sheet style). 200-350 chars. Include anchor tokens. End with style suffix.",
   "bodyPrompt": "Single-paragraph EN photo prompt for FULL BODY REFERENCE (full figure head to toe, 3:4 portrait, T-pose or neutral standing pose, front-facing). 250-400 chars. Include anchor tokens + body proportions + signature outfit/material. End with style suffix."
 }
@@ -363,21 +384,11 @@ ${refsNote}
 
 Generate the JSON object now.`;
 
-  // Decide: multimodal or text-only?
-  const useMultimodal = useFaceRefForMatch && hasFaceRef && !!character.faceRefs[0]?.dataUrl;
-
-  let raw: string;
-  if (useMultimodal && provider === "gemini-flash") {
-    // Multimodal Gemini call: attach first face ref as inline_data
-    raw = await callGeminiMultimodal({
-      systemPrompt,
-      userPromptText,
-      imageDataUrl: character.faceRefs[0].dataUrl,
-    });
-  } else {
-    // Text-only path: standard callAi
-    raw = await callAi(provider, systemPrompt, userPromptText);
-  }
+  // Text-only path only (multimodal Gemini removed — caused hard fail when only OpenAI
+  // key was present, and concept-sheet workflow makes multimodal cast prompt unnecessary).
+  // If user wants a visual reference to drive cast prompts, they provide it via
+  // conceptSheet (uploaded externally) which the description already captures verbally.
+  const raw: string = await callAi(provider, systemPrompt, userPromptText);
 
   // Parse JSON (Gemini may wrap in markdown despite responseMimeType — be defensive)
   const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
@@ -398,67 +409,4 @@ Generate the JSON object now.`;
     parsed.anchorTokens = [];
   }
   return parsed;
-}
-
-/**
- * Lightweight multimodal Gemini Flash call: text + 1 inline image.
- * Reads gemini API key from global store. Returns raw response text (caller parses JSON).
- */
-async function callGeminiMultimodal(input: {
-  systemPrompt: string;
-  userPromptText: string;
-  imageDataUrl: string;
-}): Promise<string> {
-  const { systemPrompt, userPromptText, imageDataUrl } = input;
-  const apiKeys = (await import("../store/useGlobalStore")).useGlobalStore.getState().apiKeys;
-  // Parse dataUrl → { mimeType, base64 }
-  const match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) {
-    throw new Error("Face ref dataUrl invalid format — không tách được mime/base64");
-  }
-  const mimeType = match[1] || "image/png";
-  const base64 = match[2];
-
-  let response: Response;
-  try {
-    response = await fetch(`${GEMINI_FLASH_MM_ENDPOINT}?key=${apiKeys.gemini}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: `${systemPrompt}\n\n${userPromptText}` },
-              { inline_data: { mime_type: mimeType, data: base64 } },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
-  } catch (err) {
-    throw new Error(`Network lỗi multimodal Gemini: ${(err as Error).message}`);
-  }
-  if (!response.ok) {
-    const errText = await response.text();
-    if (response.status === 400)
-      throw new Error(`Gemini multimodal request không hợp lệ (400): ${errText.slice(0, 150)}`);
-    if (response.status === 403) throw new Error("Gemini key bị từ chối (403)");
-    if (response.status === 429) throw new Error("Gemini rate limit (429)");
-    throw new Error(`Gemini multimodal error (${response.status}): ${errText.slice(0, 200)}`);
-  }
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  const finishReason = data.candidates?.[0]?.finishReason;
-  if (!text) {
-    if (finishReason === "SAFETY")
-      throw new Error("Gemini từ chối multimodal do safety filter. Thử bỏ tick 'Match refs' và regen text-only.");
-    throw new Error(`Gemini multimodal empty response (finishReason: ${finishReason ?? "unknown"})`);
-  }
-  return text;
 }

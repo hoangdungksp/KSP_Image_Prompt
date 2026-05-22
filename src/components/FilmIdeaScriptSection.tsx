@@ -14,7 +14,7 @@
  *   - r3 ships Stage 5 ONLY (1-cú generation). r7 adds multi-stage wizard.
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { Connector } from "./Editor";
 import {
@@ -25,7 +25,7 @@ import {
   addEmptyScene,
   removeScene,
   updateSceneInScript,
-  // r7 + qc4
+  // r7 +
   setScriptStage,
   setScriptStructure,
   setScriptBeats,
@@ -43,7 +43,6 @@ import {
   updateScriptIntermediateScene,
   revertToStage,
   clearStageData,
-  // qc20
   applySceneSplit,
   dismissSceneComplexityWarning,
   lockScriptScenes,
@@ -57,7 +56,6 @@ import {
   runStage3Twists,
   runStage4Scenes,
   runStage5FromStages,
-  // qc20
   runSplitSceneSuggestion,
   type SceneSplitSuggestion,
   type FilmScriptProvider,
@@ -67,7 +65,13 @@ import {
   runDetectBeatsForAllScenes,
   runDetectBeatsForScene,
 } from "../engine/filmScriptStages";
-// qc20: Scene shot count estimator + complexity classification
+// Preview Flow modal
+import { PreviewFlowModal } from "./PreviewFlowModal";
+import { PipelineCostTracker } from "./PipelineCostTracker";
+import { startPipelineCostRun, completePipelineCostRun, abortPipelineCostRun } from "../store/pipelineCost_actions";
+import type { NarrativeDirection, PreviewCache, ProjectV09Extensions } from "../types/project";
+import type { PromptProject } from "../types/index";
+// Scene shot count estimator + complexity classification
 import {
   estimateSceneShotCount,
   classifySceneComplexity,
@@ -100,14 +104,242 @@ export function FilmIdeaScriptSection() {
   const film = ensureFilmData(project);
   const setting = (project as any).settingV2 as import("../types/project").ProjectSettingV2 | undefined;
   const idea = project.idea?.raw ?? "";
+  const projectV09 = project as PromptProject & ProjectV09Extensions;
+  const existingDirection = projectV09.narrativeDirection;
+  const existingCache = projectV09.previewCache;
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
-  // Sprint 1.0 r7.1: track which scenes currently have AI re-detecting beats (Bug 3 fix)
+  // Sprint 1.0 track which scenes currently have AI re-detecting beats (Bug 3 fix)
   const [detectingSceneIds, setDetectingSceneIds] = useState<Set<string>>(new Set());
+  // Preview Flow modal state — lifted UP from ActiveStage1 to Idea section
+  const [showPreviewFlow, setShowPreviewFlow] = useState(false);
+  // r7.20b: collapsible direction summary state removed — panel moved to Preview Modal Step 6.
+  // hold reference to active orchestrator so Cancel button can call abort()
+  const orchestratorRef = useRef<import("../engine/autoChainOrchestrator").AutoChainOrchestrator | null>(null);
+  // hold last used direction so retry-from-section can re-run without re-prompting Preview Flow
+  const lastDirectionRef = useRef<import("../types/project").NarrativeDirection | null>(null);
+  // r7.19: idea mismatch dismissal — user clicked "Giữ direction cũ" → suppress warning for this session.
+  // Reset to false when direction changes (new direction approved or cleared).
+  const [ideaMismatchDismissed, setIdeaMismatchDismissed] = useState(false);
+
+  // r7.36 PROJECT ISOLATION: abort any running auto-chain when project id changes.
+  // Without this, switching from project A (with running auto-chain) to project B
+  // would let the orchestrator continue and call updateProject() — which now points
+  // to project B! → data of project A would leak into project B's fields.
+  useEffect(() => {
+    return () => {
+      // Cleanup runs both on unmount AND when project.id deps changes (before new effect)
+      if (orchestratorRef.current) {
+        orchestratorRef.current.abort();
+        orchestratorRef.current = null;
+      }
+      // Close any open Preview Modal (data from project A no longer relevant)
+      setShowPreviewFlow(false);
+      // Reset session-only dismissal — fresh start per project
+      setIdeaMismatchDismissed(false);
+    };
+  }, [project.id]);
+
+  /**
+   * r7.19: Detect when current idea text no longer matches the snapshot
+   * captured at direction approval time. Normalized compare: trim + lowercase.
+   * Older direction records (pre-r7.19) without ideaSnapshot field skip the
+   * warning (treat as compatible — no backward-compat noise).
+   */
+  const ideaMismatch = (() => {
+    if (!existingDirection || ideaMismatchDismissed) return false;
+    const snapshot = existingDirection.ideaSnapshot;
+    if (!snapshot) return false; // legacy record — no warning
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    return norm(idea) !== norm(snapshot);
+  })();
+
+  /**
+   * Stop the currently running auto-chain orchestrator.
+   * Cancellation is cooperative — orchestrator finishes the current section's
+   * AI call (if any) then halts before next section. Already-spent AI calls
+   * cannot be refunded.
+   */
+  function handleCancelAutoChain() {
+    if (orchestratorRef.current) {
+      orchestratorRef.current.abort();
+      showToast("Đã dừng Auto-Chain. AI calls đã dùng không refund được.", "info");
+    }
+  }
+
+  /**
+   * Retry from a specific section after a JSON parse / AI error.
+   * Preserves all completed sections — only re-runs the failed section
+   * and everything downstream. Uses the last direction the user picked
+   * via Preview Flow, so they don't have to re-confirm direction.
+   */
+  async function handleRetrySection(
+    sectionId: import("../engine/autoChainOrchestrator").SectionId
+  ) {
+    const direction = lastDirectionRef.current;
+    if (!direction) {
+      showToast("Không có narrative direction để retry. Chạy lại từ đầu bằng 'Phân tích ý tưởng'.", "error");
+      return;
+    }
+    const { AutoChainOrchestrator } = await import("../engine/autoChainOrchestrator");
+    const orch = new AutoChainOrchestrator({
+      getProject: () => useAppStore.getState().currentProject!,
+      updateProject: (updater) => updateProject(updater),
+      showToast,
+    });
+    orchestratorRef.current = orch;
+    const unsubscribe = orch.subscribe((state) => setAutoChainState(state));
+    try {
+      setIsGenerating(true);
+      await orch.retryFromSection(sectionId, direction);
+    } catch (err) {
+      console.error("[AutoChain retry] error:", err);
+    } finally {
+      unsubscribe();
+      setIsGenerating(false);
+      orchestratorRef.current = null;
+    }
+  }
+
+  /**
+   * Clear narrativeDirection + previewCache from project.
+   * User confirmation required since this is destructive.
+   * Does NOT clear downstream stage data (structure/beats/twists/scenes/script)
+   * — user can re-run preview flow to overwrite, or manually edit stages.
+   */
+  function handleClearDirection() {
+    const ok = window.confirm(
+      "Xóa direction câu chuyện đã chốt?\n\nĐiều này KHÔNG xóa các stages đã sinh (Structure, Beats, Twists, Scenes, Script). Chỉ xóa 5 picks Preview Flow để có thể chạy lại với picks khác.\n\nClick OK để xóa, Cancel để giữ."
+    );
+    if (!ok) return;
+    updateProject(() => ({
+      narrativeDirection: undefined,
+      previewCache: undefined,
+    } as Partial<PromptProject>));
+    // r7.19: reset mismatch dismissal — no direction means no warning to suppress
+    setIdeaMismatchDismissed(false);
+    showToast("Đã xóa direction. Click 'Analyze Idea' để phân tích lại.", "success");
+  }
+  // Auto-chain orchestrator state — from store (shared with Storyboard section)
+  const autoChainState = useAppStore((s) => s.autoChainState);
+  const setAutoChainState = useAppStore((s) => s.setAutoChainState);
 
   function handleSetIdea(newIdea: string) {
     updateProject({ idea: { raw: newIdea } } as any);
+  }
+
+  function handleOpenPreviewFlow() {
+    if (!idea.trim()) {
+      showToast("Hãy nhập idea trước khi phân tích", "info");
+      return;
+    }
+    if (!setting) {
+      showToast("Project setting chưa đầy đủ", "info");
+      return;
+    }
+    if (film.characters.length === 0) {
+      showToast("Hãy add ít nhất 1 character vào Cast trước", "info");
+      return;
+    }
+
+    // r7.33: Confirm dialog — user must acknowledge they'll need to complete all 6 steps
+    // (no "Bỏ qua" button anymore). Skip confirm if user already has cached steps
+    // (they're returning to flow they previously started — natural re-entry, no warning needed).
+    const hasExistingCache = existingCache && Object.keys(existingCache).length > 0;
+    if (!hasExistingCache) {
+      const confirmed = window.confirm(
+        "🎬 Mở 6-step wizard phân tích ý tưởng?\n\n" +
+        "Bạn sẽ trả lời 6 câu hỏi về story structure, opening, character, twist, ending, review.\n\n" +
+        "⚠️ Modal KHÔNG có nút Bỏ qua — bạn cần hoàn thành đủ 6 step để thoát.\n" +
+        "(Cache lưu incrementally — nếu reload tab giữa chừng, không mất AI cost đã gen).\n\n" +
+        "Tiếp tục?"
+      );
+      if (!confirmed) return;
+    }
+
+    // r7.20a: start new pipeline cost run — resets accumulated cost.
+    // Pipeline begins when user opens Preview Modal; Preview Step AI calls
+    // are counted as part of this run.
+    updateProject((p) => startPipelineCostRun(p) as any);
+    setShowPreviewFlow(true);
+  }
+
+  /**
+   * r7.33: Step 6 "Lưu & Đóng" handler — save direction + cache, close modal.
+   * Does NOT auto-run auto-chain. User must click "▶ START" button separately.
+   * This gives user a chance to review the Direction Summary before paying AI cost.
+   */
+  function handlePreviewComplete(
+    direction: import("../types/project").NarrativeDirection,
+    finalCache: import("../types/project").PreviewCache
+  ) {
+    updateProject(() => ({
+      narrativeDirection: direction,
+      previewCache: finalCache,
+    } as Partial<PromptProject>));
+    setShowPreviewFlow(false);
+    // r7.19: reset mismatch dismissal — new direction supersedes old snapshot warning
+    setIdeaMismatchDismissed(false);
+    showToast("✓ Direction đã lưu. Bấm START để chạy auto-chain.", "success");
+  }
+
+  function handlePreviewCancel() {
+    // r7.33: This handler is now ONLY called via emergency exit paths
+    // (component unmount, etc.) — the "Bỏ qua" button has been removed from UI.
+    // Kept for backward compat with PreviewFlowModal's `onCancel` prop signature.
+    setShowPreviewFlow(false);
+  }
+
+  /**
+   * r7.33: START button handler — runs auto-chain with existing direction.
+   * Called when user clicks "▶ START" in Idea section (after direction is saved).
+   */
+  async function handleStartAutoChain() {
+    if (!existingDirection) {
+      showToast("Chưa có direction. Bấm Analyze Idea trước.", "info");
+      return;
+    }
+    await runAutoChain(existingDirection);
+  }
+
+  /**
+   * r7.33: Preview button handler — re-open Preview Modal in Step 6 review state.
+   * User can review picks + edit any step then re-save.
+   */
+  function handleReopenPreview() {
+    if (!existingDirection) {
+      showToast("Chưa có direction để preview", "info");
+      return;
+    }
+    setShowPreviewFlow(true);
+  }
+
+  async function runAutoChain(direction: import("../types/project").NarrativeDirection) {
+    lastDirectionRef.current = direction; // save for potential retry-from-section
+    const { AutoChainOrchestrator } = await import("../engine/autoChainOrchestrator");
+    const orch = new AutoChainOrchestrator({
+      getProject: () => useAppStore.getState().currentProject!,
+      updateProject: (updater) => updateProject(updater),
+      showToast,
+    });
+    orchestratorRef.current = orch; // expose to Cancel button
+    const unsubscribe = orch.subscribe((state) => setAutoChainState(state));
+    try {
+      setIsGenerating(true);
+      await orch.start(direction);
+      // r7.20a: mark pipeline cost run as completed (Storyboard reached)
+      updateProject((p) => completePipelineCostRun(p as any) as any);
+    } catch (err) {
+      // Toast already emitted by orchestrator
+      console.error("[AutoChain] error:", err);
+      // r7.20a: mark pipeline cost run as aborted on error (kept costs accumulated)
+      updateProject((p) => abortPipelineCostRun(p as any) as any);
+    } finally {
+      unsubscribe();
+      setIsGenerating(false);
+      orchestratorRef.current = null;
+    }
   }
 
   return (
@@ -124,25 +356,152 @@ export function FilmIdeaScriptSection() {
           placeholder="VD: Một con robot bị bỏ rơi trong rừng sau chiến tranh, tỉnh dậy sau 50 năm và kết bạn với một chú chim sẻ. Câu chuyện về việc tìm lại ý nghĩa sống..."
           value={idea}
           onChange={(e) => handleSetIdea(e.target.value)}
-          rows={4}
+          rows={8}
         />
+
+        {/* r7.19: Idea mismatch warning — direction was approved from a different idea text */}
+        {existingDirection && ideaMismatch && (
+          <div className="ksp-idea-mismatch-warning" role="alert">
+            <div className="ksp-idea-mismatch-text">
+              ⚠ Direction hiện tại được tạo từ idea cũ. Idea mới đã thay đổi — direction có thể không còn phù hợp.
+            </div>
+            <div className="ksp-idea-mismatch-actions">
+              <button
+                type="button"
+                className="ksp-btn ksp-idea-mismatch-keep"
+                onClick={() => setIdeaMismatchDismissed(true)}
+                title="Giữ direction cũ — tiếp tục dùng dù idea đã đổi"
+              >
+                Giữ direction cũ
+              </button>
+              <button
+                type="button"
+                className="ksp-btn ksp-idea-mismatch-clear"
+                onClick={handleClearDirection}
+                title="Xóa direction — sẽ phải Analyze Idea lại với idea mới"
+              >
+                Xóa direction
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* r7.33: 2-button UI when direction exists, else single Analyze Idea button.
+            STATE MACHINE:
+            - No direction → 1 button "🎬 Analyze Idea" (opens Preview Modal)
+            - Has direction → 2 buttons:
+              * [▶ START] (large, orange, primary) → runs auto-chain
+              * [👁 Preview] (small, ghost) → re-opens Preview Modal at Step 6 review
+            Logic gives user a chance to review Direction Summary BEFORE paying AI cost,
+            and allows editing any step via Preview without losing other picks. */}
+        {existingDirection ? (
+          <div className="ksp-idea-direction-actions">
+            <button
+              type="button"
+              className={`ksp-idea-start-btn${isGenerating ? " ksp-idea-start-btn-loading" : ""}`}
+              onClick={handleStartAutoChain}
+              disabled={isGenerating || !idea.trim() || !setting || (film.characters?.length ?? 0) === 0}
+              title="Chạy auto-chain với direction đã lưu — Stages 1-5 + Analyze Scenes + Shot List + Storyboard"
+            >
+              {isGenerating ? "⏳ Đang chạy auto-chain..." : "▶ START"}
+            </button>
+            <button
+              type="button"
+              className="ksp-idea-preview-btn"
+              onClick={handleReopenPreview}
+              disabled={isGenerating}
+              title="Mở lại Preview Modal — review Step 6 + edit từng step nếu cần"
+            >
+              👁 Preview
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`ksp-idea-analyze-btn${isGenerating ? " ksp-idea-analyze-btn-loading" : ""}`}
+            onClick={handleOpenPreviewFlow}
+            disabled={isGenerating || !idea.trim() || !setting || (film.characters?.length ?? 0) === 0}
+          >
+            {isGenerating
+              ? "⏳ Analyzing..."
+              : "🎬 Analyze Idea"}
+          </button>
+        )}
+
+        {/* r7.20a: Pipeline cost tracker — only renders when project.pipelineCost exists */}
+        <PipelineCostTracker />
+
+        {/* r7.20b: Direction summary panel REMOVED from Section Ý tưởng.
+            Moved to Preview Modal Step 6 (FinalReviewPanel) where review happens
+            right before confirm — more natural in the modal flow.
+            User can re-open Preview Modal anytime by clicking "Analyze Idea"
+            (pre-fills with existing direction picks). */}
+
+        {/* r7.15d-fix1: Floating Cancel button — visible only when auto-chain is running.
+            Fixed bottom-right corner so it's always reachable while user scrolls. */}
+        {autoChainState.isRunning && (
+          <button
+            type="button"
+            className="ksp-autochain-cancel-floating"
+            onClick={handleCancelAutoChain}
+            title="Dừng Auto-Chain ngay lập tức (AI calls đã dùng không refund được)"
+          >
+            🛑 Stop Auto-Chain
+          </button>
+        )}
+
+        {/* Preview Flow modal */}
+        {showPreviewFlow && setting && (
+          <PreviewFlowModal
+            idea={idea}
+            setting={setting}
+            characters={film.characters}
+            provider={(setting.aiProviders?.scriptWriter ?? "gemini-flash") as any}
+            initialCache={existingCache}
+            onComplete={handlePreviewComplete}
+            onCancel={handlePreviewCancel}
+            showToast={showToast}
+            // r7.33: persist cache to Dexie after every successful AI gen — prevents AI cost
+            // waste when user reloads tab mid-flow.
+            onCachePersist={(newCache) => {
+              updateProject({ previewCache: newCache } as any);
+            }}
+          />
+        )}
       </section>
 
       {/* Connector Idea → Script (Mockup 2 spec) */}
       <Connector colorFrom="#1D9E75" colorTo="#D85A30" />
 
       {/* SCRIPT SECTION (Mockup new — orange border, stepper wizard) */}
-      <section className="ksp-section ksp-script-film">
+      {(() => {
+        // Script section animates when any of Stage 1-5 is generating
+        const scriptStageStatuses: string[] = [
+          autoChainState.sections["script-stage-1"]?.status,
+          autoChainState.sections["script-stage-2"]?.status,
+          autoChainState.sections["script-stage-3"]?.status,
+          autoChainState.sections["script-stage-4"]?.status,
+          autoChainState.sections["script-stage-5"]?.status,
+        ].filter(Boolean) as string[];
+        const isScriptGenerating = scriptStageStatuses.includes("generating");
+        const scriptHasError = scriptStageStatuses.includes("error");
+        const sectionClass = isScriptGenerating
+          ? "ksp-section ksp-script-film ksp-autochain-generating"
+          : scriptHasError
+            ? "ksp-section ksp-script-film ksp-autochain-error"
+            : "ksp-section ksp-script-film";
+        return (
+      <section className={sectionClass}>
         <header className="ksp-section-header">
           <span className="ksp-section-icon">📜</span>
           <h2 className="ksp-section-title">2. SCRIPT</h2>
           <span className="ksp-section-meta-stepper">
-            {countCompletedStages(film)}/5 stages
+            {countCompletedStages(film, setting)}/{getEffectiveStageOrder(film, setting).length} stages
             {film.script && ` · ${film.script.scenes.length} scenes`}
           </span>
         </header>
 
-        {/* NEW: Vertical stepper wizard — 5 stages */}
+        {/* NEW: Vertical stepper wizard — dialog-aware (skips dialogues when no_dialog) */}
         <ScriptStepperWizard
           film={film}
           idea={idea}
@@ -152,12 +511,15 @@ export function FilmIdeaScriptSection() {
           onUpdateProject={updateProject}
           onShowToast={showToast}
           project={project}
+          autoChainState={autoChainState}
+          onRetrySection={handleRetrySection}
+          hasLastDirection={!!lastDirectionRef.current}
         />
 
         {/* Footer info — progress meta */}
         <div className="ksp-script-stepper-footer">
           <span className="ksp-script-stepper-footer-icon">ⓘ</span>
-          <span>Progress: {countCompletedStages(film)}/5 stages · Sau khi xong ⑤ → script feed vào Storyboard</span>
+          <span>Progress: {countCompletedStages(film, setting)}/{getEffectiveStageOrder(film, setting).length} stages · Sau khi xong → script feed vào Storyboard</span>
         </div>
 
         {/* Versions panel (common to both quick + multi-stage modes) */}
@@ -216,7 +578,7 @@ export function FilmIdeaScriptSection() {
                   }
                 }}
                 onRedetectBeats={() => {
-                  // Sprint 1.0 r7 J3 + r7.1 (Bug 3): re-detect beats with loading state + toast feedback
+                  // Sprint 1.0 r7 J3 + (Bug 3): re-detect beats with loading state + toast feedback
                   const sceneProvider = (film.scriptProvider ?? "gemini-flash") as FilmScriptProvider;
                   setDetectingSceneIds((prev) => {
                     const next = new Set(prev);
@@ -356,6 +718,8 @@ export function FilmIdeaScriptSection() {
           </div>
         )}
       </section>
+        );
+      })()}
     </>
   );
 }
@@ -371,9 +735,9 @@ interface PacingBadgesProps {
   emotionalTone?: EmotionalTone;
   /** Sprint 1.0 r7: scene beats for badge display + click-popover */
   beats?: Beat[];
-  /** Sprint 1.0 r7.1: true when AI is currently detecting beats for this scene */
+  /* * Sprint 1.0 true when AI is currently detecting beats for this scene */
   isDetectingBeats?: boolean;
-  /** Sprint 1.0 r7.1: callback to manually re-detect beats (for failed/empty scenes) */
+  /* * Sprint 1.0 callback to manually re-detect beats (for failed/empty scenes) */
   onRedetectBeats?: () => void;
   onUpdate: (updates: { tensionLevel?: number; emotionalTone?: EmotionalTone }) => void;
   /** Compact mode for SceneCardWithWarning (smaller header). */
@@ -589,7 +953,7 @@ interface SceneCardProps {
   onRemove: () => void;
   /** Sprint 1.0 r7 (J3): re-detect beats when scene action edited. */
   onRedetectBeats?: () => void;
-  /** Sprint 1.0 r7.1: true when AI is currently detecting beats for this scene */
+  /* * Sprint 1.0 true when AI is currently detecting beats for this scene */
   isDetectingBeats?: boolean;
 }
 
@@ -771,10 +1135,28 @@ function exportScriptAsText(script: FilmScript) {
 }
 
 // ============================================================================
-// qc4 — STEPPER WIZARD HELPERS
+// STEPPER WIZARD HELPERS
 // ============================================================================
 
-const STAGE_ORDER: FilmScriptStage[] = ["structure", "beats", "twists", "scenes", "dialogues"];
+// r7.18: Stage order is structure → twists → beats → scenes → dialogues.
+// Twists run BEFORE Beats because they're locked from Preview Modal's
+// Step 4 multi-pick (SKIP AI), then passed to Beats stage as prelockedTwists
+// (AI CALL). Backend autoChainOrchestrator already uses this ordering at the
+// script-stage-2 / script-stage-3 SectionIds; frontend matches here.
+const STAGE_ORDER: FilmScriptStage[] = ["structure", "twists", "beats", "scenes", "dialogues"];
+
+/**
+ * Resolve the effective stage list based on project setting.
+ * When setting.dialog === "no_dialog", skip Stage 5 "dialogues" (Voice + SFX + Music).
+ * - Stepper UI uses this to render only relevant stages
+ * - countCompletedStages + getCurrentActiveStage use this for accurate progress
+ */
+function getEffectiveStageOrder(film: FilmData | undefined, setting: any): FilmScriptStage[] {
+  const noDialog = setting?.dialog === "no_dialog";
+  return noDialog
+    ? STAGE_ORDER.filter((s) => s !== "dialogues")
+    : STAGE_ORDER;
+}
 
 const STAGE_LABELS: Record<FilmScriptStage, string> = {
   structure: "Khung kể chuyện (Structure)",
@@ -786,8 +1168,8 @@ const STAGE_LABELS: Record<FilmScriptStage, string> = {
 
 const STAGE_NUMBERS: Record<FilmScriptStage, string> = {
   structure: "1",
-  beats: "2",
-  twists: "3",
+  twists: "2",
+  beats: "3",
   scenes: "4",
   dialogues: "5",
 };
@@ -800,15 +1182,15 @@ const STAGE_HINTS: Record<FilmScriptStage, string> = {
   dialogues: "AI fill lời thoại, SFX, brief nhạc nền, transition cho từng scene",
 };
 
-function countCompletedStages(film: FilmData): number {
-  // qc18: use isStageDone as single source of truth so footer count matches
+function countCompletedStages(film: FilmData, setting?: any): number {
+  // use isStageDone as single source of truth so footer count matches
   // stepper green-check display (including Hướng B lock semantics for twists).
+  // skip "dialogues" stage when setting.dialog === "no_dialog"
+  const effectiveStages = getEffectiveStageOrder(film, setting);
   let count = 0;
-  if (isStageDone(film, "structure")) count++;
-  if (isStageDone(film, "beats")) count++;
-  if (isStageDone(film, "twists")) count++;
-  if (isStageDone(film, "scenes")) count++;
-  if (isStageDone(film, "dialogues")) count++;
+  for (const s of effectiveStages) {
+    if (isStageDone(film, s)) count++;
+  }
   return count;
 }
 
@@ -816,11 +1198,11 @@ function isStageDone(film: FilmData, stage: FilmScriptStage): boolean {
   if (stage === "structure") return !!film.scriptStructure;
   if (stage === "beats") return !!film.scriptBeats?.length;
   if (stage === "twists") {
-    // qc18 Hướng B: explicit lock via "Tiếp: ④ Phân cảnh →" button.
+    // explicit lock via "Tiếp: ④ Phân cảnh →" button.
     if (film.scriptTwistsLocked === true) return true;
-    // Backward-compat: qc17 projects don't have scriptTwistsLocked. If they
+    // Backward-compat: projects don't have scriptTwistsLocked. If they
     // have twists data AND any downstream stage has data, the user must have
-    // already passed Stage 3 → treat as locked.
+    // already passed Stage 2 (Twists) → treat as locked.
     if (
       film.scriptTwists !== undefined &&
       (film.scriptIntermediateScenes !== undefined || film.script !== undefined)
@@ -830,9 +1212,9 @@ function isStageDone(film: FilmData, stage: FilmScriptStage): boolean {
     return false;
   }
   if (stage === "scenes") {
-    // qc20 (parallel qc18 Twist lock): explicit lock via "Tiếp: ⑤ Lời thoại →" button.
+    // (parallel Twist lock): explicit lock via "Tiếp: ⑤ Lời thoại →" button.
     if (film.scriptScenesLocked === true) return true;
-    // Backward-compat: qc19 projects don't have scriptScenesLocked. If they
+    // Backward-compat: projects don't have scriptScenesLocked. If they
     // have scenes data AND downstream script (dialogues) has data, the user
     // must have already passed Stage 4 → treat as locked.
     if (
@@ -849,7 +1231,7 @@ function isStageDone(film: FilmData, stage: FilmScriptStage): boolean {
 }
 
 function getCurrentActiveStage(film: FilmData): FilmScriptStage | null {
-  // qc12 fix: If user explicitly navigated to a stage AND that stage is not
+  // fix: If user explicitly navigated to a stage AND that stage is not
   // yet done, honor the navigation. If the stage IS done, ignore it (treat
   // as "all done, no active") — handles existing projects where scriptStage
   // was persisted as "dialogues" but Stage 5 is actually complete.
@@ -874,7 +1256,7 @@ function isStageLocked(film: FilmData, stage: FilmScriptStage): boolean {
 }
 
 // ============================================================================
-// qc4 — MAIN STEPPER WIZARD
+// MAIN STEPPER WIZARD
 // ============================================================================
 
 interface ScriptStepperWizardProps {
@@ -886,6 +1268,14 @@ interface ScriptStepperWizardProps {
   onUpdateProject: ReturnType<typeof useAppStore.getState>["updateCurrentProject"];
   onShowToast: ReturnType<typeof useAppStore.getState>["showToast"];
   project: any;
+  /* * auto-chain state for per-stage status badges + border animation. */
+  autoChainState?: import("../engine/autoChainOrchestrator").AutoChainState;
+  /* * retry handler when a stage fails — resumes auto-chain from that section */
+  onRetrySection?: (
+    sectionId: import("../engine/autoChainOrchestrator").SectionId
+  ) => Promise<void>;
+  /* * whether last narrative direction is available for retry (gates the button) */
+  hasLastDirection?: boolean;
 }
 
 function ScriptStepperWizard({
@@ -897,6 +1287,9 @@ function ScriptStepperWizard({
   onUpdateProject,
   onShowToast,
   project,
+  autoChainState,
+  onRetrySection,
+  hasLastDirection,
 }: ScriptStepperWizardProps) {
   if (!setting) return <p style={{ padding: 12, color: "#888", fontSize: 11 }}>Project setting missing.</p>;
 
@@ -936,7 +1329,7 @@ function ScriptStepperWizard({
       if (!ok) return;
       onUpdateProject((p) => revertToStage(p, target));
     } else if (targetIsDone) {
-      // qc12 fix: Clicking the LAST stage that is done (no downstream) — e.g., Stage 5
+      // fix: Clicking the LAST stage that is done (no downstream) — e.g., Stage 5
       // when script exists. To re-enter active mode for regen, clear this stage's data.
       const ok = confirm(
         `Regen stage "${STAGE_LABELS[target]}"?\n\nDữ liệu hiện tại của stage này sẽ bị clear để regen lại từ đầu.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
@@ -948,9 +1341,21 @@ function ScriptStepperWizard({
     }
   }
 
+  // r7.18: Map FilmScriptStage → auto-chain SectionId. Twists are at script-stage-2
+  // (SKIP AI, locked from Preview Modal Step 4), Beats are at script-stage-3 (AI CALL
+  // with prelockedTwists). This matches autoChainOrchestrator.ts backend ordering.
+  const stageToSectionId: Record<FilmScriptStage, import("../engine/autoChainOrchestrator").SectionId> = {
+    structure: "script-stage-1",
+    twists: "script-stage-2",
+    beats: "script-stage-3",
+    scenes: "script-stage-4",
+    dialogues: "script-stage-5",
+  };
+
   return (
     <div className="ksp-script-stepper">
-      {STAGE_ORDER.map((stage) => (
+      {/* r7.15d-fix1: Skip "dialogues" stage when setting.dialog === "no_dialog" */}
+      {getEffectiveStageOrder(film, setting).map((stage) => (
         <StepperStageCard
           key={stage}
           stage={stage}
@@ -977,6 +1382,13 @@ function ScriptStepperWizard({
           )}
           onUpdateProject={onUpdateProject}
           project={project}
+          autoChainStatus={autoChainState?.sections[stageToSectionId[stage]]?.status}
+          autoChainError={autoChainState?.sections[stageToSectionId[stage]]?.errorMessage}
+          onRetry={
+            onRetrySection && hasLastDirection
+              ? () => onRetrySection(stageToSectionId[stage])
+              : undefined
+          }
         />
       ))}
     </div>
@@ -984,7 +1396,7 @@ function ScriptStepperWizard({
 }
 
 // ============================================================================
-// qc4 — STEPPER STAGE CARD (1 row per stage with 3 states: done / active / pending)
+// STEPPER STAGE CARD (1 row per stage with 3 states: done / active / pending)
 // ============================================================================
 
 interface StepperStageCardProps {
@@ -998,6 +1410,12 @@ interface StepperStageCardProps {
   renderActiveContent: () => React.ReactNode;
   onUpdateProject: ReturnType<typeof useAppStore.getState>["updateCurrentProject"];
   project: any;
+  /* * optional auto-chain section status for this stage. */
+  autoChainStatus?: import("../engine/autoChainOrchestrator").JobStatus;
+  /* * error message from orchestrator (shown when status === "error") */
+  autoChainError?: string;
+  /* * retry handler — when defined and status === "error", shows Retry button */
+  onRetry?: () => void;
 }
 
 function StepperStageCard({
@@ -1005,8 +1423,12 @@ function StepperStageCard({
   film,
   isActive,
   isLocked,
+  isGenerating,
   onClick,
   renderActiveContent,
+  autoChainStatus,
+  autoChainError,
+  onRetry,
 }: StepperStageCardProps) {
   const done = isStageDone(film, stage);
 
@@ -1015,6 +1437,8 @@ function StepperStageCard({
   if (done && !isActive) stateClass = "ksp-step-done";
   if (isActive) stateClass = "ksp-step-active";
   if (isLocked && !done && !isActive) stateClass = "ksp-step-locked";
+
+  // border animation moved to parent SECTION — cards only show status badges
 
   return (
     <div className={`ksp-step-card ${stateClass}`}>
@@ -1033,13 +1457,45 @@ function StepperStageCard({
       <div className="ksp-step-body">
         <div className="ksp-step-header">
           <span className="ksp-step-label">{STAGE_LABELS[stage]}</span>
-          {done && !isActive && (
+          {/* r7.15a auto-chain status badge takes priority (non-idle states only) */}
+          {autoChainStatus === "generating" && (
+            <span className="ksp-stage-status-badge ksp-stage-status-badge-generating">⚡ generating</span>
+          )}
+          {autoChainStatus === "queued" && (
+            <span className="ksp-stage-status-badge ksp-stage-status-badge-queued">⏳ queued</span>
+          )}
+          {autoChainStatus === "error" && (
+            <span className="ksp-stage-status-badge ksp-stage-status-badge-error">⚠ error</span>
+          )}
+          {/* Legacy pills (when auto-chain is idle for this section) */}
+          {(!autoChainStatus || autoChainStatus === "idle" || autoChainStatus === "done") && done && !isActive && (
             <span className="ksp-step-status-pill ksp-step-status-done">done</span>
           )}
-          {isActive && !done && (
+          {(!autoChainStatus || autoChainStatus === "idle") && isActive && !done && (
             <span className="ksp-step-status-pill ksp-step-status-active">đang làm</span>
           )}
         </div>
+
+        {/* Error message + retry button when section failed in auto-chain */}
+        {autoChainStatus === "error" && (
+          <div className="ksp-stage-error-panel">
+            {autoChainError && (
+              <div className="ksp-stage-error-message" title={autoChainError}>
+                ⚠ {autoChainError.length > 200 ? autoChainError.slice(0, 200) + "..." : autoChainError}
+              </div>
+            )}
+            {onRetry && !isGenerating && (
+              <button
+                type="button"
+                className="ksp-stage-retry-btn"
+                onClick={onRetry}
+                title="Resume auto-chain từ section này (preserve sections đã done trước đó)"
+              >
+                🔄 Thử lại section này
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Active state: full panel — Pending: hint — Done: preview */}
         {isActive ? (
@@ -1055,7 +1511,7 @@ function StepperStageCard({
 }
 
 // ============================================================================
-// qc4 — DONE PREVIEW (collapsed view per stage)
+// DONE PREVIEW (collapsed view per stage)
 // ============================================================================
 
 function StageDonePreview({
@@ -1161,7 +1617,7 @@ function StageDonePreview({
 }
 
 // ============================================================================
-// qc4 — ACTIVE STAGE CONTENT (per-stage full UI)
+// ACTIVE STAGE CONTENT (per-stage full UI)
 // ============================================================================
 
 interface StageActiveContentProps {
@@ -1204,16 +1660,13 @@ function ActiveStage1({
   const [pickedFramework, setPickedFramework] = useState<FilmStoryFramework | undefined>(
     film.scriptStructure?.framework
   );
+  const projectV09 = project as PromptProject & ProjectV09Extensions;
+  const existingDirection = projectV09.narrativeDirection;
 
-  async function handleRun(preferred?: FilmStoryFramework) {
-    if (!guardInputs()) return;
-    // qc6 cache confirm: if data exists, ask before regenerating (costs AI call)
-    if (film.scriptStructure) {
-      const ok = confirm(
-        `Stage 1 đã có data. Sinh lại sẽ tốn 1 AI call và clear các stage phía sau.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
-      );
-      if (!ok) return;
-    }
+  async function runStage1Core(
+    preferred?: FilmStoryFramework,
+    direction?: import("../types/project").NarrativeDirection
+  ) {
     onSetGenerating(true);
     try {
       const result = await runStage1Structure({
@@ -1222,15 +1675,32 @@ function ActiveStage1({
         characters: film.characters,
         preferredFramework: preferred,
         provider,
+        narrativeDirection: direction,
       });
       onUpdateProject((p) => setScriptStructure(p, result));
-      onShowToast(`Đã chọn khung: ${FRAMEWORK_LABELS[result.framework].name}`, "success");
+      onShowToast(
+        direction
+          ? `Đã chọn khung: ${FRAMEWORK_LABELS[result.framework].name} (theo direction)`
+          : `Đã chọn khung: ${FRAMEWORK_LABELS[result.framework].name}`,
+        "success"
+      );
       onUpdateProject((p) => setScriptStage(p, "beats"));
     } catch (err) {
       onShowToast(`Stage 1 lỗi: ${(err as Error).message}`, "error");
     } finally {
       onSetGenerating(false);
     }
+  }
+
+  async function handleManualRerun(preferred?: FilmStoryFramework) {
+    if (!guardInputs()) return;
+    if (film.scriptStructure) {
+      const ok = confirm(
+        `Stage 1 đã có data. Sinh lại sẽ tốn 1 AI call và clear các stage phía sau.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
+      );
+      if (!ok) return;
+    }
+    runStage1Core(preferred, existingDirection);
   }
 
   return (
@@ -1272,10 +1742,22 @@ function ActiveStage1({
         type="button"
         className="ksp-step-primary-btn"
         disabled={isGenerating}
-        onClick={() => handleRun(pickedFramework)}
+        onClick={() => handleManualRerun(pickedFramework)}
       >
-        {isGenerating ? "⏳ Đang chọn khung..." : "✨ AI chọn khung kể chuyện"}
+        {isGenerating
+          ? "⏳ Đang chọn khung..."
+          : film.scriptStructure
+            ? "🔄 Regen Stage 1 (sinh lại)"
+            : existingDirection
+              ? "✨ AI chọn khung (theo direction)"
+              : "✨ AI chọn khung kể chuyện"}
       </button>
+
+      {!existingDirection && !film.scriptStructure && (
+        <p className="ksp-step-active-hint" style={{ marginTop: 8, fontSize: 11, color: "#888" }}>
+          ⓘ Click "🎬 Phân tích ý tưởng" trong section Ý TƯỞNG để chạy auto-chain (Preview Flow + tất cả stages tự động).
+        </p>
+      )}
     </div>
   );
 }
@@ -1301,10 +1783,10 @@ function ActiveStage2({
       onShowToast("Stage 1 (Structure) chưa xong", "info");
       return;
     }
-    // qc6 cache confirm
+    // cache confirm
     if (beats.length > 0) {
       const ok = confirm(
-        `Stage 2 đã có ${beats.length} cột mốc. Sinh lại sẽ tốn 1 AI call và clear các stage phía sau.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
+        `Stage 3 (Beats) đã có ${beats.length} cột mốc. Sinh lại sẽ tốn 1 AI call và clear các stage phía sau.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
       );
       if (!ok) return;
     }
@@ -1320,7 +1802,7 @@ function ActiveStage2({
       onUpdateProject((p) => setScriptBeats(p, result));
       onShowToast(`Đã sinh ${result.length} cột mốc`, "success");
     } catch (err) {
-      onShowToast(`Stage 2 lỗi: ${(err as Error).message}`, "error");
+      onShowToast(`Stage 3 (Beats) lỗi: ${(err as Error).message}`, "error");
     } finally {
       onSetGenerating(false);
     }
@@ -1432,23 +1914,27 @@ function ActiveStage3({
 }: StageActiveContentProps) {
   const twists = film.scriptTwists ?? [];
   const beats = film.scriptBeats ?? [];
-  // r7.6: editable twists state — track which twist is being edited inline
+  // editable twists state — track which twist is being edited inline
   // (click description → textarea autoFocus, blur → save + exit edit mode).
   const [editingTwistId, setEditingTwistId] = useState<string | null>(null);
   const [twistDraft, setTwistDraft] = useState("");
-  // r7.6: manual "add twist" form — open beat picker before creating
+  // manual "add twist" form — open beat picker before creating
   const [addBeatId, setAddBeatId] = useState<string | null>(null);
 
   async function handleRun() {
     if (!guardInputs()) return;
+    // r7.18 tech debt: manual Twists regen still requires beats. Auto-chain
+    // path SKIPS this and pulls twists from direction.step4_midpointTwist
+    // (locked at Stage 2). Manual regen here is legacy fallback only — keep
+    // beats gate so it doesn't break old projects. Refactor in future sprint.
     if (!film.scriptStructure || beats.length === 0) {
-      onShowToast("Stage 2 (Beats) chưa xong", "info");
+      onShowToast("Stage 3 (Beats) chưa xong — manual Twists regen cần Beats trước. Auto-chain dùng direction.", "info");
       return;
     }
-    // qc6 cache confirm
+    // cache confirm
     if (twists.length > 0) {
       const ok = confirm(
-        `Stage 3 đã có ${twists.length} tình tiết. Sinh lại sẽ tốn 1 AI call và clear lại accept/reject.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
+        `Stage 2 (Twists) đã có ${twists.length} tình tiết. Sinh lại sẽ tốn 1 AI call và clear lại accept/reject.\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
       );
       if (!ok) return;
     }
@@ -1465,13 +1951,13 @@ function ActiveStage3({
       onUpdateProject((p) => setScriptTwists(p, result));
       onShowToast(`Đã gợi ý ${result.length} tình tiết`, "success");
     } catch (err) {
-      onShowToast(`Stage 3 lỗi: ${(err as Error).message}`, "error");
+      onShowToast(`Stage 2 (Twists) lỗi: ${(err as Error).message}`, "error");
     } finally {
       onSetGenerating(false);
     }
   }
 
-  // r7.6: blur-to-save handler. Only commit if description actually changed.
+  // blur-to-save handler. Only commit if description actually changed.
   function commitTwistEdit(twistId: string, original: string) {
     const trimmed = twistDraft;
     if (trimmed !== original) {
@@ -1644,7 +2130,7 @@ function ActiveStage3({
             className="ksp-step-primary-btn"
             onClick={() =>
               onUpdateProject((p) => {
-                // qc18 Hướng B: lock twists + advance stage in one update.
+                // lock twists + advance stage in one update.
                 // Compose: apply lock first, then setScriptStage on locked project.
                 const lockPatch = lockScriptTwists(p);
                 const pLocked = { ...p, ...lockPatch };
@@ -1682,10 +2168,10 @@ function ActiveStage4({
   async function handleRun() {
     if (!guardInputs()) return;
     if (!film.scriptStructure || beats.length === 0) {
-      onShowToast("Stage 2 (Beats) chưa xong", "info");
+      onShowToast("Stage 3 (Beats) chưa xong", "info");
       return;
     }
-    // qc6 cache confirm
+    // cache confirm
     if (interScenes.length > 0) {
       const ok = confirm(
         `Stage 4 đã có ${interScenes.length} phân cảnh. Sinh lại sẽ tốn 1 AI call và clear Stage 5 (lời thoại).\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
@@ -1695,6 +2181,9 @@ function ActiveStage4({
     onSetGenerating(true);
     try {
       const acceptedTwists = (film.scriptTwists ?? []).filter((t) => t.accepted === true);
+      // pass narrativeDirection from project (if user completed Preview Flow)
+      const projectV09 = project as PromptProject & ProjectV09Extensions;
+      const narrativeDirection = projectV09.narrativeDirection;
       const result = await runStage4Scenes({
         idea,
         setting,
@@ -1704,9 +2193,15 @@ function ActiveStage4({
         acceptedTwists,
         provider,
         targetSceneCount,
+        narrativeDirection,
       });
       onUpdateProject((p) => setScriptIntermediateScenes(p, result));
-      onShowToast(`Đã sinh ${result.length} phân cảnh`, "success");
+      onShowToast(
+        narrativeDirection
+          ? `Đã sinh ${result.length} phân cảnh (theo Preview Flow direction)`
+          : `Đã sinh ${result.length} phân cảnh`,
+        "success"
+      );
     } catch (err) {
       onShowToast(`Stage 4 lỗi: ${(err as Error).message}`, "error");
     } finally {
@@ -1722,7 +2217,7 @@ function ActiveStage4({
         Gộp các beats + tình tiết đã chọn thành phân cảnh cụ thể (bối cảnh + action + thời lượng).
       </p>
 
-      {/* Target scene count control (qc6) */}
+      {/* Target scene count control */}
       <div className="ksp-step-scene-count-control">
         <label className="ksp-step-scene-count-label">
           Số lượng phân cảnh mong muốn:
@@ -1845,7 +2340,7 @@ function ActiveStage4({
               className="ksp-step-primary-btn ksp-step-primary-btn-sm"
               onClick={() =>
                 onUpdateProject((p) => {
-                  // qc20 (parallel qc18 Twist lock): lock scenes + advance in one update.
+                  // (parallel Twist lock): lock scenes + advance in one update.
                   const lockPatch = lockScriptScenes(p);
                   const pLocked = { ...p, ...lockPatch };
                   return setScriptStage(pLocked, "dialogues");
@@ -1861,7 +2356,7 @@ function ActiveStage4({
   );
 }
 
-// --- qc20 Stage 4 Scene Card with complexity warning -------------------------
+// -- Stage 4 Scene Card with complexity warning -------------------------
 function SceneCardWithWarning({
   scene,
   beats,
@@ -2056,7 +2551,7 @@ function ActiveStage5({
       onShowToast("Stage 1-4 chưa xong — vui lòng quay lại stage trước", "info");
       return;
     }
-    // qc6 cache confirm
+    // cache confirm
     if (film.script) {
       const ok = confirm(
         `Stage 5 đã có script với ${film.script.scenes.length} cảnh. Sinh lại sẽ tốn 1 AI call và overwrite script hiện tại (version cũ được archive).\n\nClick OK để tiếp tục, Cancel để giữ nguyên.`
@@ -2082,7 +2577,7 @@ function ActiveStage5({
       // Sprint 1.0 r7 (Q-A): Auto-detect beats + physical consistency lock for all scenes.
       // Runs in background — user can proceed without waiting. Toast notifies completion.
       // Failure is non-blocking: beats stay undefined, UI shows "·" placeholder in badge.
-      // Sprint 1.0 r7.1 (Bug 2 fix): track failures per-scene + warn user with retry option.
+      // Sprint 1.0 (Bug 2 fix): track failures per-scene + warn user with retry option.
       (async () => {
         try {
           onShowToast(`🎯 Đang phân tích beats cho ${newScript.scenes.length} scenes...`, "info");

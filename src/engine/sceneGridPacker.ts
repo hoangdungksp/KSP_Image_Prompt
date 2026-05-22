@@ -1,5 +1,5 @@
 /**
- * KSP Image qc16 — Scene Grid Packer
+ * KSP Image Scene Grid Packer
  *
  * Packs N shots into M grids per Option A (Jason confirmed):
  *   - User chooses grid format (e.g. "3x3" = 9 cells)
@@ -45,7 +45,7 @@ export function parseGridFormat(format: SceneGridFormat): {
 }
 
 // ============================================================================
-// qc19 Hướng F-9 — Auto-Adapt Grid Format
+// 9 — Auto-Adapt Grid Format
 // ============================================================================
 
 /**
@@ -95,20 +95,20 @@ export function pickOptimalGridFormat(
 }
 
 /**
- * qc19: Soft cap (sweet spot) for "scene complexity" warning in Stage 4 wizard.
+ * Soft cap (sweet spot) for "scene complexity" warning in Stage 4 wizard.
  * Beyond this, UI should suggest break scene or auto-bump grid format.
  */
 export const SHOT_COUNT_SWEET_SPOT = 9;
 
 /**
- * qc19: Absolute cap. Shot count > this → MUST split scene (no single grid fits cinematically).
+ * Absolute cap. Shot count > this → MUST split scene (no single grid fits cinematically).
  */
 export const SHOT_COUNT_HARD_CAP = 16;
 
 /**
  * Pack shots into scene grids (Option A).
  *
- * qc19 update: `gridFormat` now optional. If undefined, auto-picks via
+ * update: `gridFormat` now optional. If undefined, auto-picks via
  * `pickOptimalGridFormat(shots.length, aspectRatio)`. Existing scenes with
  * gridFormat already set continue to honor user's manual choice.
  *
@@ -125,7 +125,7 @@ export function packShotsIntoGrids(
   existingGrids?: SceneGrid[],
   aspectRatio: AspectRatioV2 = "16:9"
 ): SceneGrid[] {
-  // qc19: auto-pick if user hasn't overridden
+  // auto-pick if user hasn't overridden
   const resolvedFormat: SceneGridFormat =
     gridFormat ?? pickOptimalGridFormat(shots.length, aspectRatio);
   const { cells: cellsPerGrid } = parseGridFormat(resolvedFormat);

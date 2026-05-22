@@ -3,7 +3,7 @@
  *
  * Splits an uploaded grid PNG into N cells based on grid format + gutter.
  *
- * qc15: gutter-aware crop. Workflow:
+ * gutter-aware crop. Workflow:
  *   1. User uploads grid → modal preview opens
  *   2. User selects AI provider (auto-fills default size) or custom (auto-detect)
  *   3. User adjusts gutter slider (0-20px) — live preview overlay
@@ -41,7 +41,7 @@ export interface CropGridOptions {
   /** Gutter between cells in pixels (0 = no gutter) */
   gutterPx: number;
   /**
-   * qc22 hotfix: Optional target cell aspect ratio (cell_width / cell_height).
+   * hotfix: Optional target cell aspect ratio (cell_width / cell_height).
    * Examples: 16/9 ≈ 1.778, 9/16 ≈ 0.5625, 1/1 = 1.
    *
    * Workflow:
@@ -52,7 +52,7 @@ export interface CropGridOptions {
    * Use case: AI generators tạo total image với ratio = project (vd 16:9). Khi chia
    * 3×2 grid, mỗi cell source = 904×758 (ratio 1.19). Để cells final đúng 16:9
    * (project aspect), em crop center mỗi cell xuống 904×508. Final saved cells
-   * khớp với Storyboard display aspect-ratio (qc22 fix).
+   * khớp với Storyboard display aspect-ratio (fix).
    */
   targetCellAspect?: number;
 }
@@ -107,7 +107,7 @@ export async function cropGridIntoFrames(
     );
   }
 
-  // qc22 hotfix: compute target output cell dimensions.
+  // hotfix: compute target output cell dimensions.
   // If targetCellAspect provided, center-crop source cell to target aspect.
   // Otherwise output = source cell (legacy behavior).
   const sourceCellAspect = cellW / cellH;

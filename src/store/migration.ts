@@ -203,11 +203,14 @@ export function migrateProjectToV09(
 export function migrateAllProjects(
   projects: PromptProject[]
 ): (PromptProject & ProjectV09Extensions)[] {
-  return projects.map((p) => migrateProjectToV09(p)).map(migrateQc16DropPerShotGrids);
+  return projects
+    .map((p) => migrateProjectToV09(p))
+    .map(migratePerShotGridsToSceneLevel)
+    .map(backfillConceptSheet);
 }
 
 /**
- * qc16 Migration A: Drop deprecated per-shot grid data (paradigm shift).
+ * Migration A: Drop deprecated per-shot grid data (paradigm shift).
  *
  * Per-shot grid fields (framesR5, gridImageDataUrl, imagePromptR5, cropSettings on shot)
  * are replaced by scene-level SceneGrid[]. Old data is dropped on first load —
@@ -216,14 +219,17 @@ export function migrateAllProjects(
  * This is a CLEAN BREAK (Jason confirmed Q5=A): we don't try to convert per-shot
  * grids to scene-level (would be lossy and confusing). Just clear and re-init.
  *
- * Idempotent: safe to call multiple times. Marker `qc16Migrated: true` prevents
+ * Idempotent: safe to call multiple times. Marker field `qc16Migrated` (legacy
+ * persisted field name — DO NOT RENAME, will break existing user data) prevents
  * double-runs.
  */
-export function migrateQc16DropPerShotGrids(
+export function migratePerShotGridsToSceneLevel(
   project: PromptProject & ProjectV09Extensions
 ): PromptProject & ProjectV09Extensions {
   const film = (project as any).filmV093;
   if (!film) return project;
+  // Note: `qc16Migrated` is a legacy persisted field name kept verbatim for
+  // backward compatibility with user projects already in IndexedDB.
   if ((film as any).qc16Migrated) return project;
 
   // Drop per-shot grid fields from all shots in all scenes
@@ -242,7 +248,7 @@ export function migrateQc16DropPerShotGrids(
     });
   }
 
-  // Drop defaultCropSettings from film data (was qc15 per-project default)
+  // Drop defaultCropSettings from film data (was per-project default)
   const { defaultCropSettings, ...filmRest } = film as any;
 
   return {
@@ -251,6 +257,43 @@ export function migrateQc16DropPerShotGrids(
       ...filmRest,
       shotsBySceneId: cleanedShots,
       qc16Migrated: true,
+      updatedAt: Date.now(),
+    },
+  } as PromptProject & ProjectV09Extensions;
+}
+
+/**
+ * Backfill `conceptSheet` field on characters that only have legacy faceRefs.
+ * Idempotent — safe to call on every project load. Does NOT touch existing
+ * conceptSheet values, does NOT delete legacy faceRefs/bodyRefs.
+ *
+ * Rule: if character has faceRefs[0] but no conceptSheet → copy faceRefs[0] → conceptSheet.
+ * This lets old projects display in new UI without user re-uploading.
+ */
+export function backfillConceptSheet(
+  project: PromptProject & ProjectV09Extensions
+): PromptProject & ProjectV09Extensions {
+  const film = (project as any).filmV093;
+  if (!film || !Array.isArray(film.characters)) return project;
+
+  let anyChanged = false;
+  const updatedCharacters = film.characters.map((char: any) => {
+    if (char.conceptSheet) return char;
+    const firstFace = char.faceRefs?.[0];
+    if (firstFace && firstFace.dataUrl) {
+      anyChanged = true;
+      return { ...char, conceptSheet: { ...firstFace, label: "concept sheet" } };
+    }
+    return char;
+  });
+
+  if (!anyChanged) return project;
+
+  return {
+    ...project,
+    filmV093: {
+      ...film,
+      characters: updatedCharacters,
       updatedAt: Date.now(),
     },
   } as PromptProject & ProjectV09Extensions;

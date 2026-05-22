@@ -1,5 +1,5 @@
 /**
- * KSP Image qc10 — Film Shot List Section (NEW)
+ * KSP Image Film Shot List Section (NEW)
  *
  * Pipeline position: SCRIPT → SHOT LIST → STORYBOARD
  *
@@ -58,19 +58,10 @@ const RHYTHM_ROLE_OPTIONS: { value: RhythmRole; labelVi: string }[] = [
   { value: "release",   labelVi: "Thả (release)" },
 ];
 
-const CAMERA_MOVEMENT_OPTIONS: { value: string; labelVi: string }[] = [
-  { value: "static", labelVi: "Static / Đứng yên" },
-  { value: "pan_left", labelVi: "Pan trái" },
-  { value: "pan_right", labelVi: "Pan phải" },
-  { value: "tilt_up", labelVi: "Tilt lên" },
-  { value: "tilt_down", labelVi: "Tilt xuống" },
-  { value: "zoom_in", labelVi: "Zoom in" },
-  { value: "zoom_out", labelVi: "Zoom out" },
-  { value: "dolly_in", labelVi: "Dolly in" },
-  { value: "dolly_out", labelVi: "Dolly out" },
-  { value: "handheld", labelVi: "Handheld" },
-  { value: "tracking", labelVi: "Tracking" },
-];
+// r7.21: cameraMovement options now imported from single source of truth.
+// Was: local 11-value array duplicated with FilmFrameEditModal + filmShotListGeneration.
+import { CAMERA_MOVEMENT_OPTIONS } from "../types/cameraMovement";
+import { AutoChainRetryBanner } from "./AutoChainRetryBanner";
 
 function formatSceneDuration(secs: number): string {
   if (secs >= 60) {
@@ -89,6 +80,10 @@ export function FilmShotListSection() {
   const project = useAppStore((s) => s.currentProject);
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const showToast = useAppStore((s) => s.showToast);
+  // subscribe to autoChainState for section-level border animation
+  // Shot List section animates when analyze-scenes OR shot-list is generating.
+  // Sub-progress badge shows "Scene N/M — <title>" during loop.
+  const autoChainState = useAppStore((s) => s.autoChainState);
 
   if (!project) return null;
   const film = ensureFilmData(project);
@@ -106,8 +101,31 @@ export function FilmShotListSection() {
 
   const totalScenes = script?.scenes?.length ?? 0;
 
+  // animate logic + sub-progress aggregation
+  const analyzeScenesState = autoChainState.sections["analyze-scenes"];
+  const shotListState = autoChainState.sections["shot-list"];
+  const shotListStatuses = [analyzeScenesState?.status, shotListState?.status].filter(Boolean) as string[];
+  const isShotListGenerating = shotListStatuses.includes("generating");
+  const shotListHasError = shotListStatuses.includes("error");
+  // Determine which job is currently active + show its sub-progress
+  const activeJob = analyzeScenesState?.status === "generating"
+    ? analyzeScenesState
+    : shotListState?.status === "generating"
+      ? shotListState
+      : null;
+  const activeJobLabel = analyzeScenesState?.status === "generating"
+    ? "Analyze Scenes"
+    : shotListState?.status === "generating"
+      ? "Shot List"
+      : null;
+  const sectionClass = isShotListGenerating
+    ? "ksp-section ksp-shotlist-film ksp-autochain-generating"
+    : shotListHasError
+      ? "ksp-section ksp-shotlist-film ksp-autochain-error"
+      : "ksp-section ksp-shotlist-film";
+
   /**
-   * Sprint 1.0 r7.8 Feature 1: Download full story overview as .txt
+   * Sprint 1.0 Feature 1: Download full story overview as .txt
    * Triggered from header download button. Generates Vietnamese text with
    * all scenes + shots + cast + dialog and downloads via Blob link.
    */
@@ -144,7 +162,7 @@ export function FilmShotListSection() {
   }
 
   return (
-    <section className="ksp-section ksp-shotlist-film">
+    <section className={sectionClass}>
       <header className="ksp-section-header">
         <span className="ksp-section-icon">🎯</span>
         <h2 className="ksp-section-title">4. SHOT LIST</h2>
@@ -153,6 +171,19 @@ export function FilmShotListSection() {
             ? `${totalShots} shots · ${totalScenes} scenes`
             : "chưa có script"}
         </span>
+        {/* r7.15d-fix1: sub-progress badge when auto-chain is filling shots */}
+        {activeJob && activeJobLabel && (
+          <span className="ksp-shotlist-autochain-badge" title={`Auto-chain: ${activeJobLabel}`}>
+            ⚡ {activeJobLabel}
+            {activeJob.subProgress && (
+              <> · {activeJob.subProgress.current}/{activeJob.subProgress.total}
+                {activeJob.subProgress.currentSceneTitle && (
+                  <> — {activeJob.subProgress.currentSceneTitle}</>
+                )}
+              </>
+            )}
+          </span>
+        )}
         {/* r7.8 Feature 1: download full story overview button (right corner) */}
         {script && totalScenes > 0 && (
           <button
@@ -166,6 +197,12 @@ export function FilmShotListSection() {
           </button>
         )}
       </header>
+
+      {/* r7.29 Feature 1A: Retry button when analyze-scenes or shot-list errors */}
+      <AutoChainRetryBanner
+        sectionIds={["analyze-scenes", "shot-list"]}
+        sectionLabel="Phân tích Scenes / Shot List"
+      />
 
       {!script && (
         <div className="ksp-shotlist-film-empty">
@@ -205,7 +242,7 @@ export function FilmShotListSection() {
                   characters: film.characters,
                   setting,
                   provider,
-                  // qc17: Grid + provider duration constraints (Jason Q1 + Q2)
+                  // Grid + provider duration constraints (Jason Q1 + Q2)
                   gridFormat: (scene as any).gridFormat ?? "3x3",
                   videoProviderId: (setting as any).defaultVideoProvider ?? "seedance-2-pro",
                   // Sprint 1.0 r7: pass beats so AI must cover them all
@@ -233,6 +270,8 @@ export function FilmShotListSection() {
                   // Sprint 1.0 r7: per-shot mood + beat mapping
                   lightingHintEn: gs.lightingHintEn,
                   coveredBeatIds: gs.coveredBeatIds,
+                  // Sprint G1e2 Phase 2B: inner emotional state per shot
+                  innerStateVi: gs.innerStateVi,
                 } as any));
                 updateProject((p) => setShotsForScene(p, scene.id, newShots));
                 showToast(
@@ -271,7 +310,7 @@ export function FilmShotListSection() {
                   characters: film.characters,
                   setting,
                   provider,
-                  // qc17: clamp duration to provider's supported values
+                  // clamp duration to provider's supported values
                   videoProviderId: (setting as any).defaultVideoProvider ?? "seedance-2-pro",
                 });
                 // Replace content but KEEP original id (per Jason Q-A confirmation)
@@ -631,11 +670,19 @@ function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps
           value={shot.cameraMovement as string}
           onChange={(e) => onUpdate({ cameraMovement: e.target.value as any })}
         >
-          {CAMERA_MOVEMENT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.labelVi}
-            </option>
-          ))}
+          {CAMERA_MOVEMENT_OPTIONS.map((o) => {
+            // r7.21: badge indicates which AI model recognizes this term natively
+            const badge = o.veo3Compatible && o.omniCompatible
+              ? ""  // universal — no badge needed
+              : o.omniCompatible
+                ? " 🎯"  // Omni-only
+                : " 🎬";  // Veo3-only
+            return (
+              <option key={o.value} value={o.value}>
+                {o.labelVi}{badge}
+              </option>
+            );
+          })}
         </select>
         <input
           type="number"
@@ -714,6 +761,68 @@ function ShotRow({ shot, sceneOrder, onUpdate, onRemove, onRegen }: ShotRowProps
             onChange={(e) => onUpdate({ actionVi: e.target.value })}
             rows={2}
           />
+          {/* r7.23: Audio direction (Omni only — optional) + Copy Omni quick button */}
+          <div className="ksp-shotlist-film-omni-row">
+            <input
+              type="text"
+              className="ksp-shotlist-film-audio-input"
+              placeholder='🔊 Audio direction (Omni only, optional) — e.g. "soft footsteps + wind"'
+              value={(shot as any).audioDirection || ""}
+              onChange={(e) =>
+                onUpdate({ audioDirection: e.target.value || undefined } as any)
+              }
+              maxLength={200}
+            />
+            <button
+              type="button"
+              className="ksp-shotlist-film-copy-omni-btn"
+              onClick={async () => {
+                try {
+                  // Lazy load to keep main chunk lean
+                  const { buildOmniShotPrompt, formatReferenceManifest } = await import(
+                    "../engine/omniShotPromptBuilder"
+                  );
+                  // Build needs scene + cast + setting — pulled from store context
+                  const proj = useAppStore.getState().currentProject;
+                  if (!proj) return;
+                  const setting = (proj as any).settingV2;
+                  const film = (proj as any).filmV093 || (proj as any).film;
+                  const cast = film?.characters ?? [];
+                  // Find scene by walking shot → sceneId
+                  const scene = (film?.script?.scenes ?? []).find((s: any) =>
+                    (film?.shotsBySceneId?.[s.id] ?? []).some((sh: any) => sh.id === shot.id)
+                  );
+                  if (!setting) {
+                    useAppStore.getState().showToast?.("Project setting missing", "error");
+                    return;
+                  }
+                  const { promptText, references } = buildOmniShotPrompt({
+                    shot,
+                    scene,
+                    cast,
+                    setting,
+                  });
+                  const refManifest =
+                    references.length > 0
+                      ? `# REFERENCE IMAGES (upload to Gemini app in this order):\n${formatReferenceManifest(references)}\n\n`
+                      : "";
+                  await navigator.clipboard.writeText(refManifest + promptText);
+                  useAppStore.getState().showToast?.(
+                    `Copied Omni prompt (${references.length} refs needed)`,
+                    "success"
+                  );
+                } catch (err) {
+                  useAppStore.getState().showToast?.(
+                    `Copy Omni lỗi: ${(err as Error).message}`,
+                    "error"
+                  );
+                }
+              }}
+              title="📋 Copy Omni prompt (concise) — paste vào Gemini app"
+            >
+              📋 Omni 🎯
+            </button>
+          </div>
         </div>
       )}
     </>

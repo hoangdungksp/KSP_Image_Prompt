@@ -1,5 +1,5 @@
 /**
- * KSP Image qc15 — AI Provider Grid Presets
+ * KSP Image AI Provider Grid Presets
  *
  * Default grid dimensions per AI image-gen provider, used to pre-fill the
  * Preview & Crop modal when user uploads a grid PNG.

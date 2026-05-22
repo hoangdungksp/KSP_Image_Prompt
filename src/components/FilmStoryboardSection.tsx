@@ -1,11 +1,11 @@
 /**
- * KSP Image qc16 — Film Storyboard Section (visual grid rewrite)
+ * KSP Image Film Storyboard Section (visual grid rewrite)
  *
- * Paradigm shift from qc11: replaced shot list (text rows) with VISUAL GRIDS.
+ * Paradigm shift from replaced shot list (text rows) with VISUAL GRIDS.
  * Each scene contains 1+ SceneGrid (packed via Option A).
  * Each cell = 1 shot snapshot, with 4 per-cell action buttons.
  *
- * Migration A: old per-shot grid data was dropped at load (migration.ts qc16).
+ * Migration A: old per-shot grid data was dropped at load (migration.ts ).
  */
 
 import React, { useState, useMemo } from "react";
@@ -47,6 +47,7 @@ import { buildGridTemplateImage } from "../engine/gridTemplateImage";
 import { GridCropPreviewModal } from "./GridCropPreviewModal";
 import { FilmFrameEditModal } from "./FilmFrameEditModal";
 import { FilmAnimaticPlayerModal } from "./FilmAnimaticPlayerModal";
+import { AutoChainRetryBanner } from "./AutoChainRetryBanner";
 
 const GRID_FORMAT_OPTIONS: { value: SceneGridFormat; label: string; cells: number }[] = [
   { value: "2x2", label: "2×2", cells: 4 },
@@ -80,6 +81,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 export function FilmStoryboardSection() {
   const project = useAppStore((s) => s.currentProject);
+  // read autoChainState for section-level border animation
+  const autoChainState = useAppStore((s) => s.autoChainState);
   if (!project) return null;
   const film = ensureFilmData(project);
   const scenes = film.script?.scenes ?? [];
@@ -89,8 +92,21 @@ export function FilmStoryboardSection() {
   );
   const totalGrids = scenes.reduce((acc, s) => acc + (s.grids?.length ?? 0), 0);
 
+  // Storyboard section animates ONLY on grid-build (~250ms total).
+  // analyze-scenes + shot-list moved to Shot List section animation per Jason's chốt.
+  const storyboardStatuses: string[] = [
+    autoChainState.sections["grid-build"]?.status,
+  ].filter(Boolean) as string[];
+  const isStoryboardGenerating = storyboardStatuses.includes("generating");
+  const storyboardHasError = storyboardStatuses.includes("error");
+  const sectionClass = isStoryboardGenerating
+    ? "ksp-section ksp-storyboard-film ksp-autochain-generating"
+    : storyboardHasError
+      ? "ksp-section ksp-storyboard-film ksp-autochain-error"
+      : "ksp-section ksp-storyboard-film";
+
   return (
-    <section className="ksp-section ksp-storyboard-film">
+    <section className={sectionClass}>
       <header className="ksp-section-header">
         <span className="ksp-section-icon">🎬</span>
         <h2 className="ksp-section-title">5. STORYBOARD</h2>
@@ -99,6 +115,12 @@ export function FilmStoryboardSection() {
           {totalShots !== 1 ? "s" : ""} · {totalGrids} grid{totalGrids !== 1 ? "s" : ""}
         </span>
       </header>
+
+      {/* r7.29 Feature 1A: Retry button when grid-build errors */}
+      <AutoChainRetryBanner
+        sectionIds={["grid-build"]}
+        sectionLabel="Storyboard (Grid Build)"
+      />
 
       {scenes.length === 0 && (
         <div className="ksp-storyboard-empty">
@@ -121,7 +143,7 @@ function SceneBlock({ scene }: SceneBlockProps) {
   const project = useAppStore((s) => s.currentProject)!;
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const [expanded, setExpanded] = useState(false);
-  // qc21: Advanced override panel toggle (default collapsed)
+  // Advanced override panel toggle (default collapsed)
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [animaticPlayerOpen, setAnimaticPlayerOpen] = useState(false);
 
@@ -129,19 +151,19 @@ function SceneBlock({ scene }: SceneBlockProps) {
   const grids = scene.grids ?? [];
   const stats = gridStats(grids);
   const gridFormat: SceneGridFormat = scene.gridFormat ?? "3x3";
-  // qc21: aspect ratio from project setting
+  // aspect ratio from project setting
   const aspectRatio = (project as any).settingV2?.aspectRatio ?? "16:9";
-  // qc21: optimal format that WOULD be auto-picked for current shot count + aspect
+  // optimal format that WOULD be auto-picked for current shot count + aspect
   const optimalFormat = pickOptimalGridFormat(shots.length, aspectRatio);
 
-  // qc21 Q21.4: Distinguish auto-picked vs manual override.
-  // - gridFormatManual === true: explicit qc21 user override → show "↺ Reset to Auto"
-  // - gridFormatManual === false: explicit qc21 auto-picked → show "(auto)"
-  // - gridFormatManual === undefined: legacy from qc17/qc18 → migration hint
+  // Distinguish auto-picked vs manual override.
+  // gridFormatManual === true: explicit user override → show "↺ Reset to Auto"
+  // gridFormatManual === false: explicit auto-picked → show "(auto)"
+  // gridFormatManual === undefined: legacy from /→ migration hint
   const isManualOverride = scene.gridFormatManual === true;
   const isExplicitAuto = scene.gridFormatManual === false;
   const isLegacy = scene.gridFormatManual === undefined && scene.gridFormat !== undefined;
-  // qc21 Q21.5: migration hint only when legacy AND current format differs from auto-optimal
+  // migration hint only when legacy AND current format differs from auto-optimal
   const showMigrationHint = isLegacy && scene.gridFormat !== optimalFormat;
 
   function handleExpand() {
@@ -341,13 +363,13 @@ interface GridDisplayProps {
   allGrids?: SceneGrid[];
 }
 
-function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, allGrids: _allGrids }: GridDisplayProps) {
+function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, allGrids }: GridDisplayProps) {
   const project = useAppStore((s) => s.currentProject)!;
   const updateProject = useAppStore((s) => s.updateCurrentProject);
   const showToast = useAppStore((s) => s.showToast);
   const film = ensureFilmData(project);
   const setting = (project as any).settingV2;
-  // qc17: Edit Frame Modal state (cell-level, kept in GridDisplay since cells are rendered here)
+  // Edit Frame Modal state (cell-level, kept in GridDisplay since cells are rendered here)
   const [editingCellOrder, setEditingCellOrder] = useState<number | null>(null);
 
   const { cols } = parseGridFormat(grid.gridFormat);
@@ -413,7 +435,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
   }
 
   /**
-   * Sprint 1.0 r7.8 Feature 2 — Bulk download Animation Prompts for ALL shots in this scene.
+   * Sprint 1.0 Feature 2 — Bulk download Animation Prompts for ALL shots in this scene.
    * ZIP filename: scene-N_animation_prompts.zip
    * Inner files: prompt_shot_N.txt (N = shot.order, ALL shots in scene regardless of grid)
    *
@@ -433,7 +455,19 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
     }
     try {
       const zip = new JSZip();
-      const timeFormat = (setting as any).timeFormat ?? "integer";
+      // G1e2 Phase 1 fix: setting.timeFormat stored as 'integer' but TimeFormat enum is
+      // 'integer_seconds'. Mapping legacy values → enum to prevent formatTimeRange
+      // returning undefined → 'undefined–undefined' in TIMING BREAKDOWN block.
+      const rawTimeFormat = (setting as any).timeFormat ?? "integer_seconds";
+      const timeFormatMap: Record<string, "decimal_seconds" | "timecode" | "integer_seconds" | "percentage"> = {
+        "integer": "integer_seconds",
+        "decimal": "decimal_seconds",
+        "timecode": "timecode",
+        "percentage": "percentage",
+        "integer_seconds": "integer_seconds",
+        "decimal_seconds": "decimal_seconds",
+      };
+      const timeFormat = timeFormatMap[rawTimeFormat] ?? "integer_seconds";
       const allScenes = film.script?.scenes;
       const setupPayoffPairs = film.setupPayoffPairs;
       sceneShots.forEach((s) => {
@@ -470,7 +504,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
   }
 
   /**
-   * Sprint 1.0 r7.8 Feature 3 — Bulk download Image Prompts for ALL shots in this scene.
+   * Sprint 1.0 Feature 3 — Bulk download Image Prompts for ALL shots in this scene.
    * Same filename convention as Animation (prompt_shot_N.txt) but inside a different ZIP.
    *
    * Uses buildSingleShotImagePrompt — single-frame generation prompt (Edit Frame modal).
@@ -520,6 +554,167 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
     }
   }
 
+  /**
+   * r7.38: moved into GridDisplay (was in GridPromptPanel) — Refs ZIP button
+   * now lives in the grid header next to KSP/DeepMind prompt buttons.
+   * Bundles: grid template image, all cast face+body refs, cropped cells.
+   */
+  async function handleDownloadRefs() {
+    const filledCells = grid.cells.filter((c) => c.shotId);
+    const croppedCells = grid.cells.filter((c) => c.dataUrl);
+    if (film.characters.length === 0 && croppedCells.length === 0 && filledCells.length === 0) {
+      showToast("Chưa có cast + chưa crop — ZIP rỗng", "info");
+      return;
+    }
+    try {
+      const zip = new JSZip();
+      // IMAGE #1 — grid template (blank labeled layout)
+      try {
+        const template = buildGridTemplateImage({
+          gridFormat: grid.gridFormat,
+          targetAspect: setting?.aspectRatio ?? "16:9",
+          filledCellOrders: filledCells.map((c) => c.order),
+        });
+        zip.file("image-01_grid-template.png", dataUrlToBlob(template.dataUrl));
+      } catch (err) {
+        console.warn("[Storyboard] grid template image generation failed", err);
+      }
+      // IMAGE #2+ — cast refs (face + body per character).
+      let imageNum = 2;
+      for (const c of film.characters) {
+        const safeName = (c.name || `char${c.order}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+        c.faceRefs.forEach((ref, i) => {
+          const numStr = String(imageNum).padStart(2, "0");
+          const slotStr = String(i + 1).padStart(2, "0");
+          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
+          zip.file(
+            `image-${numStr}_cast-${safeName}_face-${slotStr}.${ext}`,
+            dataUrlToBlob(ref.dataUrl)
+          );
+          imageNum++;
+        });
+        c.bodyRefs.forEach((ref, i) => {
+          const numStr = String(imageNum).padStart(2, "0");
+          const slotStr = String(i + 1).padStart(2, "0");
+          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
+          zip.file(
+            `image-${numStr}_cast-${safeName}_body-${slotStr}.${ext}`,
+            dataUrlToBlob(ref.dataUrl)
+          );
+          imageNum++;
+        });
+      }
+      // Supplemental — cropped cells, named by SHOT order
+      croppedCells.forEach((cell) => {
+        if (cell.dataUrl) {
+          const cellShot = cell.shotId ? shots.find((s) => s.id === cell.shotId) : undefined;
+          const name = cellShot ? `shot-${cellShot.order}.png` : `cell-${cell.order}.png`;
+          zip.file(`cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
+        }
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `scene-${scene.order}_grid-${grid.order}_refs.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const parts: string[] = ["template"];
+      if (film.characters.length > 0) parts.push(`${film.characters.length} cast`);
+      if (croppedCells.length > 0) parts.push(`${croppedCells.length} crops`);
+      showToast(`Refs ZIP downloaded — ${parts.join(" + ")}`, "success");
+    } catch (err) {
+      showToast(`ZIP error: ${(err as Error).message}`, "error");
+    }
+  }
+
+  /**
+   * r7.38: KSP Prompt handler — copy to clipboard (was download ZIP in r7.34).
+   * Builds Omni multi-shot prompt with KSP HYBRID pattern, then writes plain text
+   * to clipboard. User pastes into Gemini chat; reference images come from the
+   * separate "Refs ZIP" button next to this one in the header.
+   */
+  async function handleCopyKspPrompt() {
+    const sceneShots = getShotsForScene(project, scene.id);
+    if (sceneShots.length === 0) {
+      showToast("Scene chưa có shot nào", "info");
+      return;
+    }
+    if (!setting) {
+      showToast("Project setting missing", "error");
+      return;
+    }
+
+    try {
+      const { buildOmniMultiShotPrompt } = await import(
+        "../engine/omniMultiShotPromptBuilder"
+      );
+
+      const sceneGrids = allGrids ?? [grid];
+      const hasStoryboardImage = sceneGrids.some((g) => !!g.gridImageDataUrl);
+
+      const result = buildOmniMultiShotPrompt({
+        scene,
+        shots: sceneShots,
+        cast: film.characters,
+        setting,
+        hasStoryboardImage,
+      });
+
+      await navigator.clipboard.writeText(result.promptText);
+
+      showToast(
+        `Đã copy KSP Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)`,
+        "success"
+      );
+    } catch (err) {
+      showToast(`KSP Prompt lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
+  /**
+   * r7.38: DeepMind Prompt handler — copy to clipboard (was download ZIP in r7.34).
+   * Builds Omni prompt with STRICT DeepMind 18-word pattern + identity anchor only.
+   * User pastes into Gemini chat; reference images via separate "Refs ZIP" button.
+   */
+  async function handleCopyDeepMindPrompt() {
+    const sceneShots = getShotsForScene(project, scene.id);
+    if (sceneShots.length === 0) {
+      showToast("Scene chưa có shot nào", "info");
+      return;
+    }
+    if (!setting) {
+      showToast("Project setting missing", "error");
+      return;
+    }
+
+    try {
+      const { buildOmniDeepMindPurePrompt } = await import(
+        "../engine/omniDeepMindPurePromptBuilder"
+      );
+
+      const sceneGrids = allGrids ?? [grid];
+      const hasStoryboardImage = sceneGrids.some((g) => !!g.gridImageDataUrl);
+
+      const result = buildOmniDeepMindPurePrompt({
+        scene,
+        shots: sceneShots,
+        cast: film.characters,
+        setting,
+        hasStoryboardImage,
+      });
+
+      await navigator.clipboard.writeText(result.promptText);
+
+      showToast(
+        `Đã copy DeepMind Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)`,
+        "success"
+      );
+    } catch (err) {
+      showToast(`DeepMind Prompt lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
   return (
     <div className="ksp-storyboard-grid-block">
       {/* Sprint 1.0 r7: hide header for Grid 2+ in seamless multi-grid display.
@@ -541,8 +736,39 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
               : ""}
             {grid.gridImageDataUrl ? " · ✓ cropped" : " · 📤 needs upload"})
           </span>
-          {/* r7.8 Feature 2+3: per-scene bulk prompt download buttons */}
+          {/* r7.8 Feature 2+3: per-scene bulk prompt download buttons
+              r7.34: A/B comparison — 2 buttons replace old Multi Shot.
+              r7.38: 2 prompt buttons now COPY clipboard (not ZIP). Refs ZIP
+              moved here (was under upload row) — group all download buttons
+              in one header bar. */}
           <div className="ksp-storyboard-grid-header-downloads">
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+              onClick={() => handleCopyKspPrompt()}
+              title="📋 KSP Prompt — Copy prompt theo pattern KSP Hybrid (per-cell timestamps + lighting override + identity anchor + audio cues). Detailed control, ~600-1200 chars. Click → copy vào clipboard. Reference images lấy qua nút 'Refs ZIP' bên cạnh."
+            >
+              📋 KSP Prompt
+            </button>
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+              onClick={() => handleCopyDeepMindPrompt()}
+              title="📋 DeepMind Prompt — Copy prompt theo DeepMind official strict (18-word pattern + identity anchor only). Trust Omni's reasoning, ~150-300 chars. Click → copy vào clipboard. Dùng để A/B compare với KSP Prompt."
+            >
+              📋 DeepMind Prompt
+            </button>
+            <button
+              type="button"
+              className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadRefs();
+              }}
+              title="📥 Refs ZIP — Download cast concept sheets + cropped grid frames để upload kèm prompt (KSP hoặc DeepMind) lên Gemini chat."
+            >
+              📥<span className="ksp-btn-label-fluid"> Refs ZIP</span>
+            </button>
             <button
               type="button"
               className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
@@ -586,7 +812,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
           const shot = cell.shotId
             ? shots.find((s) => s.id === cell.shotId)
             : undefined;
-          // r7.5: forward cellNumberOffset to the cell so cell number displays cumulatively
+          // forward cellNumberOffset to the cell so cell number displays cumulatively
           // (Grid 2 cell #1 shows "10" when offset=9). Falls back to cell.order if not used.
           void cellNumberOffset;
           return (
@@ -602,7 +828,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
               }
               onRegen={() => {
                 showToast(
-                  `Regen shot ${shot?.order ?? cell.order}: qc17 sẽ wire single-frame Nano Banana API`,
+                  `Regen shot ${shot?.order ?? cell.order}: single-frame Nano Banana API sẽ wire khi API ready`,
                   "info"
                 );
               }}
@@ -629,7 +855,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
         })}
       </div>
 
-      {/* qc17: Edit Frame Modal — opens when user clicks ✏ on a cell */}
+      {/* Edit Frame Modal — opens when user clicks ✏ on a cell */}
       {editingCellOrder !== null && (() => {
         const cell = grid.cells.find((c) => c.order === editingCellOrder);
         if (!cell || !cell.shotId) return null;
@@ -678,7 +904,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
 }
 
 /**
- * Sprint 1.0 r7.5 (Hướng A) — GridPromptPanel
+ * Sprint 1.0 (Hướng A) — GridPromptPanel
  *
  * Standalone prompt panel for ONE grid. Owns:
  * - imagePromptText computation (rebuilds from current shots + scene + pacing)
@@ -794,74 +1020,9 @@ function GridPromptPanel({
     updateProject((p) => clearSceneGridImage(p, scene.id, grid.id));
   }
 
-  async function handleDownloadRefs() {
-    const filledCells = grid.cells.filter((c) => c.shotId);
-    const croppedCells = grid.cells.filter((c) => c.dataUrl);
-    if (film.characters.length === 0 && croppedCells.length === 0 && filledCells.length === 0) {
-      showToast("Chưa có cast + chưa crop — ZIP rỗng", "info");
-      return;
-    }
-    try {
-      const zip = new JSZip();
-      // IMAGE #1 — grid template (blank labeled layout)
-      try {
-        const template = buildGridTemplateImage({
-          gridFormat: grid.gridFormat,
-          targetAspect: setting?.aspectRatio ?? "16:9",
-          filledCellOrders: filledCells.map((c) => c.order),
-        });
-        zip.file("image-01_grid-template.png", dataUrlToBlob(template.dataUrl));
-      } catch (err) {
-        console.warn("[Storyboard] grid template image generation failed", err);
-      }
-      // IMAGE #2+ — cast refs (face + body per character).
-      let imageNum = 2;
-      for (const c of film.characters) {
-        const safeName = (c.name || `char${c.order}`).replace(/[^a-zA-Z0-9_-]/g, "_");
-        c.faceRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
-          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
-          zip.file(
-            `image-${numStr}_cast-${safeName}_face-${slotStr}.${ext}`,
-            dataUrlToBlob(ref.dataUrl)
-          );
-          imageNum++;
-        });
-        c.bodyRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
-          const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
-          zip.file(
-            `image-${numStr}_cast-${safeName}_body-${slotStr}.${ext}`,
-            dataUrlToBlob(ref.dataUrl)
-          );
-          imageNum++;
-        });
-      }
-      // Supplemental — cropped cells, named by SHOT order
-      croppedCells.forEach((cell) => {
-        if (cell.dataUrl) {
-          const cellShot = cell.shotId ? shots.find((s) => s.id === cell.shotId) : undefined;
-          const name = cellShot ? `shot-${cellShot.order}.png` : `cell-${cell.order}.png`;
-          zip.file(`cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
-        }
-      });
-      const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `scene-${scene.order}_grid-${grid.order}_refs.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
-      const parts: string[] = ["template"];
-      if (film.characters.length > 0) parts.push(`${film.characters.length} cast`);
-      if (croppedCells.length > 0) parts.push(`${croppedCells.length} crops`);
-      showToast(`Refs ZIP downloaded — ${parts.join(" + ")}`, "success");
-    } catch (err) {
-      showToast(`ZIP error: ${(err as Error).message}`, "error");
-    }
-  }
+  // r7.38: handleDownloadRefs moved into GridDisplay (header button location).
+
+
 
   // Action buttons element — reused in toggle row (inline mode) OR body (tab mode)
   const actionButtonsInline = (
@@ -898,17 +1059,6 @@ function GridPromptPanel({
           🔧<span className="ksp-btn-label-fluid"> Re-crop</span>
         </button>
       )}
-      <button
-        type="button"
-        className="ksp-btn ksp-btn-ghost ksp-btn-sm ksp-btn-icon-only"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleDownloadRefs();
-        }}
-        title="Download cast refs + cropped frames"
-      >
-        📥<span className="ksp-btn-label-fluid"> Refs ZIP</span>
-      </button>
       {grid.gridImageDataUrl && (
         <button
           type="button"
@@ -1033,7 +1183,7 @@ function GridPromptPanel({
 }
 
 /**
- * Sprint 1.0 r7.5 (Hướng A) — MultiGridPromptTabs
+ * Sprint 1.0 (Hướng A) — MultiGridPromptTabs
  *
  * Renders a tab bar (one tab per grid) followed by an expanded body for the
  * currently active tab. Only ONE tab can be expanded at a time — clicking
@@ -1052,7 +1202,7 @@ function MultiGridPromptTabs({ grids, scene }: MultiGridPromptTabsProps) {
   const project = useAppStore((s) => s.currentProject)!;
   const film = ensureFilmData(project);
   const setting = (project as any).settingV2;
-  // r7.7: default Grid 1 active (index 0) when scene has multiple grids.
+  // default Grid 1 active (index 0) when scene has multiple grids.
   // User can click active tab to collapse (sets back to null).
   const [activeIdx, setActiveIdx] = useState<number | null>(0);
 

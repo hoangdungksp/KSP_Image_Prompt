@@ -1,5 +1,5 @@
 /**
- * KSP Image qc17 — Edit Frame Modal
+ * KSP Image Edit Frame Modal
  *
  * Opens when user clicks ✏ on a cell in FilmStoryboardSection visual grid.
  *
@@ -10,11 +10,11 @@
  *      Shows highlighted cell entry (what this shot contributes to grid).
  *   4. ANIMATION prompt block (collapsible) — per-shot Seedance/Veo prompt with
  *      char count + provider selector + Copy → provider button.
- *      qc17: validates duration vs provider; if mismatch, offers auto-clamp.
- *   5. Per-cell override prompt (qc17 stub — defer wire to qc18)
+ *      validates duration vs provider; if mismatch, offers auto-clamp.
+ *   5. Per-cell override prompt (stub — defer wire to )
  *
  * 4 actions in footer:
- *   - 🔄 Regenerate frame (Nano Banana stub — defer to qc18)
+ *   🔄 Regenerate frame (Nano Banana stub — defer to )
  *   - 📤 Upload replace (single frame PNG upload)
  *   - 📋 Copy animation prompt (with validate + clamp)
  *   - 💾 Save changes
@@ -37,6 +37,7 @@ import {
   TIME_FORMAT_LABELS,
   type TimeFormat,
 } from "../engine/filmShotPromptBuilder";
+import { buildOmniShotPrompt } from "../engine/omniShotPromptBuilder";
 import {
   PROVIDER_DURATIONS,
   isDurationValid,
@@ -58,19 +59,8 @@ const SHOT_TYPE_OPTIONS: { value: FilmShot["shotType"]; label: string }[] = [
   { value: "pov", label: "POV" },
 ];
 
-const CAMERA_MOVEMENT_OPTIONS: { value: string; label: string }[] = [
-  { value: "static", label: "Static" },
-  { value: "pan_left", label: "Pan Left" },
-  { value: "pan_right", label: "Pan Right" },
-  { value: "tilt_up", label: "Tilt Up" },
-  { value: "tilt_down", label: "Tilt Down" },
-  { value: "zoom_in", label: "Zoom In" },
-  { value: "zoom_out", label: "Zoom Out" },
-  { value: "dolly_in", label: "Dolly In" },
-  { value: "dolly_out", label: "Dolly Out" },
-  { value: "tracking", label: "Tracking" },
-  { value: "handheld_documentary", label: "Handheld / Documentary" },
-];
+// r7.21: cameraMovement options now imported from single source of truth.
+import { CAMERA_MOVEMENT_OPTIONS } from "../types/cameraMovement";
 
 export interface FilmFrameEditModalProps {
   /** Cell being edited (must have shotId) */
@@ -184,6 +174,8 @@ export function FilmFrameEditModal({
   const [duration, setDuration] = useState(shot.durationSeconds);
   const [cameraMovement, setCameraMovement] = useState(shot.cameraMovement);
   const [shotType, setShotType] = useState(shot.shotType);
+  // r7.22a: audio direction for Omni prompts (inline audio cues)
+  const [audioDirection, setAudioDirection] = useState((shot as any).audioDirection ?? "");
   const [videoProviderId, setVideoProviderId] = useState(
     shot.videoProviderId ?? (setting as any).defaultVideoProvider ?? "seedance-2-pro"
   );
@@ -228,7 +220,7 @@ export function FilmFrameEditModal({
     cell.video?.dataUrl ? "video" : "image"
   );
 
-  // Sprint 1.0 r4.1: AI re-prompt loading state (shared image + animation)
+  // Sprint 1.0 AI re-prompt loading state (shared image + animation)
   const [isReprompting, setIsReprompting] = useState(false);
 
   // AI re-prompt handler — calls runShotReprompt with current shot state +
@@ -290,7 +282,7 @@ export function FilmFrameEditModal({
   }
 
   // Image prompt is PER-CELL (single shot generation), not scene-level grid.
-  // Sprint 1.0 r4.1: Prefer shot.imagePromptR5 if set (AI re-prompt override),
+  // Sprint 1.0 Prefer shot.imagePromptR5 if set (AI re-prompt override),
   // fallback to deterministic build. User can toggle via 🎬 AI re-prompt / ↻ Reset.
   const imagePromptText = useMemo(() => {
     if ((shot as any).imagePromptR5) return (shot as any).imagePromptR5 as string;
@@ -335,7 +327,7 @@ export function FilmFrameEditModal({
   }, [advancedFirstLast, lastFrameShotId, allShotsInScene, previewShot]);
 
   const animationPromptText = useMemo(() => {
-    // Sprint 1.0 r4.1: AI re-prompt override takes precedence
+    // Sprint 1.0 AI re-prompt override takes precedence
     if ((shot as any).animationPromptR5) return (shot as any).animationPromptR5 as string;
     if (advancedFirstLast && lastFrameShot) {
       return buildAnimationPromptAdvanced({
@@ -362,7 +354,7 @@ export function FilmFrameEditModal({
   }, [shot, previewShot, scene, cast, setting, provider, advancedFirstLast, lastFrameShot, timeFormat, firstLastSwapped, allScenes, setupPayoffPairs]);
   const animationPromptIsOverride = !!(shot as any).animationPromptR5;
 
-  // qc17 — duration validation vs provider
+  // duration validation vs provider
   const durationValid = isDurationValid(duration, videoProviderId);
   const clampedDuration = clampDurationToProvider(duration, videoProviderId);
   const supportedLabel = formatDurationsForUI(videoProviderId);
@@ -378,6 +370,9 @@ export function FilmFrameEditModal({
     };
     if (actionVi !== ((shot as any).actionVi ?? "")) (updates as any).actionVi = actionVi;
     if (actionEn !== ((shot as any).actionEn ?? "")) (updates as any).actionEn = actionEn;
+    // r7.22a: audio direction for Omni prompts
+    const audioTrim = audioDirection.trim();
+    (updates as any).audioDirection = audioTrim || undefined;
     // Sprint 1.0 r7 (Q-L): per-shot mood override fields
     const lightingTrim = lightingHintEn.trim();
     (updates as any).lightingHintEn = lightingTrim || undefined;
@@ -415,7 +410,7 @@ export function FilmFrameEditModal({
   }
 
   function handleCopyAnimation() {
-    // qc17 validate + offer clamp
+    // validate + offer clamp
     if (!durationValid) {
       const ok = confirm(
         `Shot duration ${duration}s không khớp với ${provider.name} (${supportedLabel}).\n\nAuto-clamp về ${clampedDuration}s rồi copy?\n\n[OK] Clamp về ${clampedDuration}s + copy\n[Cancel] Copy nguyên ${duration}s`
@@ -424,7 +419,7 @@ export function FilmFrameEditModal({
         // Update duration first
         setDuration(clampedDuration);
         const adjustedShot = { ...previewShot, durationSeconds: clampedDuration };
-        // qc22c: respect advanced mode in clamp re-build
+        // c: respect advanced mode in clamp re-build
         const clampedPrompt =
           advancedFirstLast && lastFrameShot
             ? buildAnimationPromptAdvanced({
@@ -469,7 +464,7 @@ export function FilmFrameEditModal({
 
   function handleRegenStub() {
     showToast?.(
-      "qc18 sẽ wire Nano Banana API: regen single frame với scene context + per-cell override",
+      "Frame regen từ scene context sẽ wire khi Nano Banana API ready",
       "info"
     );
   }
@@ -763,12 +758,37 @@ export function FilmFrameEditModal({
                   onChange={(e) => setCameraMovement(e.target.value as any)}
                   className="ksp-select"
                 >
-                  {CAMERA_MOVEMENT_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
+                  {CAMERA_MOVEMENT_OPTIONS.map((o) => {
+                    // r7.21: badge for Veo3/Omni-only vocab
+                    const badge = o.veo3Compatible && o.omniCompatible
+                      ? ""
+                      : o.omniCompatible
+                        ? " 🎯"
+                        : " 🎬";
+                    return (
+                      <option key={o.value} value={o.value}>
+                        {o.labelVi}{badge}
+                      </option>
+                    );
+                  })}
                 </select>
+              </label>
+            </div>
+
+            {/* r7.22a: Audio direction for Omni prompts (optional, only shown when Omni mode targeted) */}
+            <div className="ksp-frame-edit-row">
+              <label style={{ width: "100%" }}>
+                <span>
+                  Audio direction <span style={{ fontSize: 10, color: "#888" }}>(Omni only — optional)</span>
+                </span>
+                <input
+                  type="text"
+                  value={audioDirection}
+                  onChange={(e) => setAudioDirection(e.target.value)}
+                  className="ksp-input"
+                  placeholder='e.g. "soft footsteps + ambient wind", "harp synced to leaf touch"'
+                  maxLength={200}
+                />
               </label>
             </div>
 
@@ -940,7 +960,7 @@ export function FilmFrameEditModal({
             )}
           </div>
 
-          {/* Image Prompt block (qc22c: now per-cell single shot, not scene-level grid) */}
+          {/* Image Prompt block — per-cell single shot (not scene-level grid) */}
           <div className="ksp-frame-edit-prompt-block">
             <button
               type="button"
@@ -971,10 +991,33 @@ export function FilmFrameEditModal({
                     className="ksp-btn ksp-btn-ghost ksp-btn-sm"
                     onClick={() => {
                       navigator.clipboard.writeText(imagePromptText);
-                      showToast?.("Copied single-shot image prompt", "success");
+                      showToast?.("Copied Veo3 image prompt (verbose, Tier 1-4 architecture)", "success");
                     }}
+                    title="Verbose prompt cho Veo3 / Banana Pro / Imagen 4 / Seedance"
                   >
-                    📋 Copy image prompt
+                    📋 Copy Veo3 🎬
+                  </button>
+                  <button
+                    type="button"
+                    className="ksp-btn ksp-btn-ghost ksp-btn-sm"
+                    onClick={() => {
+                      // r7.22a: Generate Omni-friendly concise prompt on-demand
+                      const { promptText, references } = buildOmniShotPrompt({
+                        shot,
+                        scene,
+                        cast,
+                        setting,
+                      });
+                      // Include reference manifest as comment header in copied text
+                      const refManifest = references.length > 0
+                        ? `# REFERENCE IMAGES (upload to Gemini app in this order):\n${references.map((r) => `# <image_${r.slot}> = ${r.description}`).join("\n")}\n\n`
+                        : "";
+                      navigator.clipboard.writeText(refManifest + promptText);
+                      showToast?.(`Copied Omni prompt (${references.length} refs needed)`, "success");
+                    }}
+                    title="Concise prompt cho Gemini Omni (~150 từ) + multimodal reference syntax"
+                  >
+                    📋 Copy Omni 🎯
                   </button>
                   <button
                     type="button"
@@ -1022,7 +1065,7 @@ export function FilmFrameEditModal({
                   )}
                 </div>
 
-                {/* qc22c: Advanced first/last-frame toggle */}
+                {/* Advanced first/last-frame toggle */}
                 <div className="ksp-frame-edit-advanced-row">
                   <label className="ksp-frame-edit-advanced-toggle">
                     <input

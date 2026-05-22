@@ -156,6 +156,75 @@ export function getTensionColor(level: number): { color: string; bg: string } {
 }
 
 /**
+ * Sprint G1e0 — Emotion ↔ Tension valid range table (Pixar emotional model).
+ *
+ * Each EmotionalTone has a valid tension range. If AI Stage 4 generates a combo
+ * outside the range (e.g. shocking + tension 3), the prompt builder produces
+ * contradictory cinematic intent → AI image gen renders inconsistent lighting/
+ * mood across cells. This table is the source of truth.
+ *
+ * Rationale per tone:
+ * - tender: gentle, low-stakes affection → 1-4
+ * - neutral: baseline establishing → 0-3
+ * - funny: light playfulness → 2-5 (can spike for slapstick climax)
+ * - sad: melancholy depth, can be quiet OR heart-wrenching → 2-6
+ * - tense: building suspense → 5-8
+ * - shocking: emotional impact peak (Hitchcock surprise/revelation) → 7-10
+ * - triumphant: climactic release after high tension → 6-9
+ */
+export const EMOTION_TENSION_VALID_RANGE: Record<EmotionalTone, { min: number; max: number; description: string }> = {
+  tender:     { min: 1, max: 4,  description: "dịu dàng — affection nhẹ, không peak" },
+  neutral:    { min: 0, max: 3,  description: "trung tính — baseline establishing" },
+  funny:      { min: 2, max: 5,  description: "vui nhộn — playful, có thể spike slapstick" },
+  sad:        { min: 2, max: 6,  description: "buồn — quiet hoặc heart-wrenching" },
+  tense:      { min: 5, max: 8,  description: "căng thẳng — suspense building" },
+  shocking:   { min: 7, max: 10, description: "sốc — peak emotional impact (Hitchcock surprise)" },
+  triumphant: { min: 6, max: 9,  description: "giải toả — climactic release sau high tension" },
+};
+
+/**
+ * Sprint G1e0 — Validate emotion + tension combination.
+ *
+ * Returns { valid: true } if combo is within Pixar emotional model.
+ * Returns { valid: false, suggestedTension, reason } if invalid, with
+ * the closest valid tension and human-readable reason.
+ *
+ * Use case: AI Stage 4 Scenes generator may produce contradictory combos
+ * (most common: shocking + low tension). Validator catches these and
+ * either auto-fixes (clamping tension to nearest valid edge) or surfaces
+ * a UI warning for user to manually re-annotate.
+ */
+export function validateEmotionTension(
+  tone: EmotionalTone | undefined,
+  tension: number | undefined
+): { valid: true } | { valid: false; suggestedTension: number; reason: string } {
+  if (!tone) return { valid: true }; // no tone → no constraint
+  const range = EMOTION_TENSION_VALID_RANGE[tone];
+  if (!range) return { valid: true }; // unknown tone, skip
+  const t = clampTension(tension);
+  if (t >= range.min && t <= range.max) return { valid: true };
+  // Out of range — clamp toward valid window for auto-fix suggestion
+  const suggestedTension = t < range.min ? range.min : range.max;
+  const toneLabel = EMOTIONAL_TONE_LABELS[tone].vi;
+  const reason = `Tone "${toneLabel}" thường có tension ${range.min}-${range.max}, hiện ${t} không hợp ngữ cảnh — ${range.description}`;
+  return { valid: false, suggestedTension, reason };
+}
+
+/**
+ * Auto-fix invalid emotion/tension combo by clamping tension toward the valid window.
+ * Returns the corrected tension value. Use in AI sanitizer paths where Stage 4 just
+ * generated the scene and we want to silently correct rather than block.
+ */
+export function autoFixEmotionTension(
+  tone: EmotionalTone | undefined,
+  tension: number | undefined
+): number {
+  const result = validateEmotionTension(tone, tension);
+  if (result.valid) return clampTension(tension);
+  return result.suggestedTension;
+}
+
+/**
  * Sprint 1.0 r5 (Phase 2B): detected setup → payoff pair.
  * AI scans full script and identifies story promises planted early (setup)
  * and their later fulfillment (payoff). Used for narrative completeness analysis.
@@ -211,8 +280,8 @@ export const SETUP_PAYOFF_TYPE_LABELS: Record<SetupPayoffPair["type"], { vi: str
  *
  * Beat types drive Shot list AI decisions on framing:
  * - "camera": camera intent (wide sweep, tilt down, dolly-in)
- * - "subject": new subject enters/leaves (woodpecker arrives, robot revealed)
- * - "action": discrete action verb (peck, fall, jump)
+ * - "subject": new subject enters/leaves (new character arrives, hidden subject revealed)
+ * - "action": discrete action verb (jump, fall, reach)
  * - "sensory": ambient sensory detail (sunlight dappling, scent of earth)
  * - "state-change": transition state (light flicker → fade, dormant → active)
  */
@@ -319,27 +388,68 @@ export interface FilmSceneScript {
    * Injected into all 3 prompts (grid image + single shot + animation).
    * User editable via Scene Card collapsible section.
    *
-   * Example for "Robot Thức tỉnh" Scene 1:
-   *   "G.N.U.D body: thick green moss + hanging ivy + rust patches.
-   *    Left optical sensor: obscured by ivy curtain.
-   *    Scale: 3-4m massive humanoid prone among ferns."
+   * Example (illustrative — actual content depends on scene's subject + setting):
+   *   "Subject body: <distinctive coverings/textures>.
+   *    Notable feature: <which feature is partially obscured + by what>.
+   *    Scale: <relative size — dwarfed by environment / dominant / etc.>"
    */
   physicalConsistencyLockEn?: string;
 
-  // qc16 — Scene-level visual storyboard grids (replaces per-shot grid concept)
-  /** qc16: Grids that pack shots into visual cells. Each grid = one Banana Pro upload. */
+  /**
+   * Sprint G1e2 Phase 2B: Concrete film references for this scene (max 3).
+   * AI Stage 4 Scenes auto-fills with established cinematic atmospheres that
+   * match the scene's mood. Banana Pro / Nano Banana / Imagen models trained
+   * on millions of stills understand these references as style anchors.
+   *
+   * Format guidance for AI: use phrasing like "Wall-E opening 5 minutes (atmosphere)"
+   * or "Princess Mononoke forest scenes (texture)" — NOT direct character recreation.
+   *
+   * Optional: when empty/undefined, prompt skips REFERENCES block gracefully.
+   *
+   * Example: [
+   *   "Wall-E opening 5 minutes (Earth scenes, empty post-civilization)",
+   *   "Princess Mononoke forest scenes (ancient mossy texture, breathing nature)"
+   * ]
+   */
+  filmReferencesEn?: string[];
+
+  /**
+   * Sprint G1e2 Phase 3: Color Script (Pixar Production Design 101).
+   * Each scene = 1 painting with fixed palette: 1 dominant + 2 accent colors.
+   * Locked across all cells in grid → 9 cells share unified palette, no drift.
+   *
+   * AI Stage beats detection (TASK 4) auto-fills with hex + name + coverage %.
+   * Banana Pro / Nano Banana / Imagen models understand hex codes natively.
+   *
+   * Format: each string contains "<color name> <hex> — <coverage>% frame coverage"
+   *
+   * Optional: when undefined, prompt falls back to generic emotion-based palette.
+   *
+   * Example:
+   *   dominantEn: "deep forest green #2E4A2A — 60% frame coverage"
+   *   accent1En: "orange rust #C7572B — 25% frame coverage"
+   *   accent2En: "electric blue #4FA8E0 — 15% frame coverage"
+   */
+  colorScript?: {
+    dominantEn: string;
+    accent1En: string;
+    accent2En: string;
+  };
+
+  // Scene-level visual storyboard grids (replaces per-shot grid concept)
+  /* * Grids that pack shots into visual cells. Each grid = one Banana Pro upload. */
   grids?: SceneGrid[];
-  /** qc16 → qc21: Grid format for this scene.
+  /** Grid format for this scene.
    * - undefined: scene mới, packer will auto-pick from shot count + aspect.
    * - set: either persisted from auto-pick (gridFormatManual !== true) OR user override (gridFormatManual === true).
-   * - qc21 Storyboard UI shows "(auto)" badge or "Reset to Auto" button based on gridFormatManual flag.
+   * Storyboard UI shows "(auto)" badge or "Reset to Auto" button based on gridFormatManual flag.
    */
   gridFormat?: SceneGridFormat;
   /**
-   * qc21 Q21.4: Tracks whether scene.gridFormat is auto-picked or user-overridden.
+   * Tracks whether scene.gridFormat is auto-picked or user-overridden.
    * - undefined/false: auto-resolved by pickOptimalGridFormat (re-evaluates on shot count change)
    * - true: user explicitly chose via "⚙ Advanced" dropdown → preserve as-is
-   * Note: Pre-qc21 projects with manually-set gridFormat (qc17 era) appear as
+   * Note: Pre-projects with manually-set gridFormat (era) appear as
    * gridFormatManual undefined (legacy). Storyboard UI shows migration hint
    * "🔧 Manual · Reset to Auto?" to give user option.
    */
@@ -347,7 +457,7 @@ export interface FilmSceneScript {
 }
 
 // ============================================================================
-// qc16 — Scene-level visual grids (paradigm shift from per-shot grids)
+// Scene-level visual grids (paradigm shift from per-shot grids)
 // ============================================================================
 
 export type SceneGridFormat = "2x2" | "2x3" | "3x2" | "2x4" | "4x2" | "3x3" | "4x3" | "3x4" | "4x4";
@@ -364,7 +474,7 @@ export interface SceneGrid {
   imagePrompt?: string;
   /** User-uploaded grid PNG (after Banana Pro generates). Base64 dataURL inline. */
   gridImageDataUrl?: string;
-  /** qc15-style crop settings (provider + dimensions + gutter). */
+  /* * style crop settings (provider + dimensions + gutter). */
   cropSettings?: ShotCropSettings;
   /** Cells in this grid (cells.length === rows × cols). Some cells may be empty. */
   cells: SceneGridCell[];
@@ -450,13 +560,22 @@ export interface FilmShot {
   cameraMovement: FilmCameraMovement;
   purpose?: string;          // English narrative purpose (legacy, kept for downstream prompts)
 
-  // qc10 — Shot List section (text planning before storyboard visual)
+  // Shot List section (text planning before storyboard visual)
   /** Vietnamese narrative purpose — displayed in UI for Jason. */
   purposeVi?: string;
   /** Vietnamese action description — what happens in this shot. */
   actionVi?: string;
   /** English action — used for downstream image/video AI prompts. */
   actionEn?: string;
+
+  /**
+   * r7.22a: Optional audio direction for Gemini Omni prompts (inline audio cues).
+   * Format: brief English description of audio for the shot.
+   * Examples: "soft footsteps + ambient wind", "harp note synced to leaf touch",
+   *           "no music, only diegetic sound".
+   * Backward compat: undefined for pre-r7.22a shots — Omni prompt omits Audio line.
+   */
+  audioDirection?: string;
 
   // Frames (auto-derived from Script + grid format)
   frames?: ShotFrame[];
@@ -488,7 +607,7 @@ export interface FilmShot {
   framesR5?: import("./film").ShotR5Frame[];
 
   /**
-   * qc15: User-confirmed crop settings used when last cropping the grid.
+   * User-confirmed crop settings used when last cropping the grid.
    * Persisted so user can re-crop with same settings, or override project default.
    */
   cropSettings?: ShotCropSettings;
@@ -530,10 +649,22 @@ export interface FilmShot {
    * within the scene, deserves tension=8 framing intensity.
    */
   shotMoodIntensity?: number;
+
+  /**
+   * Inner emotional state — what character is feeling AT THIS EXACT FRAME.
+   * Pixar core principle for cinematic depth.
+   * 1-3 Vietnamese sentences describing subject's interiority for THIS shot.
+   * AI Stage shot list auto-fills. User can edit via Edit Frame modal.
+   * Optional: when undefined, prompt skips INNER STATE block gracefully.
+   *
+   * Example (illustrative): "Nhân vật đang giữa hai trạng thái — chưa hoàn toàn
+   * cảm nhận được hoàn cảnh, như giấc mơ đang tan dần khi tỉnh giấc."
+   */
+  innerStateVi?: string;
 }
 
 /**
- * qc15: Crop settings — per-shot override + per-project default fallback.
+ * Crop settings — per-shot override + per-project default fallback.
  *
  * Workflow:
  *   1. User uploads grid → Preview & Crop modal opens
@@ -574,14 +705,16 @@ export interface AnimationChunk {
   copyableReferences: string[]; // Cropped frame IDs + cast ref IDs
 }
 
-export type FilmCameraMovement =
-  | "handheld_documentary"
-  | "steadicam_smooth"
-  | "dolly_tracking"
-  | "drone_aerial"
-  | "crane_shot"
-  | "locked_off"
-  | "auto_per_genre";
+/**
+ * r7.21: FilmCameraMovement is now a re-export from cameraMovement.ts which holds
+ * the canonical 19-value list with Veo3/Omni compatibility metadata. Previous
+ * 7-value union ("handheld_documentary", "steadicam_smooth", etc.) was disconnected
+ * from the 11-value UI/AI lists — that tech debt is fixed by single source of truth.
+ *
+ * Legacy values from pre-r7.21 projects (auto_per_genre, steadicam_smooth, etc.)
+ * are accepted as plain string; getLabel/getEnglishTerm handle them gracefully.
+ */
+export type FilmCameraMovement = import("./cameraMovement").CameraMovementValue | string;
 
 // ============================================================================
 // FILM CHARACTER (multi-character with AI Generate Hybrid)
@@ -731,13 +864,22 @@ export interface ProjectSettingV2 {
   dialog?: import("./film").FilmDialogMode;
 
   /**
-   * qc16/qc17: Default video generation provider for Film mode.
+   * /Default video generation provider for Film mode.
    * AI Shot List generation uses this provider's supported durations as constraints.
    * Per-shot override is still possible (shot.videoProviderId).
    * Default: "seedance-2-pro" (most flexible — 4-15s).
-   * Full wire in qc17 (validate + clamp on copy animation prompt).
+   * Full wire in (validate + clamp on copy animation prompt).
    */
   defaultVideoProvider?: string;
+
+  /**
+   * Toggle Pacing Dashboard section visibility.
+   * - true (default): Pacing Dashboard renders in Film pipeline (after Script)
+   * - false: section hidden — saves screen real estate when user not actively
+   *   using tension curve / emotion strip / drag rewrite features.
+   * Only meaningful when mode === "film".
+   */
+  showPacingDashboard?: boolean;
 
   // AI providers
   aiProviders: AiTaskProviders;
@@ -749,6 +891,19 @@ export interface ProjectSettingV2 {
   // UI prefs
   uiTheme?: "dark" | "darker"; // Default dark
   defaultLanguage?: "vi" | "en"; // Default vi
+
+  /**
+   * r7.24: Rate limit mode controls inter-call delay in auto-chain orchestrator.
+   * Prevents exhausting Gemini API quota (shared with Google Labs Flow etc).
+   *
+   * - "free": 4000ms gap, ~15 calls/min — matches Gemini Flash free tier
+   * - "tier1": 1000ms gap, ~60 calls/min — Tier 1 paid tier
+   * - "aggressive": 200ms gap, ~5 calls/sec — fastest, risks quota issues
+   *
+   * Default for new projects: "free". Existing projects without this field
+   * fall back to "free" automatically (safer for users hitting quota errors).
+   */
+  rateLimitMode?: "free" | "tier1" | "aggressive";
 
   // Metadata
   createdAt: number;
@@ -843,6 +998,230 @@ export interface ProjectV09Extensions {
    * See ./film_v093.ts for FilmData type.
    */
   filmV093?: import("./film").FilmData;
+
+  /**
+   * (Preview Flow): AI-generated narrative direction picked by user.
+   * Captures 5 progressive decisions about story craft BEFORE AI Stage 1 runs:
+   * - Step 1: Story Structure (3-act / Hero's Journey / Mystery / Tragedy / Other)
+   * - Step 2: Opening Scene (Environment-first / Character-first / In-medias-res / Documentary / Other)
+   * - Step 3: Character Introduction (Slow reveal / Sudden / Childlike / Confused soldier / Other)
+   * - Step 4: Midpoint Twist (Woodpecker / Wildfire / Helicopter / Radio signal / Other)
+   * - Step 5: Ending (Hope wins / Self-sacrifice / Ruins / Cyclical / Other)
+   *
+   * When set, AI Stage 1 + Stage 4 inject `NARRATIVE DIRECTION` block as context
+   * so generated structure/scenes faithfully execute user's creative vision.
+   *
+   * Backward compat: When undefined, AI Stages auto-decide (current legacy behavior).
+   */
+  narrativeDirection?: NarrativeDirection;
+
+  /**
+   * Cache for AI-generated preview options per step.
+   * Options keyed by previous step's pick (option id) — when user backs up
+   * and changes an earlier step, downstream caches invalidate but cached
+   * paths for previously-explored branches remain available (no re-fetch).
+   *
+   * Saves AI cost: a typical 5-step flow costs ~5 AI calls (~$0).
+   * If user edits step 2 and reuses step 3 cached options → 0 extra calls.
+   */
+  previewCache?: PreviewCache;
+
+  /**
+   * r7.20a: Cost tracking for the current/last pipeline run (Analyze Idea → Storyboard).
+   * Single-slot — each new "Analyze Idea" replaces the previous record.
+   * Regen calls after the run completes continue accumulating into this record
+   * (so the user still sees true total cost spent on this project).
+   *
+   * Backward compat: legacy projects without this field show "no pipeline run yet" UI.
+   */
+  pipelineCost?: PipelineCostRun;
+
+  /**
+   * r7.36: Auto-chain abort/error tracking.
+   * Set by orchestrator ONLY when run() is interrupted by user cancel OR caught error.
+   * NOT set on natural completion (cleared instead).
+   * NOT set when user just chose to run partial pipeline.
+   *
+   * PipelineResumeBanner shows banner ONLY when this field is truthy AND
+   * dismissedByUser !== true.
+   *
+   * Cleared automatically when:
+   *   - New successful auto-chain run completes all sections
+   *   - User clicks "Continue" in banner and resume completes
+   *
+   * Backward compat: legacy projects without this field → never show banner.
+   */
+  autoChainAbort?: AutoChainAbortRecord | null;
+}
+
+/**
+ * r7.36: Tracks WHERE + WHY auto-chain was interrupted.
+ * Set by AutoChainOrchestrator on cancel/error; cleared on success or user dismiss.
+ */
+export interface AutoChainAbortRecord {
+  /** Section ID where abort happened (next to retry). */
+  abortedAtSection: string;
+  /** "user_cancelled" if user clicked Stop, "error" if AI/runtime error thrown. */
+  reason: "user_cancelled" | "error";
+  /** Error message (only set when reason === "error"). */
+  errorMessage?: string;
+  /** ISO timestamp of abort. */
+  abortedAt: string;
+  /** User clicked X on banner → never show again for this abort record. */
+  dismissedByUser?: boolean;
+}
+
+// ============================================================================
+// SPRINT PREVIEW FLOW TYPES (narrative direction picker before Stage 1)
+// ============================================================================
+
+/**
+ * Single narrative option presented to user in a preview step modal card.
+ * AI generates 4 cinematically distinct options per step. Option E is reserved
+ * for user's free-text "Ý kiến khác".
+ */
+export interface PreviewOption {
+  /** Display id: "A" | "B" | "C" | "D" | "E" (E = free text). */
+  id: string;
+  /** Short cinematic label (English, for AI consumption). */
+  titleEn: string;
+  /** Short cinematic label (Vietnamese, for UI display). */
+  titleVi: string;
+  /** Concrete narrative description (~5-8 lines Vietnamese, user reads this). */
+  descriptionVi: string;
+  /** Optional structured meta for AI Stage consumption (e.g. "structure:3-act-pixar-contemplative"). */
+  metaEn?: string;
+  /**
+   * For Step 1 options, the framework code (1 of 6) this option maps to.
+   * AI MUST return one of: "three-act" | "hero-journey" | "save-the-cat" | "kishotenketsu"
+   *                       | "mystery-thriller" | "tragedy-doom".
+   * Skip Stage 1 AI call → use this directly as scriptStructure.framework.
+   * Undefined for Steps 2-5 (not applicable).
+   */
+  frameworkCode?: string;
+}
+
+/**
+ * User's pick at a single step in the preview flow.
+ * Step 4 (Midpoint Twist) supports MULTI-PICK via `additionalPicks`.
+ * Other steps remain single-pick.
+ */
+export interface PreviewStepPick {
+  /** Picked option id: "A" | "B" | "C" | "D" | "E" (primary pick). */
+  optionId: string;
+  /** If optionId === "E", user's free-text input (Vietnamese). */
+  customTextVi?: string;
+  /** Resolved title for downstream use (titleEn from picked option, or custom title). */
+  resolvedTitleEn?: string;
+  /** Resolved description for downstream use (descriptionVi from picked option, or customTextVi). */
+  resolvedDescriptionVi?: string;
+  /**
+   * (Step 1 only): framework code carried from the picked option.
+   * Used by autoChain to SKIP Stage 1 AI call and gán framework + overview directly.
+   * Undefined for Steps 2-5 and Option E free text (fallback "three-act" applied).
+   */
+  frameworkCode?: string;
+  /**
+   * (Step 4 only): additional picks for multi-twist selection.
+   * When user ticks 2-3 twist archetypes via checkbox, primary `optionId` is the first
+   * tick, and `additionalPicks` contains the remaining 1-2 picks (max 2 extras = 3 total).
+   * Each additional pick has its own resolvedTitleEn + resolvedDescriptionVi + metaEn-derived
+   * archetype tag. Steps 1/2/3/5 leave this undefined (single-pick only).
+   */
+  additionalPicks?: Array<{
+    optionId: string;
+    resolvedTitleEn?: string;
+    resolvedDescriptionVi?: string;
+    archetypeTag?: string;
+  }>;
+  /**
+   * (Step 4 only): archetype tag from primary option's metaEn
+   * (e.g. "twist:audio-trigger-ptsd"). Used by autoChain to populate
+   * FilmScriptTwist.archetypeTag for UI display.
+   */
+  archetypeTag?: string;
+}
+
+/**
+ * Cache of AI-generated options per step, keyed by upstream decisions.
+ * Step 1 = no upstream → single options array.
+ * Step 2 = keyed by step1.optionId (e.g. "A", "B", ...).
+ * Step 3 = keyed by "step1Id-step2Id" (e.g. "A-A", "A-B", ...).
+ * etc.
+ *
+ * When user changes upstream pick, downstream cache miss → AI regen.
+ * When user backs up and reuses previously-explored branch → cache hit, instant.
+ */
+export interface PreviewCache {
+  step1Options?: PreviewOption[];
+  step2OptionsByStep1?: Record<string, PreviewOption[]>;
+  step3OptionsByStep12?: Record<string, PreviewOption[]>;
+  step4OptionsByStep123?: Record<string, PreviewOption[]>;
+  step5OptionsByStep1234?: Record<string, PreviewOption[]>;
+}
+
+/**
+ * Final narrative direction locked by user after completing all 5 steps.
+ * AI Stage 1 + Stage 4 inject this as context to generate aligned content.
+ */
+export interface NarrativeDirection {
+  /** Story Structure pick (3-act / Hero's Journey / Mystery / Tragedy / Other). */
+  step1_storyStructure: PreviewStepPick;
+  /** Opening Scene pick (Environment-first / Character-first / In-medias-res / Documentary / Other). */
+  step2_openingScene: PreviewStepPick;
+  /** Character Introduction pick (Slow reveal / Sudden / Childlike / Confused soldier / Other). */
+  step3_characterIntro: PreviewStepPick;
+  /** Midpoint Twist pick (Woodpecker / Wildfire / Helicopter / Radio signal / Other). */
+  step4_midpointTwist: PreviewStepPick;
+  /** Ending pick (Hope wins / Self-sacrifice / Ruins / Cyclical / Other). */
+  step5_ending: PreviewStepPick;
+  /** Unix ms when user completed final review and approved direction. */
+  completedAt: number;
+  /**
+   * Synthesized direction text for AI Stage consumption (English).
+   * Format: structured paragraph that explains the 5 picks as a cohesive
+   * narrative spine. AI Stage 1/4 inject this verbatim into prompt context.
+   */
+  synthesizedDirectionEn: string;
+  /**
+   * r7.19: Snapshot of the project.idea text at the moment direction was approved.
+   * Used to detect when the user has changed their idea — if current `project.idea`
+   * no longer matches this snapshot, the existing direction is likely stale
+   * (built from a different story premise) and should be flagged to the user.
+   *
+   * Stored as the raw idea text (trim+lowercase normalization is done at compare time).
+   * Older direction records (created pre-r7.19) will have this undefined; treat
+   * undefined as "skip the mismatch warning" for backward-compat.
+   */
+  ideaSnapshot?: string;
+}
+
+/**
+ * r7.20a: Pipeline cost run record. One per "Analyze Idea → Storyboard" cycle.
+ * Persists on the project so the UI can show last-run total even after reload.
+ *
+ * Each new pipeline run REPLACES the previous record (single-slot, not history).
+ * Regen calls after completion continue accumulating into this same record.
+ */
+export interface PipelineCostRun {
+  /** Unique ID for this run — useful when log streaming or debugging. */
+  runId: string;
+  /** Unix ms when "Analyze Idea" was clicked / pipeline began. */
+  startedAt: number;
+  /** Unix ms when pipeline reached Storyboard. Undefined while running. */
+  completedAt?: number;
+  /** Status of this run — UI uses to show live tracker vs static snapshot. */
+  status: "running" | "done" | "aborted";
+  /** Accumulated text AI cost in USD (Gemini + OpenAI calls). */
+  textCostUsd: number;
+  /** Accumulated image AI cost in USD (GPT Image 2 calls). */
+  imageCostUsd: number;
+  /** Count of text AI calls (helps debug "why expensive"). */
+  textCalls: number;
+  /** Count of image AI calls. */
+  imageCalls: number;
+  /** Optional: which stage is currently running, for live display. */
+  currentStage?: string;
 }
 
 // ============================================================================

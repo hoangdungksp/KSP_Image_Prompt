@@ -531,7 +531,7 @@
   background: rgba(255, 255, 255, 0.045);
 }
 
-/* Caret indicator removed per Jason qc6 request — section headers no longer show ▼ arrow */
+/* Caret indicator removed per Jason request — section headers no longer show ▼ arrow */
 .ksp-section-header::after {
   content: none;
 }

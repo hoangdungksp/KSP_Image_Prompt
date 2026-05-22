@@ -105,6 +105,7 @@ export function ProjectSettingSection() {
     apiKeys: false,
     aiProviders: false,
     exportDefaults: false,
+    rateLimits: false,
     storage: false,
     uiPrefs: false,
   });
@@ -234,8 +235,24 @@ export function ProjectSettingSection() {
                 onChange={(e) => patchSetting({ dialog: e.target.value } as any)}
                 className="ksp-select"
               >
-                <option value="no_dialog">🔇 Không thoại</option>
-                <option value="has_dialog">💬 Có thoại</option>
+                <option value="no_dialog">🔇 Không thoại (skip Voice + Music + SFX)</option>
+                <option value="has_dialog">💬 Có thoại (full pipeline)</option>
+              </select>
+            </Label>
+          </div>
+        )}
+
+        {/* Pacing Dashboard toggle (Film mode only) */}
+        {isFilm && (
+          <div className="ksp-form-row">
+            <Label text="Pacing Dashboard">
+              <select
+                value={(setting.showPacingDashboard ?? true) ? "show" : "hide"}
+                onChange={(e) => patchSetting({ showPacingDashboard: e.target.value === "show" } as any)}
+                className="ksp-select"
+              >
+                <option value="show">📊 Hiện section Pacing Dashboard</option>
+                <option value="hide">🚫 Ẩn (gọn UI khi không dùng)</option>
               </select>
             </Label>
           </div>
@@ -297,7 +314,7 @@ export function ProjectSettingSection() {
           )}
         </div>
 
-        {/* qc17: Video Provider — default for AI Shot List duration constraints */}
+        {/* Video Provider — default for AI Shot List duration constraints */}
         {isFilm && (
           <div className="ksp-form-row">
             <Label text="Video AI Provider (default)">
@@ -316,6 +333,9 @@ export function ProjectSettingSection() {
                 <option value="kling-2">Kling 2.0 — 5s / 10s</option>
                 <option value="sora">Sora — 5s / 10s / 20s</option>
                 <option value="grok-imagine">Grok Imagine — 6s / 10s</option>
+                <option value="gemini-omni">
+                  Gemini Omni — 4s / 6s / 8s / 10s
+                </option>
               </select>
             </Label>
           </div>
@@ -471,6 +491,32 @@ export function ProjectSettingSection() {
               </select>
             </Label>
           )}
+        </div>
+      </CollapsibleBlock>
+
+      {/* r7.24: Rate limit mode — prevents Gemini API quota exhaustion */}
+      <CollapsibleBlock
+        title="RATE LIMITS (Quota safety)"
+        expanded={expanded.rateLimits ?? false}
+        onToggle={() => setExpanded({ ...expanded, rateLimits: !expanded.rateLimits })}
+      >
+        <div className="ksp-form-row">
+          <Label text="Rate limit mode">
+            <select
+              value={setting.rateLimitMode ?? "free"}
+              onChange={(e) => patchSetting({ rateLimitMode: e.target.value as any })}
+              className="ksp-select"
+            >
+              <option value="free">🟢 Free tier safe (4s gap · ~15/min)</option>
+              <option value="tier1">🟡 Tier 1 paid (1s gap · ~60/min)</option>
+              <option value="aggressive">🔴 Aggressive (200ms gap · ~5/sec, risks quota)</option>
+            </select>
+          </Label>
+        </div>
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.5, marginTop: 4 }}>
+          KSP và Google Labs Flow (https://labs.google/fx/tools/flow) share quota Gemini API. Nếu bạn gặp lỗi quota 429 hoặc <code>Error code 253</code> trên Labs Flow, chuyển sang Free tier safe. Pipeline sẽ chạy chậm hơn nhưng không exhaust quota.
+          <br />
+          Tự động retry với exponential backoff (2s → 4s → 8s) khi gặp 429.
         </div>
       </CollapsibleBlock>
 

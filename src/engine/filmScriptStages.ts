@@ -24,8 +24,9 @@ import {
   FRAMEWORK_LABELS,
 } from "../types/film";
 import { useGlobalStore } from "../store/useGlobalStore";
+import { JSON_OUTPUT_RULES, sanitizeJsonString } from "./jsonRecovery";
 import type { EmotionalTone } from "../types/project";
-import { clampTension } from "../types/project";
+import { clampTension, autoFixEmotionTension } from "../types/project";
 
 /**
  * Sprint 1.0 r1 (Phase 1A): valid enum values for AI prompt + sanitizer.
@@ -57,6 +58,8 @@ export type FilmScriptProvider = "gemini-flash" | "openai-4o";
 
 const GEMINI_FLASH_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_PRO_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
 /**
@@ -89,7 +92,7 @@ function adaptCharacter(c: FilmCharacter, hasDialog: boolean): FilmCharacterV2 {
 
 /**
  * Resolve the effective provider, falling back to whichever API key is present.
- * qc9: If user's preferred provider has no key, auto-fallback to the other.
+ * If user's preferred provider has no key, auto-fallback to the other.
  * Returns the actual provider to use + a flag whether fallback happened.
  */
 export function resolveProvider(preferred: FilmScriptProvider): {
@@ -131,22 +134,25 @@ export function resolveProvider(preferred: FilmScriptProvider): {
 /**
  * Shared text generation helper (exported for reuse in filmCastGeneration.ts).
  *
- * qc9 changes:
+ * changes:
  * - Auto-fallback if preferred provider lacks API key (resolveProvider)
- * - maxOutputTokens raised 2048 → 8192 (Stage 4 was getting truncated mid-JSON)
+ * - maxOutputTokens 32768 (Gemini 2.5 Flash max 65K) / 16384 (GPT-4o max 16K)
+ *   prevents truncation for verbose VN scene descriptions + shot lists with 12+ shots
  * - Detect truncated response (finishReason === MAX_TOKENS even if text non-empty)
  */
 export async function callAi(
   provider: FilmScriptProvider,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  options?: { temperature?: number }
 ): Promise<string> {
-  // qc9: Resolve effective provider — auto-fallback if preferred provider's key missing
+  // Resolve effective provider — auto-fallback if preferred provider's key missing
   const { effective, didFallback, fallbackReason } = resolveProvider(provider);
   if (didFallback && fallbackReason) {
-    console.warn("[KSP qc9 AI fallback]", fallbackReason);
+    console.warn("[KSP AI fallback]", fallbackReason);
   }
 
+  const temperature = options?.temperature ?? 0.75;
   const apiKeys = useGlobalStore.getState().apiKeys;
 
   if (effective === "openai-4o") {
@@ -161,8 +167,8 @@ export async function callAi(
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          max_tokens: 8192, // qc9: 2048 → 8192 (Stage 4 was truncated)
-          temperature: 0.75,
+          max_tokens: 16384, // GPT-4o supports max 16K output tokens; raised from 8192 to prevent shot-list/scene truncation
+          temperature,
           response_format: { type: "json_object" },
         }),
       });
@@ -185,16 +191,22 @@ export async function callAi(
     if (!text) {
       throw new Error("OpenAI trả empty response. Hãy thử regen.");
     }
-    // qc9: Detect truncation — finish_reason === "length" means hit max_tokens
+    // Detect truncation — finish_reason === "length" means hit max_tokens
     if (finishReason === "length") {
       throw new Error(
         "OpenAI response bị cắt do max_tokens. Thử giảm số scenes hoặc simplify idea/beats."
       );
     }
+    // r7.20a: emit cost event from OpenAI response usage
+    const usage = data.usage;
+    if (usage) {
+      const { emitTextCost } = await import("./costTracker");
+      emitTextCost("openai-4o", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0);
+    }
     return text;
   }
 
-  // Gemini Flash
+  // Gemini Flash (Pro not supported here — only filmScriptStages provider type)
   let response: Response;
   try {
     response = await fetch(`${GEMINI_FLASH_ENDPOINT}?key=${apiKeys.gemini}`, {
@@ -205,8 +217,8 @@ export async function callAi(
           { role: "user", parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
         ],
         generationConfig: {
-          temperature: 0.75,
-          maxOutputTokens: 8192, // qc9: 2048 → 8192 (Stage 4 was truncated)
+          temperature,
+          maxOutputTokens: 32768, // Gemini 2.5 Flash supports up to 65K output tokens; 32K gives headroom for verbose VN scenes / shot lists without truncation
           responseMimeType: "application/json",
         },
       }),
@@ -242,32 +254,72 @@ export async function callAi(
     }
     throw new Error(`Gemini trả empty response (finishReason: ${finishReason ?? "unknown"})`);
   }
-  // qc9: Detect truncation even when text exists but JSON was cut mid-string
+  // Detect truncation even when text exists but JSON was cut mid-string
   if (finishReason === "MAX_TOKENS") {
     throw new Error(
       "Gemini response bị cắt do max tokens. Thử giảm số scenes hoặc simplify idea/beats."
     );
   }
+  // r7.20a: emit cost event from Gemini usageMetadata
+  const usage = data.usageMetadata;
+  if (usage) {
+    const { emitTextCost } = await import("./costTracker");
+    emitTextCost(
+      "gemini-flash",
+      usage.promptTokenCount ?? 0,
+      usage.candidatesTokenCount ?? 0
+    );
+  }
   return text;
 }
 
-function parseJsonStrict<T>(raw: string): T {
-  // Strip markdown fences if present
-  const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
+/**
+ * Synchronous JSON parser with sanitizer recovery (Layer 1 only).
+ * For backward compat — all existing callers auto-upgrade to sanitizer recovery.
+ * For full Layer 1 + 2 (AI repair) recovery, use parseJsonStrictAsync.
+ */
+export function parseJsonStrict<T>(raw: string): T {
+  // Try direct parse first
+  const cleanedFence = raw.replace(/```json\s*|\s*```/g, "").trim();
   try {
-    return JSON.parse(cleaned) as T;
-  } catch (err) {
-    // qc9: Detect truncation patterns for friendlier error message
-    const isLikelyTruncated =
-      cleaned.length > 1500 &&
-      (!cleaned.trim().endsWith("}") && !cleaned.trim().endsWith("]"));
-    const hint = isLikelyTruncated
-      ? "\n\n💡 Response có vẻ bị cắt giữa chừng. Thử giảm số scenes hoặc simplify idea."
-      : "";
-    throw new Error(
-      `AI returned invalid JSON: ${(err as Error).message}${hint}\n\nRaw (${cleaned.length} chars): ${cleaned.slice(0, 200)}...`
-    );
+    return JSON.parse(cleanedFence) as T;
+  } catch (firstErr) {
+    // Fall back to sanitizer (sync layer 1)
+    // r7.20a-fix1: static import (was require() — broke in browser)
+    const { cleaned, fixesApplied } = sanitizeJsonString(raw);
+    try {
+      const data = JSON.parse(cleaned) as T;
+      console.log(`[KSP JSON recovery] sanitizer fixed: ${fixesApplied.join(", ") || "none"}`);
+      return data;
+    } catch (sanitizerErr) {
+      // Final error — include hint about truncation
+      const isLikelyTruncated =
+        cleaned.length > 1500 &&
+        !cleaned.trim().endsWith("}") &&
+        !cleaned.trim().endsWith("]");
+      const hint = isLikelyTruncated
+        ? "\n\n💡 Response có vẻ bị cắt giữa chừng. Thử giảm số scenes hoặc simplify idea."
+        : "\n\n💡 Sanitizer không fix được. Section sẽ status=error → click Retry để dùng AI repair (Layer 2).";
+      throw new Error(
+        `AI returned invalid JSON: ${(firstErr as Error).message}${hint}\n\nRaw (${cleaned.length} chars): ${cleaned.slice(0, 200)}...`
+      );
+    }
   }
+}
+
+/**
+ * Async JSON parser with full 3-layer recovery (sanitizer + AI repair).
+ * Use for stages where reliability matters more than latency (Stage 3/4/5,
+ * analyze-scenes, shot-list — all per-scene loops).
+ *
+ * Layer 1 fixes ~80% of malformed JSON cases without API call.
+ * Layer 2 (AI repair) fixes another ~15% — costs 1 extra Gemini Flash call (~$0.001).
+ * Layer 3 (throw + UI retry button) handles the remaining ~5%.
+ */
+export async function parseJsonStrictAsync<T>(raw: string, label = "JSON"): Promise<T> {
+  const { parseJsonWithRecovery } = await import("./jsonRecovery");
+  const result = await parseJsonWithRecovery<T>(raw, { label, enableAiRepair: true });
+  return result.data;
 }
 
 function genId(prefix: string): string {
@@ -284,20 +336,32 @@ export interface RunStage1Input {
   characters: FilmCharacter[];
   preferredFramework?: FilmStoryFramework; // Optional user override
   provider?: FilmScriptProvider;
+  /**
+   * Optional NarrativeDirection from Preview Flow modal.
+   * When set, injects user's 5 locked picks (structure/opening/character/twist/ending)
+   * as context block so Stage 1 framework + overview align faithfully.
+   * When undefined, AI auto-decides (legacy behavior).
+   */
+  narrativeDirection?: import("../types/project").NarrativeDirection;
 }
 
 export async function runStage1Structure(input: RunStage1Input): Promise<FilmScriptStructure> {
-  const { idea, setting, characters, preferredFramework, provider = "gemini-flash" } = input;
+  const { idea, setting, characters, preferredFramework, narrativeDirection, provider = "gemini-flash" } = input;
 
   const castSummary = characters
     .map((c) => `- ${c.name || `Character ${c.order}`} (${c.role}): ${c.description}`)
     .join("\n") || "(no characters yet)";
 
   const frameworkContext = preferredFramework
-    ? `The user has chosen the "${FRAMEWORK_LABELS[preferredFramework].name}" framework. Apply it to this idea.`
+    ? `The chosen framework is "${FRAMEWORK_LABELS[preferredFramework].name}". Apply it to this idea.`
     : `Choose the BEST framework from: 3-act, hero-journey, save-the-cat, kishotenketsu. Default to 3-act unless the idea strongly suggests another.`;
 
-  const systemPrompt = `You are an experienced screenwriter and story structurist. Pick a narrative framework that fits the user's idea, and write a 3-5 sentence overview explaining how the framework will apply to their story.
+  // Inject NarrativeDirection block if present
+  const narrativeDirectionBlock = narrativeDirection
+    ? `\n\n${narrativeDirection.synthesizedDirectionEn}\n\nThe framework + overview must align with these 5 locked directions. Do NOT contradict the chosen opening style, character introduction, twist, or ending in your overview.`
+    : "";
+
+  const systemPrompt = `You are an experienced screenwriter and story structurist. Pick a narrative framework that fits this idea, and write a 3-5 sentence overview explaining how the framework will apply to the story.
 
 OUTPUT: Reply in strict JSON with BOTH languages:
 - "contentVi": overview in VIETNAMESE (displayed in UI for the user to read & edit)
@@ -314,12 +378,12 @@ DIALOG: ${setting.dialog === "has_dialog" ? "Yes" : "No (visual storytelling onl
 CAST:
 ${castSummary}
 
-${frameworkContext}
+${frameworkContext}${narrativeDirectionBlock}
 
 Return the chosen framework + overview (both Vietnamese & English) as JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     framework: FilmStoryFramework;
     contentEn: string;
     contentVi?: string;
@@ -342,25 +406,45 @@ export interface RunStage2Input {
   characters: FilmCharacter[];
   structure: FilmScriptStructure;
   provider?: FilmScriptProvider;
+  /* * optional NarrativeDirection from Preview Flow. */
+  narrativeDirection?: import("../types/project").NarrativeDirection;
+  /**
+   * when Stage Twists ran BEFORE Stage Beats (new swapped order),
+   * pre-locked twists are passed here. AI Beats must place each twist at the most
+   * narratively appropriate beat position via the `containsTwistId` field.
+   * Twists MUST spread across different acts (Act 1: beats 1-N/3 · Act 2: N/3-2N/3
+   * · Act 3: 2N/3-N). No two twists in adjacent or identical beats.
+   */
+  prelockedTwists?: FilmScriptTwist[];
 }
 
 export async function runStage2Beats(input: RunStage2Input): Promise<FilmScriptBeat[]> {
-  const { idea, setting, characters, structure, provider = "gemini-flash" } = input;
+  const { idea, setting, characters, structure, narrativeDirection, prelockedTwists, provider = "gemini-flash" } = input;
 
   const targetCount = FRAMEWORK_LABELS[structure.framework].defaultBeatCount;
   const castSummary = characters
     .map((c) => `- ${c.name || `Character ${c.order}`} (${c.role}): ${c.description}`)
     .join("\n") || "(no characters yet)";
 
-  const systemPrompt = `You are an experienced screenwriter. Generate ${targetCount} narrative beats for the user's story using the "${FRAMEWORK_LABELS[structure.framework].name}" framework.
+  // inject NarrativeDirection block to ensure beats respect locked direction
+  const narrativeDirectionBlock = narrativeDirection
+    ? `\n\n${narrativeDirection.synthesizedDirectionEn}\n\nBEAT GENERATION RULES based on locked direction:\n- Opening beats (first 2-3) must reflect the locked Opening Scene style\n- Character introduction beat must follow the locked Character Intro pacing\n- Final beats must lead to the locked Ending arc`
+    : "";
+
+  // pre-locked twists block — AI must place each twist at an appropriate beat
+  const prelockedTwistsBlock = prelockedTwists && prelockedTwists.length > 0
+    ? `\n\nPRE-LOCKED TWISTS (must be placed at appropriate beat positions, fill containsTwistId per beat):\n${prelockedTwists.map((t, i) => `- ${t.id} (Twist ${i + 1}${t.archetypeTag ? ` [${t.archetypeTag}]` : ""}): ${t.description}`).join("\n")}\n\nTWIST PLACEMENT RULES:\n- Each twist MUST be placed at exactly one beat via containsTwistId field\n- Twists MUST spread across different acts of the ${targetCount}-beat structure:\n  * Act 1 region: beats 1 to ${Math.floor(targetCount / 3)}\n  * Act 2 region: beats ${Math.floor(targetCount / 3) + 1} to ${Math.floor((2 * targetCount) / 3)}\n  * Act 3 region: beats ${Math.floor((2 * targetCount) / 3) + 1} to ${targetCount}\n- If 1 twist: place at the natural midpoint beat (Act 2 region)\n- If 2 twists: place 1 in Act 1 region (turn into Act 2) and 1 at midpoint\n- If 3 twists: place 1 each in Act 1 region, Act 2 midpoint, Act 3 region\n- No two twists in the same beat or adjacent beats — they must be SPREAD OUT\n- Beats without a twist must have containsTwistId set to null`
+    : "";
+
+  const systemPrompt = `You are an experienced screenwriter. Generate ${targetCount} narrative beats for this story using the "${FRAMEWORK_LABELS[structure.framework].name}" framework.${narrativeDirectionBlock}${prelockedTwistsBlock}
 
 Each beat has:
 - "title": canonical beat name in VIETNAMESE (e.g. "Hình ảnh mở đầu", "Sự kiện kích hoạt", "Cao trào")
-- "description": 1-2 sentences in VIETNAMESE describing what happens at this beat (so user can read & edit)
+- "description": 1-2 sentences in VIETNAMESE describing what happens at this beat (so user can read & edit)${prelockedTwists && prelockedTwists.length > 0 ? "\n- \"containsTwistId\": string id of a pre-locked twist placed at this beat, or null if no twist here" : ""}
 
-OUTPUT: Reply in strict JSON: { "beats": [ { "title": "...", "description": "..." } ] }
+OUTPUT: Reply in strict JSON: { "beats": [ { "title": "...", "description": "..."${prelockedTwists && prelockedTwists.length > 0 ? ", \"containsTwistId\": \"twist_id_or_null\"" : ""} } ] }
 
-All text MUST be in Vietnamese (user-facing). DO NOT use English in beat titles or descriptions.`;
+All title + description text MUST be in Vietnamese (user-facing). DO NOT use English in beat titles or descriptions.${JSON_OUTPUT_RULES}`;
 
   const userPrompt = `IDEA: ${idea}
 
@@ -374,17 +458,28 @@ STRUCTURE: ${FRAMEWORK_LABELS[structure.framework].name}
 OVERVIEW (English reference): ${structure.contentEn}
 ${structure.contentVi ? `OVERVIEW (Vietnamese): ${structure.contentVi}` : ""}
 
-Generate ${targetCount} beats in order from opening to closing IN VIETNAMESE. Beats should escalate dramatic tension toward the climax. Return as JSON.`;
+Generate ${targetCount} beats in order from opening to closing IN VIETNAMESE. Beats should escalate dramatic tension toward the climax.${prelockedTwists && prelockedTwists.length > 0 ? ` Place the ${prelockedTwists.length} pre-locked twist${prelockedTwists.length > 1 ? "s" : ""} at appropriate beat positions per the placement rules above.` : ""} Return as JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{ beats: Array<{ title: string; description: string }> }>(raw);
+  const parsed = await parseJsonStrictAsync<{ beats: Array<{ title: string; description: string; containsTwistId?: string | null }> }>(raw, "Stage 2 Beats");
 
-  return parsed.beats.map((b, i) => ({
-    id: genId("beat"),
-    order: i + 1,
-    title: b.title,
-    description: b.description,
-  }));
+  // build set of valid prelocked twist ids for sanitization
+  const validTwistIds = new Set((prelockedTwists ?? []).map((t) => t.id));
+
+  return parsed.beats.map((b, i) => {
+    // validate containsTwistId — must reference a real prelocked twist or be undefined
+    let containsTwistId: string | undefined;
+    if (typeof b.containsTwistId === "string" && b.containsTwistId.trim().length > 0 && validTwistIds.has(b.containsTwistId.trim())) {
+      containsTwistId = b.containsTwistId.trim();
+    }
+    return {
+      id: genId("beat"),
+      order: i + 1,
+      title: b.title,
+      description: b.description,
+      containsTwistId,
+    };
+  });
 }
 
 // ============================================================================
@@ -398,10 +493,12 @@ export interface RunStage3Input {
   structure: FilmScriptStructure;
   beats: FilmScriptBeat[];
   provider?: FilmScriptProvider;
+  /* * optional NarrativeDirection from Preview Flow. */
+  narrativeDirection?: import("../types/project").NarrativeDirection;
 }
 
 export async function runStage3Twists(input: RunStage3Input): Promise<FilmScriptTwist[]> {
-  const { idea, setting, characters, beats, provider = "gemini-flash" } = input;
+  const { idea, setting, characters, beats, narrativeDirection, provider = "gemini-flash" } = input;
 
   const beatsList = beats
     .map((b) => `[${b.id}] Beat ${b.order} — ${b.title}: ${b.description}`)
@@ -410,7 +507,13 @@ export async function runStage3Twists(input: RunStage3Input): Promise<FilmScript
     .map((c) => `- ${c.name || `Character ${c.order}`}: ${c.description}`)
     .join("\n") || "(no characters yet)";
 
-  const systemPrompt = `You are an experienced screenwriter. Suggest 1-3 plot twists that would make the user's story more compelling. Each twist must be attached to a specific beat (use the beat id from the BEATS list). The twist subverts viewer expectation while still serving the story arc.
+  // when direction has Step 4 Midpoint Twist locked, AI generates SUPPORTING twists
+  // around the locked midpoint instead of contradicting it
+  const narrativeDirectionBlock = narrativeDirection
+    ? `\n\n${narrativeDirection.synthesizedDirectionEn}\n\nTWIST GENERATION RULES based on locked direction:\n- The CORE MIDPOINT TWIST is LOCKED at the Midpoint Twist direction above\n- Generate 1 main twist that EXACTLY reflects the locked Midpoint Twist (linked to middle beat at ~beat ${Math.ceil(beats.length / 2)})\n- Optionally add 1-2 SUPPORTING twists (setup or consequence twists) that don't contradict the locked midpoint\n- Do NOT generate twists that override or contradict the locked direction`
+    : "";
+
+  const systemPrompt = `You are an experienced screenwriter. Suggest 1-3 plot twists that would make this story more compelling. Each twist must be linked to a specific beat (use the beat id from the BEATS list). The twist subverts viewer expectation while still serving the story arc.${narrativeDirectionBlock}
 
 Each twist description MUST be in VIETNAMESE (user-facing).
 
@@ -423,13 +526,13 @@ GENRE: ${setting.genre ?? "drama"}
 CAST:
 ${castSummary}
 
-BEATS (use beatId to attach twists):
+BEATS (use beatId to link twists):
 ${beatsList}
 
 Suggest 1-3 twists that strengthen the narrative. Return as JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{ twists: Array<{ beatId: string; description: string }> }>(raw);
+  const parsed = await parseJsonStrictAsync<{ twists: Array<{ beatId: string; description: string }> }>(raw, "Stage 3 Twists");
 
   return parsed.twists.map((t) => ({
     id: genId("twist"),
@@ -456,30 +559,42 @@ export interface RunStage4Input {
    * (typically 4-7 scenes for 5-min films, more for longer).
    */
   targetSceneCount?: number;
+  /**
+   * Optional NarrativeDirection from Preview Flow modal.
+   * When set, injects 5 locked picks as context for scene generation.
+   * Stage 4 generates scenes that faithfully execute the locked opening style,
+   * character introduction approach, midpoint twist, and ending arc.
+   */
+  narrativeDirection?: import("../types/project").NarrativeDirection;
 }
 
 export async function runStage4Scenes(
   input: RunStage4Input
 ): Promise<FilmScriptIntermediateScene[]> {
-  const { idea, setting, characters, beats, acceptedTwists, provider = "gemini-flash", targetSceneCount } = input;
+  const { idea, setting, characters, beats, acceptedTwists, narrativeDirection, provider = "gemini-flash", targetSceneCount } = input;
 
   const beatsList = beats
     .map((b) => `[${b.id}] Beat ${b.order} — ${b.title}: ${b.description}`)
     .join("\n");
   const twistsList =
     acceptedTwists.length === 0
-      ? "(no accepted twists)"
-      : acceptedTwists.map((t) => `- attached to beat [${t.beatId}]: ${t.description}`).join("\n");
+      ? "(none)"
+      : acceptedTwists.map((t) => `- linked to beat [${t.beatId}]: ${t.description}`).join("\n");
   const castSummary = characters
     .map((c) => `- ${c.name || `Character ${c.order}`}: ${c.description}`)
     .join("\n") || "(no characters yet)";
 
+  // Inject NarrativeDirection block if present
+  const narrativeDirectionBlock = narrativeDirection
+    ? `\n\n${narrativeDirection.synthesizedDirectionEn}\n\nSCENE GENERATION RULES based on locked direction:\n- Opening Scene direction dictates how SCENE 1 begins (environment-first → first scene has wide establishing with no characters; character-first → first scene opens with subject close-up; etc.)\n- Character Introduction direction dictates pacing of how main character is revealed across opening scenes\n- Midpoint Twist direction dictates which scene contains the inflection point (scene at ~50% film duration)\n- Ending direction dictates the final scene's emotional arc and resolution\n\nGenerate scenes that faithfully execute the locked direction. Do NOT contradict any of the 5 locked picks.`
+    : "";
+
   const totalSeconds = (setting.durationMinutes ?? 5) * 60;
   const sceneCountInstruction = targetSceneCount && targetSceneCount > 0
-    ? `Produce EXACTLY ${targetSceneCount} scenes — the user explicitly requested this count for richer storytelling.`
+    ? `Produce EXACTLY ${targetSceneCount} scenes — explicitly requested for richer storytelling.`
     : `Produce a natural scene count (typically ${Math.max(4, Math.round(totalSeconds / 75))} scenes for ${totalSeconds}s total).`;
 
-  const systemPrompt = `You are an experienced screenwriter. Group the beats (and accepted twists) into concrete scenes. ${sceneCountInstruction}
+  const systemPrompt = `You are an experienced screenwriter. Group the beats (and accepted twists) into concrete scenes. ${sceneCountInstruction}${narrativeDirectionBlock}
 
 Each scene has:
 - "titleVi" + "titleEn": short scene title in both languages
@@ -508,7 +623,7 @@ Total scene durations should sum to about ${totalSeconds}s.
 
 OUTPUT: Reply in strict JSON: { "scenes": [ { "titleVi": "...", "titleEn": "...", "settings": "...", "actionLinesVi": "...", "actionLinesEn": "...", "durationSeconds": N, "beatIds": ["beat_id_1", ...], "tensionLevel": N, "emotionalTone": "..." } ] }
 
-Keep descriptions CONCISE (2-4 sentences each). Avoid overly long prose to stay within token budget.`;
+Keep descriptions CONCISE (2-4 sentences each). Avoid overly long prose to stay within token budget.${JSON_OUTPUT_RULES}`;
 
   const userPrompt = `IDEA: ${idea}
 
@@ -528,7 +643,7 @@ ${twistsList}
 Group beats into scenes with concrete setting + action (Vietnamese for UI + English for AI prompts) + duration. Return as JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     scenes: Array<{
       titleEn: string;
       titleVi?: string;
@@ -542,24 +657,32 @@ Group beats into scenes with concrete setting + action (Vietnamese for UI + Engl
     }>;
   }>(raw);
 
-  return parsed.scenes.map((s, i) => ({
-    id: genId("scene"),
-    order: i + 1,
-    titleEn: s.titleEn,
-    titleVi: s.titleVi,
-    settings: s.settings,
-    actionLinesEn: s.actionLinesEn,
-    actionLinesVi: s.actionLinesVi,
-    durationSeconds: s.durationSeconds,
-    beatIds: s.beatIds ?? [],
-    // Sprint 1.0 r1 (Phase 1A): pacing annotations
-    tensionLevel: sanitizeTension(s.tensionLevel),
-    emotionalTone: sanitizeEmotion(s.emotionalTone),
-  }));
+  return parsed.scenes.map((s, i) => {
+    // Sprint G1e0: validate emotion ↔ tension combo per Pixar emotional model.
+    // AI sometimes produces invalid combos (e.g. shocking + tension 3) → contradictory
+    // cinematic intent down the pipeline. Auto-fix by clamping tension to nearest valid
+    // edge of the tone's range. Silent — user sees corrected result in Pacing Dashboard.
+    const tone = sanitizeEmotion(s.emotionalTone);
+    const tension = autoFixEmotionTension(tone, s.tensionLevel);
+    return {
+      id: genId("scene"),
+      order: i + 1,
+      titleEn: s.titleEn,
+      titleVi: s.titleVi,
+      settings: s.settings,
+      actionLinesEn: s.actionLinesEn,
+      actionLinesVi: s.actionLinesVi,
+      durationSeconds: s.durationSeconds,
+      beatIds: s.beatIds ?? [],
+      // Sprint 1.0 r1 (Phase 1A): pacing annotations · G1e0: validated combo
+      tensionLevel: tension,
+      emotionalTone: tone,
+    };
+  });
 }
 
 // ============================================================================
-// qc20 — STAGE 4 SCENE SPLIT (Hướng F-9 sweet-spot enforcement)
+// STAGE 4 SCENE SPLIT (Hướng F-9 sweet-spot enforcement)
 // ============================================================================
 
 export interface RunSplitSceneInput {
@@ -595,7 +718,7 @@ export interface SceneSplitSuggestion {
 }
 
 /**
- * qc20 Q20.4 Hướng C: AI suggest a split point for a complex scene.
+ * Hướng C: AI suggest a split point for a complex scene.
  *
  * Returns 2 sub-scenes that together cover the same beats + duration as the original.
  * Caller (UI) displays preview, user confirms or cancels. On confirm, store action
@@ -677,7 +800,7 @@ ${beatsList}
 Suggest the 2-way split as JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<SceneSplitSuggestion>(raw);
+  const parsed = await parseJsonStrictAsync<SceneSplitSuggestion>(raw, "Split Scene");
 
   // Defensive: ensure 2 sub-scenes
   if (!parsed.subScenes || parsed.subScenes.length !== 2) {
@@ -759,7 +882,7 @@ export async function runStage5FromStages(
   // scriptWriter prompt produces dialogues aligned with what user already locked in.
   const enrichedIdea = `${idea}
 
-STRUCTURE (locked by user via multi-stage wizard):
+STRUCTURE (locked):
 Framework: ${FRAMEWORK_LABELS[structure.framework].name}
 Overview: ${structure.contentEn}
 
@@ -874,16 +997,19 @@ ${sceneList}
 Return JSON with one annotation per scene id.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     annotations: Array<{ sceneId: string; tensionLevel?: number; emotionalTone?: string }>;
   }>(raw);
 
   const result: Record<string, { tensionLevel: number; emotionalTone: EmotionalTone }> = {};
   for (const a of parsed.annotations ?? []) {
     if (!a.sceneId) continue;
+    // Sprint G1e0: validate combo same as Stage 4. Annotator may also produce
+    // invalid combos when re-tagging existing scenes.
+    const tone = sanitizeEmotion(a.emotionalTone);
     result[a.sceneId] = {
-      tensionLevel: sanitizeTension(a.tensionLevel),
-      emotionalTone: sanitizeEmotion(a.emotionalTone),
+      tensionLevel: autoFixEmotionTension(tone, a.tensionLevel),
+      emotionalTone: tone,
     };
   }
   return result;
@@ -1036,7 +1162,7 @@ ${sceneList}
 Propose adjustments per principles above. Return JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     summaryVi?: string;
     strengthsVi?: string[];
     weaknessesVi?: string[];
@@ -1210,7 +1336,7 @@ ${scene.actionLinesEn}
 Rewrite per the direction above. Return JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     newActionLinesVi?: string;
     newActionLinesEn?: string;
     newDurationSeconds?: number;
@@ -1335,7 +1461,7 @@ Current animation prompt: ${shot.animationPromptR5 ?? "(none — generate from s
 Re-prompt for ${newDuration}s duration. Return JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     newImagePrompt?: string;
     newAnimationPrompt?: string;
     useStillImage?: boolean;
@@ -1435,7 +1561,7 @@ ${sceneList}
 Return per-scene per-character emotion JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     scenes: Array<{ sceneId: string; characterEmotions?: Record<string, string> }>;
   }>(raw);
 
@@ -1521,8 +1647,8 @@ TYPE categories:
 RULES:
 - payoffSceneId MUST be a LATER scene than setupSceneId (order strictly greater)
 - Only report STRONG, intentional setups (don't reach for incidental references)
-- "labelVi" should be 3-6 words Vietnamese, evocative (e.g., "Mật mã 3-5 nhịp", "Cảm biến quang học", "Hệ thống cảnh báo")
-- "labelEn" MUST be the English equivalent (3-6 words), used in EN AI prompts. Example matching: "3-5 tap code", "Optical sensor", "Warning system". REQUIRED — never skip.
+- "labelVi" should be 3-6 words Vietnamese, evocative — describe the element being set up/paid off using nouns from the CURRENT scene description, NOT generic placeholders.
+- "labelEn" MUST be the English equivalent (3-6 words), used in EN AI prompts. Format: noun-phrase describing the specific story element (object/skill/promise/mystery/character trait/world rule) — derive from current scene's actual content. REQUIRED — never skip.
 - "rationaleVi" 1-2 sentences Vietnamese explaining the connection
 - "confidence" 0-1 (>0.7 strong / 0.4-0.7 moderate / <0.4 speculative — only include if ≥0.4)
 - Also list "danglingSetupsVi" — setups you see but no matching payoff (story craft warning)
@@ -1551,7 +1677,7 @@ ${sceneList}
 Detect setup → payoff pairs. Return JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     summaryVi?: string;
     pairs?: Array<{
       setupSceneId?: string;
@@ -1619,6 +1745,14 @@ export interface DetectBeatsAndLockResult {
   beats: Beat[];
   /** AI-derived physical consistency lock (English, multi-line). undefined if none detected. */
   physicalConsistencyLockEn?: string;
+  /** Sprint G1e2 Phase 2B: AI-suggested film reference atmospheres (1-3 strings). */
+  filmReferencesEn?: string[];
+  /** Sprint G1e2 Phase 3: AI-suggested color script (dominant + 2 accents). undefined if AI didn't sinh all 3. */
+  colorScript?: {
+    dominantEn: string;
+    accent1En: string;
+    accent2En: string;
+  };
 }
 
 /**
@@ -1660,18 +1794,19 @@ export async function runDetectBeatsForScene(input: {
 
 TASK 1 — Identify atomic NARRATIVE BEATS in the scene description.
 
-A beat = 1 discrete unit that cannot be split smaller without losing meaning, AND cannot be merged with neighbor without losing detail. Examples:
-- "Wide forest sweep" (camera intent, atmosphere)
-- "Tilt down reveals robot" (camera intent, subject reveal)
-- "Woodpecker lands on head" (subject action)
-- "Pecks 3 times, pause, 5 times" (action with rhythm)
-- "Blue light flickers" (state change)
-- "Light fades" (state change)
+A beat = 1 discrete unit that cannot be split smaller without losing meaning, AND cannot be merged with neighbor without losing detail.
+
+Beat granularity patterns (use these as STRUCTURE templates — do NOT copy the words; derive YOUR beat labels from THIS scene's actual content):
+- A camera-intent beat: short label describing framing/movement (e.g. "<camera-verb> + <subject or space>")
+- A subject-reveal beat: short label naming what enters/appears
+- A rhythmic-action beat: short label capturing repeated or paced motion
+- A state-change beat: short label marking transition (e.g. "<state-A> → <state-B>")
+- A sensory beat: short label for ambient detail (light, sound, texture, scent)
 
 Beat types (5 categories):
 - "camera": camera movement/framing intent (wide sweep, tilt down, dolly in)
-- "subject": new subject enters/leaves (woodpecker arrives, robot revealed)
-- "action": discrete action verb (peck, fall, jump)
+- "subject": new subject enters/leaves (new character arrives, hidden subject revealed)
+- "action": discrete action verb (jump, fall, reach)
 - "sensory": ambient sensory detail (sunlight dappling, scent of earth)
 - "state-change": transition state (light flicker → fade, dormant → active)
 
@@ -1690,12 +1825,64 @@ What visual elements MUST remain identical across all shots of this scene?
 
 Output as multi-line text (5-8 bullet points), pure English, ready to inject into AI prompt.
 
-Example output for "robot covered by moss in ancient forest":
-"- Subject body: completely covered by thick green moss, hanging ivy, weathered rust patches
-- Left optical sensor: obscured by ivy curtain
-- Coloration: weathered grey-green with patches of orange rust
-- Scale: massive 3-4m humanoid, prone among ferns
-- Environment: ancient forest with dappled sunlight, fern bed, mossy trees"
+Example output for a subject in a distinctive environment (generic illustration):
+"- Subject body: specific distinguishing features (covering, marks, textures)
+- Notable obscurations: which features are partially hidden (and by what)
+- Coloration: precise palette with weathering/aging details
+- Scale: relative size compared to environment (e.g. dwarfed/dominant)
+- Environment markers: 3-4 specific elements (lighting source, flora/fauna, surfaces)"
+
+TASK 3 — Suggest FILM REFERENCES (English, **G1e2 Phase 2B**).
+
+Pick 1-3 established cinematic atmospheres that match this scene's mood, setting, and emotional weight. Banana Pro / Nano Banana / Imagen models trained on millions of stills will use these as STYLE ANCHORS (not character copying).
+
+CRITICAL FORMAT — phrase as atmosphere reference, NOT character recreation:
+- ✅ "Wall-E opening 5 minutes (Earth scenes, empty post-civilization)"
+- ✅ "Princess Mononoke forest scenes (ancient mossy texture, breathing nature)"
+- ✅ "Blade Runner 2049 desert sequences (orange haze, isolation)"
+- ❌ "Wall-E character" (would trigger copyright filter)
+- ❌ "Mickey Mouse style" (direct IP reference)
+
+Pick films that:
+- Match the genre/tone of THIS specific scene
+- Are widely recognized (better AI understanding from training data)
+- Have well-known visual atmospheres (Pixar, Ghibli, A24, Christopher Nolan, Denis Villeneuve, Wes Anderson, Terrence Malick, classic Hollywood)
+- Avoid obscure or copyright-sensitive content
+
+Output as array of 1-3 strings. Empty array OK if scene is generic with no clear cinematic reference.
+
+TASK 4 — COLOR SCRIPT (English, **G1e2 Phase 3** — Pixar Production Design 101).
+
+Each scene = ONE painting with a fixed palette. Define 3 colors that lock cross all shots:
+- 1 DOMINANT color (60% of frame coverage) — sets the mood ground
+- 1 ACCENT color (25% of frame coverage) — primary subject/key feature
+- 1 ACCENT color (15% of frame coverage) — secondary highlight/punch
+
+Format for each color: "<color name> <hex code> — <coverage>% frame coverage"
+
+Rules:
+- Pick colors that match scene's emotional tone + setting + atmosphere
+- Use REAL cinematic palettes (not random web colors). Reference: Blade Runner 2049 orange-teal split, Mad Max Fury Road sepia-cyan, Amélie green-red, Princess Mononoke earth-green tones
+- Hex codes must be valid 6-digit hex
+- DOMINANT should be the environmental/background color
+- ACCENTs should be subject/feature colors that pop against dominant
+- Coverage % is suggestion for AI image gen, not strict — 60/25/15 is Pixar default
+
+Format pattern (derive YOUR colors from THIS scene's setting + emotion + atmosphere — do NOT reuse colors from this template):
+{
+  "dominantEn": "<color name> <hex> — 60% frame coverage",
+  "accent1En": "<color name> <hex> — 25% frame coverage",
+  "accent2En": "<color name> <hex> — 15% frame coverage"
+}
+
+Color picking guide by environment type:
+- Warm/sunlit outdoor → dominant earth-tones, accents warm contrast
+- Cold/night/interior → dominant cool deep tones, accents warm artificial light
+- Lush/organic → dominant nature tones, accents organic warmth or punch
+- Industrial/synthetic → dominant gray/metal, accents neon or rust
+- Abstract/dreamlike → dominant desaturated, accents stylized punch
+
+Pick whichever pattern matches THIS scene's actual setting + emotional tone. NEVER reuse the literal colors above.
 
 OUTPUT strict JSON:
 {
@@ -1708,8 +1895,14 @@ OUTPUT strict JSON:
     },
     ...
   ],
-  "physicalConsistencyLockEn": "<multi-line English lock, or empty string if scene has no specific visual elements to lock>"
-}`;
+  "physicalConsistencyLockEn": "<multi-line English lock, or empty string if scene has no specific visual elements to lock>",
+  "filmReferencesEn": ["<film ref 1>", "<film ref 2>"],
+  "colorScript": {
+    "dominantEn": "<dominant color name + hex + coverage>",
+    "accent1En": "<accent 1 color name + hex + coverage>",
+    "accent2En": "<accent 2 color name + hex + coverage>"
+  }
+}${JSON_OUTPUT_RULES}`;
 
   const userPrompt = `Scene ${scene.order}: ${scene.titleVi || scene.titleEn}
 Setting: ${scene.settings ?? "unspecified"}
@@ -1720,7 +1913,7 @@ ${sourceAction}
 Parse beats + extract physical consistency lock. Return JSON.`;
 
   const raw = await callAi(provider, systemPrompt, userPrompt);
-  const parsed = parseJsonStrict<{
+  const parsed = await parseJsonStrictAsync<{
     beats?: Array<{
       order?: number;
       label?: string;
@@ -1728,6 +1921,12 @@ Parse beats + extract physical consistency lock. Return JSON.`;
       sourcePhrase?: string;
     }>;
     physicalConsistencyLockEn?: string;
+    filmReferencesEn?: string[];
+    colorScript?: {
+      dominantEn?: string;
+      accent1En?: string;
+      accent2En?: string;
+    };
   }>(raw);
 
   const validTypes = new Set<Beat["type"]>(["camera", "subject", "action", "sensory", "state-change"]);
@@ -1746,9 +1945,41 @@ Parse beats + extract physical consistency lock. Return JSON.`;
     .map((b, i) => ({ ...b, order: i + 1 })); // re-number to ensure contiguous 1-N
 
   const lockEn = (parsed.physicalConsistencyLockEn ?? "").trim();
+
+  // Sprint G1e2 Phase 2B: parse filmReferencesEn — validate as string array max 3 refs
+  const rawRefs = (parsed as any).filmReferencesEn;
+  const filmRefs = Array.isArray(rawRefs)
+    ? rawRefs
+        .filter((r: unknown): r is string => typeof r === "string" && r.trim().length > 0)
+        .map((r: string) => r.trim())
+        .slice(0, 3)
+    : [];
+
+  // Sprint G1e2 Phase 3: parse colorScript — require all 3 fields, else drop entirely
+  const rawCs = (parsed as any).colorScript;
+  let colorScript: { dominantEn: string; accent1En: string; accent2En: string } | undefined;
+  if (
+    rawCs &&
+    typeof rawCs === "object" &&
+    typeof rawCs.dominantEn === "string" &&
+    typeof rawCs.accent1En === "string" &&
+    typeof rawCs.accent2En === "string" &&
+    rawCs.dominantEn.trim().length > 0 &&
+    rawCs.accent1En.trim().length > 0 &&
+    rawCs.accent2En.trim().length > 0
+  ) {
+    colorScript = {
+      dominantEn: rawCs.dominantEn.trim(),
+      accent1En: rawCs.accent1En.trim(),
+      accent2En: rawCs.accent2En.trim(),
+    };
+  }
+
   return {
     beats,
     physicalConsistencyLockEn: lockEn.length > 0 ? lockEn : undefined,
+    filmReferencesEn: filmRefs.length > 0 ? filmRefs : undefined,
+    colorScript,
   };
 }
 
@@ -1757,7 +1988,7 @@ Parse beats + extract physical consistency lock. Return JSON.`;
  * Auto-triggered when Stage 5 finalizes (Q-A: no user click required).
  *
  * Strategy: parallel calls per scene (1 call each), aggregate results.
- * Sprint 1.0 r7.1: tracks failed scene IDs separately so UI can show retry per scene.
+ * Sprint 1.0 tracks failed scene IDs separately so UI can show retry per scene.
  * Cost: ~N Gemini Flash calls for N scenes. Typical 6-scene film: ~$0 cost.
  */
 export interface BulkBeatsResult {

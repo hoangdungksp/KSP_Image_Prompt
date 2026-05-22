@@ -1,7 +1,7 @@
 /**
- * KSP Image qc8 — Cast Film Section
+ * KSP Image Cast Film Section
  *
- * Per Jason qc8 spec:
+ * Per Jason spec:
  * - Header has `+` icon button at top-right corner (border-dashed, hover tooltip)
  * - Removed: footer + "AI gợi ý cast" stub + dialog mode info banner
  * - Inside each character card:
@@ -21,7 +21,7 @@
  * AI Generate Ref Image:
  *   - Imagen 4 Standard (Jason confirmed) — $0.04/image
  *   - Auto-detect next missing label (front → 3/4 L → 3/4 R → profile)
- *   - Cache confirm dialog before each call (Jason qc6 cache request)
+ *   Cache confirm dialog before each call (Jason cache request)
  */
 
 import React, { useRef, useState } from "react";
@@ -56,7 +56,6 @@ import {
   type CastPromptSet,
 } from "../engine/filmCastGeneration";
 import type { FilmScriptProvider } from "../engine/filmScriptStages";
-import { CastPromptModal } from "./CastPromptModal";
 
 // Role → emoji avatar mapping
 const ROLE_EMOJI: Record<FilmCharacterRole, string> = {
@@ -78,7 +77,7 @@ export function CastFilmSection() {
   if (!project) return null;
   const film = ensureFilmData(project);
 
-  // qc13: Detect stale Cast — script regenerated AFTER character descriptions
+  // Detect stale Cast — script regenerated AFTER character descriptions
   const scriptCreatedAt = film.script?.createdAt;
   const hasStaleDescriptions =
     !!scriptCreatedAt &&
@@ -94,7 +93,7 @@ export function CastFilmSection() {
         <span className="ksp-section-icon">🎭</span>
         <h2 className="ksp-section-title">CAST</h2>
         <span className="ksp-cast-film-subtitle">(nhất quán toàn phim)</span>
-        {/* qc8: Add button moved to header top-right corner — dashed square */}
+        {/* Add button at header top-right — dashed square */}
         <button
           type="button"
           className="ksp-cast-film-add-corner"
@@ -106,7 +105,7 @@ export function CastFilmSection() {
         </button>
       </header>
 
-      {/* qc13: Stale Cast warning — descriptions predate the current Script */}
+      {/* Stale Cast warning — descriptions predate the current Script */}
       {hasStaleDescriptions && (
         <div className="ksp-cast-film-stale-banner">
           ⚠ Một số character có mô tả CŨ hơn Script hiện tại. Cast có thể không khớp với câu chuyện. Click <strong>✨</strong> trên từng character để regen mô tả theo Script mới.
@@ -178,20 +177,153 @@ function CastFilmCard({
   showToast,
 }: CastFilmCardProps) {
   const [editMode, setEditMode] = useState(!character.name);
-  const [expandedRefs, setExpandedRefs] = useState<"face" | "body" | null>(null);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
-  // Sprint G1d (Item 6): Cast prompt modal state
-  const [promptResult, setPromptResult] = useState<CastPromptSet | null>(null);
-  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
-  const [promptMatchedToRefs, setPromptMatchedToRefs] = useState(false);
+  // Concept Sheet workflow state
+  const [conceptPromptText, setConceptPromptText] = useState<string | null>(null);
+  const sheetFileInputRef = useRef<HTMLInputElement | null>(null);
+  // GPT Image 2 in-app generation state
+  const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
   const project = useAppStore((s) => s.currentProject);
 
-  // Avatar emoji
+  // Avatar — always emoji based on role (no longer derived from conceptSheet image)
   const initialLetter = character.name.trim().charAt(0).toUpperCase();
   const avatarContent = ROLE_EMOJI[character.role] ?? initialLetter ?? String(character.order);
-  // r7.6: When character has uploaded face refs, show the FIRST face ref image inside
-  // the avatar circle (slot 0 = "front"). Falls back to emoji role icon when no ref.
-  const firstFaceRefUrl = character.faceRefs?.[0]?.dataUrl;
+
+  /**
+   * Build the AI Concept Prompt and open modal.
+   * The user copies the prompt + pastes into ChatGPT/Banana Pro/Imagen
+   * to generate a character reference sheet image.
+   */
+  async function handleShowConceptPrompt() {
+    if (!project) return;
+    const setting = (project as any).settingV2 as
+      | import("../types/project").ProjectSettingV2
+      | undefined;
+    if (!setting) {
+      showToast("Project setting missing — vào Project Setting để cấu hình", "error");
+      return;
+    }
+    const ideaText = (project as any).idea?.raw as string | undefined;
+    const { buildCharacterSheetPrompt } = await import("../engine/characterSheetPrompt");
+    const prompt = buildCharacterSheetPrompt({
+      character: { name: character.name, role: character.role, description: character.description },
+      ideaText,
+      setting: {
+        animationStyle: setting.animationStyle,
+        genre: setting.genre,
+        aspectRatio: setting.aspectRatio,
+      },
+    });
+    setConceptPromptText(prompt);
+  }
+
+  /**
+   * Trigger file picker for concept sheet upload.
+   */
+  function handleUploadConceptSheet() {
+    sheetFileInputRef.current?.click();
+  }
+
+  /**
+   * Handle file selected from picker — read as dataURL + store as conceptSheet.
+   */
+  async function handleSheetFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+
+    if (!file.type.startsWith("image/")) {
+      showToast("File phải là ảnh (PNG / JPG / WEBP)", "error");
+      return;
+    }
+    // Size guard ~8MB (concept sheets are usually 1-4 MB)
+    if (file.size > 8 * 1024 * 1024) {
+      showToast("Ảnh quá lớn (>8MB). Giảm dung lượng trước khi upload.", "error");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataURL(file);
+      onUpdate({
+        conceptSheet: {
+          id: `sheet_${Date.now().toString(36)}`,
+          label: "concept sheet",
+          filename: file.name,
+          mimeType: file.type,
+          dataUrl,
+        },
+      } as Partial<FilmCharacter>);
+      showToast("Concept sheet đã upload", "success");
+    } catch (err) {
+      showToast(`Upload lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
+  /**
+   * Generate concept sheet in-app via GPT Image 2 API.
+   * User can click this directly OR fall back to the copy-paste flow
+   * (handleShowConceptPrompt) which paste into ChatGPT/Banana Pro manually.
+   */
+  async function handleGenerateSheetInApp() {
+    if (!project) return;
+    const setting = (project as any).settingV2 as
+      | import("../types/project").ProjectSettingV2
+      | undefined;
+    if (!setting) {
+      showToast("Project setting missing — vào Project Setting để cấu hình", "error");
+      return;
+    }
+    if (!character.description.trim()) {
+      showToast("Cần điền description trước khi sinh sheet (click ✨ Generate Character Description)", "info");
+      return;
+    }
+    // Cache confirm if sheet exists
+    if (character.conceptSheet) {
+      const ok = confirm(
+        `Concept sheet đã có. Sinh mới sẽ ghi đè ảnh hiện tại và tốn ~$0.21 (GPT Image 2 high).\n\nClick OK để tiếp tục, Cancel để giữ ảnh hiện tại.`
+      );
+      if (!ok) return;
+    }
+
+    const ideaText = (project as any).idea?.raw as string | undefined;
+    const { buildCharacterSheetPrompt } = await import("../engine/characterSheetPrompt");
+    const prompt = buildCharacterSheetPrompt({
+      character: { name: character.name, role: character.role, description: character.description },
+      ideaText,
+      setting: {
+        animationStyle: setting.animationStyle,
+        genre: setting.genre,
+        aspectRatio: setting.aspectRatio,
+      },
+    });
+
+    setIsGeneratingSheet(true);
+    try {
+      const { generateCharacterSheet } = await import("../engine/gptImageApi");
+      const quality = (setting as any).imageGenQuality ?? "high";
+      const result = await generateCharacterSheet({
+        prompt,
+        size: "1536x1024",
+        quality,
+      });
+      onUpdate({
+        conceptSheet: {
+          id: `sheet_${Date.now().toString(36)}`,
+          label: "concept sheet",
+          filename: `${character.name || "character"}-sheet.png`,
+          mimeType: "image/png",
+          dataUrl: result.dataUrl,
+        },
+      } as Partial<FilmCharacter>);
+      const costStr = result.costEstimateUsd != null ? ` · ~$${result.costEstimateUsd.toFixed(3)}` : "";
+      showToast(`Concept sheet đã sinh xong (GPT Image 2 ${quality})${costStr}`, "success");
+    } catch (err) {
+      showToast(`Generate Concept Image lỗi: ${(err as Error).message}`, "error");
+    } finally {
+      setIsGeneratingSheet(false);
+    }
+  }
 
   async function handleAIGenerateDescription() {
     if (!project) return;
@@ -236,71 +368,13 @@ function CastFilmCard({
     }
   }
 
-  /**
-   * Sprint G1d (Item 6) — Trigger AI cast prompt generation.
-   * Pre-condition: character must have description (text VI) — engine quality drops sharply
-   * without it. Multimodal mode auto-enabled if faceRefs[0] exists.
-   */
-  async function handleGenerateCastPrompt(forceFaceRefMatch?: boolean) {
-    if (!project) return;
-    const setting = (project as any).settingV2 as import("../types/project").ProjectSettingV2 | undefined;
-    if (!setting) {
-      showToast("Project setting missing", "error");
-      return;
-    }
-    if (!character.description.trim()) {
-      showToast("Cần có mô tả character trước (click ✨ AI gen description)", "info");
-      return;
-    }
-    const film = ensureFilmData(project);
-    const idea = project.idea?.raw ?? "";
-    const provider: FilmScriptProvider =
-      (setting.aiProviders?.scriptWriter ?? "gemini-flash") as FilmScriptProvider;
-    // Default: enable multimodal if faceRefs exist (Q-ii=B confirmed).
-    // Caller can override via forceFaceRefMatch param (from modal regen toggle).
-    const useFaceRefForMatch =
-      forceFaceRefMatch !== undefined
-        ? forceFaceRefMatch
-        : (character.faceRefs?.length ?? 0) > 0;
-
-    setIsGeneratingPrompt(true);
-    try {
-      const result = await runGenerateCastPromptSet({
-        character,
-        idea,
-        script: film.script,
-        setting,
-        provider,
-        useFaceRefForMatch,
-      });
-      setPromptResult(result);
-      setPromptMatchedToRefs(useFaceRefForMatch && (character.faceRefs?.length ?? 0) > 0);
-      showToast(
-        `Đã sinh prompt: face ${result.facePrompt.length}c · body ${result.bodyPrompt.length}c`,
-        "success"
-      );
-    } catch (err) {
-      showToast(`Cast prompt lỗi: ${(err as Error).message}`, "error");
-    } finally {
-      setIsGeneratingPrompt(false);
-    }
-  }
-
   return (
     <div className="ksp-cast-film-card" data-role={character.role}>
       <div className="ksp-cast-film-body">
-        {/* Header row: avatar + name/role + actions */}
+        {/* Header row: emoji avatar + name/role + edit/remove */}
         <div className="ksp-cast-film-header-row">
           <div className="ksp-cast-film-avatar">
-            {firstFaceRefUrl ? (
-              <img
-                className="ksp-cast-film-avatar-img"
-                src={firstFaceRefUrl}
-                alt={character.name || `Character ${character.order}`}
-              />
-            ) : (
-              <span className="ksp-cast-film-avatar-emoji">{avatarContent}</span>
-            )}
+            <span className="ksp-cast-film-avatar-emoji">{avatarContent}</span>
           </div>
 
           {editMode ? (
@@ -360,107 +434,82 @@ function CastFilmCard({
           </div>
         </div>
 
-        {/* Description textarea */}
-        <textarea
-          className="ksp-cast-film-description"
-          placeholder="Mô tả character (VD: Robot bipedal cao 1m8, vỏ kim loại bạc cũ phủ rêu, mắt LED xanh dịu...). Nhấn ✨ bên cạnh để AI sinh tự động."
-          value={character.description}
-          onChange={(e) => onUpdate({ description: e.target.value })}
-          rows={3}
+        {/* Concept Sheet display — always visible, red warning if empty */}
+        <ConceptSheetPanel
+          character={character}
+          onUpdate={onUpdate}
+          showToast={showToast}
         />
 
-        {/* qc13: Warning when description exists but no face refs — consistency at risk */}
-        {character.description.trim().length > 0 && character.faceRefs.length === 0 && (
-          <div className="ksp-cast-film-no-refs-warning">
-            ⚠ Cần ≥1 face ref để Banana Pro / Imagen giữ consistency. Click <strong>Face refs</strong> bên dưới rồi <strong>✨</strong> AI sinh ảnh hoặc <strong>+</strong> upload từ máy.
-          </div>
-        )}
-
-        {/* 3 buttons row: Face refs · Body refs · AI Gen Description (icon only) */}
-        <div className="ksp-cast-film-refs-buttons">
+        {/* Manual workflow row — Copy Prompt + Upload */}
+        <div className="ksp-cast-film-sheet-actions">
           <button
             type="button"
-            className={`ksp-cast-film-refs-btn ksp-cast-film-refs-btn-face ${
-              expandedRefs === "face" ? "active" : ""
-            }`}
-            onClick={() => setExpandedRefs(expandedRefs === "face" ? null : "face")}
+            className="ksp-cast-film-action-btn primary"
+            onClick={() => handleShowConceptPrompt()}
+            title="📋 Sinh prompt copy-paste ra ChatGPT / Banana Pro / Imagen / Midjourney để tạo character sheet (free, manual)"
           >
-            Face refs · {character.faceRefs.length} ảnh
+            📋 Copy Prompt
           </button>
           <button
             type="button"
-            className={`ksp-cast-film-refs-btn ksp-cast-film-refs-btn-body ${
-              expandedRefs === "body" ? "active" : ""
-            }`}
-            onClick={() => setExpandedRefs(expandedRefs === "body" ? null : "body")}
+            className="ksp-cast-film-action-btn"
+            onClick={() => handleUploadConceptSheet()}
+            title="Upload concept sheet PNG/JPG/WEBP từ máy"
           >
-            Body refs · {character.bodyRefs.length} ảnh
-          </button>
-          <button
-            type="button"
-            className="ksp-cast-film-aigen-icon-btn"
-            onClick={handleAIGenerateDescription}
-            disabled={isGeneratingDesc}
-            title="✨ AI sinh mô tả character (dùng Name + Role + Idea + Script nếu có)"
-            aria-label="AI sinh mô tả"
-          >
-            {isGeneratingDesc ? "⏳" : "✨"}
-          </button>
-          {/* Sprint G1d (Item 6) — AI sinh prompt EN cho Banana Pro / Imagen */}
-          <button
-            type="button"
-            className="ksp-cast-film-castprompt-icon-btn"
-            onClick={() => handleGenerateCastPrompt()}
-            disabled={isGeneratingPrompt}
-            title="📝 AI sinh prompt EN (Face + Body) cho Banana Pro / Imagen — paste ra ngoài để generate ảnh refs"
-            aria-label="AI sinh prompt nhân vật"
-          >
-            {isGeneratingPrompt ? "⏳" : "📝"}
+            📤 Upload
           </button>
         </div>
 
-        {/* Cast prompt modal — opens when promptResult is set */}
-        {promptResult && (
-          <CastPromptModal
-            character={character}
-            result={promptResult}
-            matchedToRefs={promptMatchedToRefs}
-            isRegenerating={isGeneratingPrompt}
-            onRegen={(useFaceRefForMatch) => handleGenerateCastPrompt(useFaceRefForMatch)}
-            onClose={() => setPromptResult(null)}
+        {/* Description */}
+        <div className="ksp-cast-film-desc-label">Mô tả nhân vật</div>
+        <textarea
+          className="ksp-cast-film-description"
+          placeholder="Mô tả character (VD: Robot bipedal cao 1m8, vỏ kim loại bạc cũ phủ rêu, mắt LED xanh dịu...)."
+          value={character.description}
+          onChange={(e) => onUpdate({ description: e.target.value })}
+          rows={4}
+        />
+
+        {/* AI generation row — Generate Concept Image + Generate Character Description */}
+        <div className="ksp-cast-film-ai-actions">
+          <button
+            type="button"
+            className="ksp-cast-film-action-btn"
+            onClick={() => handleGenerateSheetInApp()}
+            disabled={isGeneratingSheet}
+            title="🎨 Sinh ngay bằng GPT Image 2 API (~$0.21 high quality, ~30s)"
+          >
+            {isGeneratingSheet ? "⏳ Đang sinh..." : "🎨 Generate Concept Image"}
+          </button>
+          <button
+            type="button"
+            className="ksp-cast-film-action-btn"
+            onClick={handleAIGenerateDescription}
+            disabled={isGeneratingDesc}
+            title="✨ AI sinh description từ Name + Role + Idea + Script"
+          >
+            {isGeneratingDesc ? "⏳ Đang sinh..." : "✨ Generate Character Description"}
+          </button>
+        </div>
+
+        {/* Concept prompt modal — shows copyable prompt for external AI image gen */}
+        {conceptPromptText && (
+          <ConceptPromptModal
+            promptText={conceptPromptText}
+            onClose={() => setConceptPromptText(null)}
             showToast={showToast}
           />
         )}
 
-        {/* Expanded refs panel below button row */}
-        {expandedRefs === "face" && (
-          <RefsExpandedPanel
-            kind="face"
-            label="Face refs"
-            colorAccent="#4f7cd4"
-            refs={character.faceRefs}
-            maxRefs={MAX_FACE_REFS_FILM}
-            defaultLabels={DEFAULT_FACE_LABELS_FILM}
-            character={character}
-            onAdd={onAddFaceRef}
-            onRemove={onRemoveFaceRef}
-            showToast={showToast}
-          />
-        )}
-        {expandedRefs === "body" && (
-          <RefsExpandedPanel
-            kind="body"
-            label="Body refs"
-            colorAccent="#7b89d4"
-            refs={character.bodyRefs}
-            maxRefs={MAX_BODY_REFS}
-            defaultLabels={DEFAULT_BODY_LABELS}
-            character={character}
-            onAdd={onAddBodyRef}
-            onRemove={onRemoveBodyRef}
-            showToast={showToast}
-          />
-        )}
+        {/* Hidden file input for sheet upload */}
+        <input
+          type="file"
+          ref={sheetFileInputRef}
+          accept="image/png,image/jpeg,image/webp"
+          style={{ display: "none" }}
+          onChange={handleSheetFileSelected}
+        />
       </div>
     </div>
   );
@@ -629,6 +678,124 @@ function RefsExpandedPanel({
         style={{ display: "none" }}
         onChange={handleFileUpload}
       />
+    </div>
+  );
+}
+
+// ============================================================================
+// CONCEPT SHEET PANEL — displays the uploaded character reference sheet
+// ============================================================================
+
+interface ConceptSheetPanelProps {
+  character: FilmCharacter;
+  onUpdate: (updates: Partial<FilmCharacter>) => void;
+  showToast: (msg: string, type?: "info" | "success" | "error") => void;
+}
+
+function ConceptSheetPanel({ character, onUpdate, showToast }: ConceptSheetPanelProps) {
+  const sheet = character.conceptSheet;
+
+  function handleRemove() {
+    if (!confirm("Xóa concept sheet?")) return;
+    onUpdate({ conceptSheet: undefined } as Partial<FilmCharacter>);
+    showToast("Đã xóa concept sheet", "info");
+  }
+
+  if (!sheet) {
+    return (
+      <div className="ksp-cast-film-sheet-empty" role="alert">
+        <div className="ksp-cast-film-sheet-empty-icon">⚠</div>
+        <div className="ksp-cast-film-sheet-empty-text">
+          Chưa có concept sheet. Click <strong>📋 Copy Prompt</strong> để sinh prompt copy-paste,{" "}
+          hoặc <strong>📤 Upload</strong> để tải ảnh lên,{" "}
+          hoặc <strong>🎨 Generate Concept Image</strong> để sinh ngay bằng AI.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ksp-cast-film-sheet-display">
+      <img
+        className="ksp-cast-film-sheet-img"
+        src={sheet.dataUrl}
+        alt={`${character.name || "Character"} concept sheet`}
+      />
+      <button
+        type="button"
+        className="ksp-cast-film-sheet-remove"
+        onClick={handleRemove}
+        title="Xóa concept sheet"
+        aria-label="Xóa concept sheet"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// CONCEPT PROMPT MODAL — shows copy-pasteable prompt for external AI image gen
+// ============================================================================
+
+interface ConceptPromptModalProps {
+  promptText: string;
+  onClose: () => void;
+  showToast: (msg: string, type?: "info" | "success" | "error") => void;
+}
+
+function ConceptPromptModal({ promptText, onClose, showToast }: ConceptPromptModalProps) {
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(promptText);
+      showToast("Prompt đã copy. Paste vào ChatGPT / Banana Pro / Imagen để sinh ảnh.", "success");
+    } catch (err) {
+      showToast(`Copy lỗi: ${(err as Error).message}`, "error");
+    }
+  }
+
+  return (
+    <div className="ksp-cast-film-prompt-modal-backdrop" onClick={onClose}>
+      <div className="ksp-cast-film-prompt-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="ksp-cast-film-prompt-modal-header">
+          <h3>🤖 AI Concept Prompt</h3>
+          <button
+            type="button"
+            className="ksp-cast-film-prompt-modal-close"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
+            ×
+          </button>
+        </header>
+
+        <p className="ksp-cast-film-prompt-modal-hint">
+          Copy prompt dưới đây → paste vào <strong>ChatGPT</strong> /{" "}
+          <strong>Banana Pro</strong> / <strong>Imagen</strong> / <strong>Midjourney</strong>{" "}
+          → tải ảnh sinh ra → click <strong>📤 Upload sheet</strong> để lưu làm reference.
+        </p>
+
+        <textarea
+          className="ksp-cast-film-prompt-modal-textarea"
+          value={promptText}
+          readOnly
+          rows={18}
+          onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+        />
+
+        <div className="ksp-cast-film-prompt-modal-actions">
+          <button
+            type="button"
+            className="ksp-btn ksp-btn-primary"
+            onClick={handleCopy}
+          >
+            📋 Copy prompt
+          </button>
+          <button type="button" className="ksp-btn" onClick={onClose}>
+            Đóng
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
