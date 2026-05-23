@@ -44,6 +44,7 @@ import {
 import { resolveVideoProvider } from "../types/film";
 import { cropGridIntoFrames } from "../engine/gridImageCrop";
 import { buildGridTemplateImage } from "../engine/gridTemplateImage";
+import { mergeGridsVertical } from "../engine/gridImageMerger";
 import { GridCropPreviewModal } from "./GridCropPreviewModal";
 import { FilmFrameEditModal } from "./FilmFrameEditModal";
 import { FilmAnimaticPlayerModal } from "./FilmAnimaticPlayerModal";
@@ -555,72 +556,181 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
   }
 
   /**
-   * r7.38: moved into GridDisplay (was in GridPromptPanel) — Refs ZIP button
-   * now lives in the grid header next to KSP/DeepMind prompt buttons.
-   * Bundles: grid template image, all cast face+body refs, cropped cells.
+   * r7.38: moved into GridDisplay (was in GridPromptPanel).
+   * r7.40: rewrite — ZIP structure now matches Omni prompt `<image_N>` slots.
+   *
+   * Top-level files (upload these IN ORDER to Gemini):
+   *   image-00_cast-{name}.png        → matches `<image_0>` in prompt (1st char)
+   *   image-01_cast-{name2}.png       → matches `<image_1>` (2nd char, if any)
+   *   image-NN_storyboard.png         → matches `<image_N>` (merged grid filled)
+   *
+   * _extras/ subfolder (NOT for direct upload, supplementary only):
+   *   _extras/grid-template.png       — blank labeled layout for reference
+   *   _extras/face-refs/, body-refs/  — raw refs of ALL cast (including not-in-scene)
+   *   _extras/cropped-cells/shot-N.png — per-cell crops (debug)
+   *
+   * Cast filter mirrors omniMultiShotPromptBuilder logic — only chars present
+   * in scene/shot action text + protagonists get top-level slots (others go to
+   * _extras/face-refs/ for completeness).
    */
   async function handleDownloadRefs() {
+    // Mirror Omni builder's presentChars logic.
+    const sceneActionText = (
+      scene.actionLinesEn || (scene as any).actionLinesVi || ""
+    ).toLowerCase();
+    const allShotsAction = shots
+      .map((s) => ((s as any).actionEn || (s as any).actionVi || "").toLowerCase())
+      .join(" ");
+    const fullText = sceneActionText + " " + allShotsAction;
+    const presentChars = film.characters.filter((c) => {
+      if ((c as any).isProtagonist) return true;
+      return fullText.includes((c.name || "").toLowerCase());
+    });
+
+    // Collect merged storyboard grid dataURLs (across all grids in scene).
+    const sceneGrids = allGrids ?? [grid];
+    const gridDataUrls = sceneGrids
+      .map((g) => g.gridImageDataUrl)
+      .filter((url): url is string => !!url);
+
     const filledCells = grid.cells.filter((c) => c.shotId);
     const croppedCells = grid.cells.filter((c) => c.dataUrl);
-    if (film.characters.length === 0 && croppedCells.length === 0 && filledCells.length === 0) {
-      showToast("Chưa có cast + chưa crop — ZIP rỗng", "info");
+
+    if (
+      presentChars.length === 0 &&
+      gridDataUrls.length === 0 &&
+      croppedCells.length === 0 &&
+      filledCells.length === 0
+    ) {
+      showToast("Scene chưa có gì để export (cast/grid/crops trống)", "info");
       return;
     }
+
     try {
       const zip = new JSZip();
-      // IMAGE #1 — grid template (blank labeled layout)
+      let slot = 0;
+      const topLevelFiles: string[] = [];
+
+      // ---- TOP LEVEL slots 0..N-1 — cast concept sheets ----
+      // Same filename pattern + same ordering as Omni prompt references.
+      for (const c of presentChars) {
+        const conceptRef = (c as any).conceptSheet;
+        const faceRef = (c as any).faceRefs?.[0];
+        const dataUrl: string | undefined =
+          (typeof conceptRef === "string" ? conceptRef : conceptRef?.dataUrl) ||
+          (typeof faceRef === "string" ? faceRef : faceRef?.dataUrl);
+        if (dataUrl && typeof dataUrl === "string") {
+          const safeName = (c.name || `char${slot}`)
+            .replace(/[^a-zA-Z0-9_-]/g, "_")
+            .toLowerCase();
+          const slotStr = String(slot).padStart(2, "0");
+          const filename = `image-${slotStr}_cast-${safeName}.png`;
+          zip.file(filename, dataUrlToBlob(dataUrl));
+          topLevelFiles.push(filename);
+          slot++;
+        }
+      }
+
+      // ---- TOP LEVEL slot N — merged storyboard grid (only if any grid filled) ----
+      let storyboardAdded = false;
+      if (gridDataUrls.length > 0) {
+        try {
+          const mergedDataUrl = await mergeGridsVertical(gridDataUrls, 8);
+          const slotStr = String(slot).padStart(2, "0");
+          const filename = `image-${slotStr}_storyboard.png`;
+          zip.file(filename, dataUrlToBlob(mergedDataUrl));
+          topLevelFiles.push(filename);
+          storyboardAdded = true;
+          slot++;
+        } catch (err) {
+          console.warn("[Storyboard] merge failed, falling back to first grid", err);
+          const slotStr = String(slot).padStart(2, "0");
+          const filename = `image-${slotStr}_storyboard.png`;
+          zip.file(filename, dataUrlToBlob(gridDataUrls[0]));
+          topLevelFiles.push(filename);
+          storyboardAdded = true;
+          slot++;
+        }
+      }
+
+      // ---- _extras/ subfolder — supplementary, NOT for direct upload ----
       try {
         const template = buildGridTemplateImage({
           gridFormat: grid.gridFormat,
           targetAspect: setting?.aspectRatio ?? "16:9",
           filledCellOrders: filledCells.map((c) => c.order),
         });
-        zip.file("image-01_grid-template.png", dataUrlToBlob(template.dataUrl));
+        zip.file("_extras/grid-template.png", dataUrlToBlob(template.dataUrl));
       } catch (err) {
         console.warn("[Storyboard] grid template image generation failed", err);
       }
-      // IMAGE #2+ — cast refs (face + body per character).
-      let imageNum = 2;
+
+      // _extras/face-refs/ + body-refs/ — ALL cast refs (kể cả ko present in scene)
       for (const c of film.characters) {
         const safeName = (c.name || `char${c.order}`).replace(/[^a-zA-Z0-9_-]/g, "_");
         c.faceRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
+          const slotIdx = String(i + 1).padStart(2, "0");
           const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
           zip.file(
-            `image-${numStr}_cast-${safeName}_face-${slotStr}.${ext}`,
+            `_extras/face-refs/${safeName}_face-${slotIdx}.${ext}`,
             dataUrlToBlob(ref.dataUrl)
           );
-          imageNum++;
         });
         c.bodyRefs.forEach((ref, i) => {
-          const numStr = String(imageNum).padStart(2, "0");
-          const slotStr = String(i + 1).padStart(2, "0");
+          const slotIdx = String(i + 1).padStart(2, "0");
           const ext = (ref.filename.split(".").pop() || "png").toLowerCase();
           zip.file(
-            `image-${numStr}_cast-${safeName}_body-${slotStr}.${ext}`,
+            `_extras/body-refs/${safeName}_body-${slotIdx}.${ext}`,
             dataUrlToBlob(ref.dataUrl)
           );
-          imageNum++;
         });
       }
-      // Supplemental — cropped cells, named by SHOT order
+
+      // _extras/cropped-cells/ — per-shot crops (debug aid).
       croppedCells.forEach((cell) => {
         if (cell.dataUrl) {
           const cellShot = cell.shotId ? shots.find((s) => s.id === cell.shotId) : undefined;
           const name = cellShot ? `shot-${cellShot.order}.png` : `cell-${cell.order}.png`;
-          zip.file(`cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
+          zip.file(`_extras/cropped-cells/${name}`, dataUrlToBlob(cell.dataUrl));
         }
       });
+
+      // README.txt — Vietnamese instructions for user.
+      const readme = [
+        `=== KSP Image Omni Refs ZIP — Scene ${scene.order} ===`,
+        ``,
+        `CÁCH DÙNG:`,
+        `1. Mở Gemini chat (gemini.google.com hoặc Google Flow)`,
+        `2. Upload các file Ở GỐC ZIP theo ĐÚNG thứ tự (đã đánh số):`,
+        ...topLevelFiles.map((f, i) => `   image_${i}  →  ${f}`),
+        `3. Paste prompt đã copy từ nút 📋 KSP Prompt hoặc 📋 DeepMind Prompt`,
+        `4. Send`,
+        ``,
+        `LƯU Ý:`,
+        `- KHÔNG upload các file trong _extras/. Đó chỉ là supplementary:`,
+        `   _extras/grid-template.png   — layout blank để tham khảo cấu trúc cells`,
+        `   _extras/face-refs/          — refs gốc của TẤT CẢ cast (kể cả không có trong scene)`,
+        `   _extras/body-refs/          — body refs gốc`,
+        `   _extras/cropped-cells/      — từng cell đã crop riêng (debug)`,
+        ``,
+        `- Nếu prompt được chia thành nhiều "=== CHUNK X of N ===" (scene > 10s):`,
+        `   Upload CÙNG bộ images này cho MỖI Gemini session riêng biệt khi paste từng chunk.`,
+        ``,
+        `Generated by KSP Image r7.40`,
+      ].join("\n");
+      zip.file("README.txt", readme);
+
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `scene-${scene.order}_grid-${grid.order}_refs.zip`;
+      a.download = `scene-${scene.order}_omni-refs.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      const parts: string[] = ["template"];
-      if (film.characters.length > 0) parts.push(`${film.characters.length} cast`);
+
+      const parts: string[] = [];
+      if (presentChars.length > 0) parts.push(`${presentChars.length} cast`);
+      if (storyboardAdded) parts.push("storyboard");
       if (croppedCells.length > 0) parts.push(`${croppedCells.length} crops`);
       showToast(`Refs ZIP downloaded — ${parts.join(" + ")}`, "success");
     } catch (err) {
@@ -663,8 +773,13 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
 
       await navigator.clipboard.writeText(result.promptText);
 
+      // r7.39: toast hint user when scene was chunked into multi-clip
+      const chunkHint =
+        result.chunkCount > 1
+          ? ` — chia ${result.chunkCount} chunks ≤10s (paste từng chunk vào Omni session riêng)`
+          : "";
       showToast(
-        `Đã copy KSP Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)`,
+        `Đã copy KSP Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)${chunkHint}`,
         "success"
       );
     } catch (err) {
@@ -706,8 +821,12 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
 
       await navigator.clipboard.writeText(result.promptText);
 
+      const chunkHint =
+        result.chunkCount > 1
+          ? ` — chia ${result.chunkCount} chunks ≤10s (paste từng chunk vào Omni session riêng)`
+          : "";
       showToast(
-        `Đã copy DeepMind Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)`,
+        `Đã copy DeepMind Prompt vào clipboard (${sceneShots.length} shots, ${result.promptText.length} chars)${chunkHint}`,
         "success"
       );
     } catch (err) {
@@ -765,7 +884,7 @@ function GridDisplay({ grid, scene, cellNumberOffset = 0, hideHeader = false, al
                 e.stopPropagation();
                 handleDownloadRefs();
               }}
-              title="📥 Refs ZIP — Download cast concept sheets + cropped grid frames để upload kèm prompt (KSP hoặc DeepMind) lên Gemini chat."
+              title="📥 Refs ZIP — Download bộ images đầy đủ để upload kèm KSP/DeepMind prompt lên Gemini. File top-level (image-00, image-01, ...) khớp đúng thứ tự <image_N> trong prompt. Đọc README.txt trong ZIP để biết upload thứ tự nào."
             >
               📥<span className="ksp-btn-label-fluid"> Refs ZIP</span>
             </button>

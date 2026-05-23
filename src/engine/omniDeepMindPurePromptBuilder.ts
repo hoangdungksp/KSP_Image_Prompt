@@ -37,6 +37,8 @@
 
 import type { FilmShot, FilmSceneScript, ProjectSettingV2 } from "../types/project";
 import type { FilmCharacter } from "../types/film";
+import { planOmniChunks, buildChunkSeparator } from "./omniChunkPlanner";
+import type { OmniChunk } from "./omniChunkPlanner";
 
 export interface BuildOmniDeepMindPurePromptInput {
   scene: FilmSceneScript;
@@ -55,9 +57,18 @@ export interface OmniDeepMindPureReferenceSpec {
 }
 
 export interface OmniDeepMindPureResult {
+  /**
+   * Full clipboard text. If chunkCount > 1, contains `=== CHUNK X of N (Ys) ===`
+   * separators between independent ≤10s prompts.
+   */
   promptText: string;
   references: OmniDeepMindPureReferenceSpec[];
   totalDurationSeconds: number;
+  /**
+   * r7.39: 1 if scene fits in single Omni clip; >1 if scene was chunked
+   * along shot boundaries to respect Omni Flash's 10s cap.
+   */
+  chunkCount: number;
 }
 
 // Style adjective mapping — same as omniMultiShotPromptBuilder for consistency.
@@ -143,46 +154,64 @@ export function buildOmniDeepMindPurePrompt(
   // -------- COMPUTE total duration --------
   const totalDurationSeconds = shots.reduce((acc, s) => acc + (s.durationSeconds || 5), 0);
 
-  // -------- BUILD prompt — DeepMind strict pattern --------
-  const sentences: string[] = [];
-  const styleAdj = getStyleAdjective((setting as any).animationStyle);
+  // -------- r7.39: PLAN CHUNKS (Omni Flash hard cap = 10s/clip) --------
+  // Strict DeepMind philosophy means each chunk gets the same 18-word minimal
+  // prompt with its own duration — no per-cell elaboration even when chunked.
+  const chunks = planOmniChunks(shots);
 
-  // (A) IDENTITY ANCHOR — per DeepMind Pattern "Keep your scene consistent"
-  // "Want to keep a character... Add a reference – Gemini Omni will use it across your scene."
-  // KSP add this clause minimally (1 sentence) to lock identity.
+  const styleAdj = getStyleAdjective((setting as any).animationStyle);
+  const sceneSettings = scene.settings?.trim();
+
+  // Build the identity-anchor sentence once (reused per chunk).
+  let identityAnchor: string | null = null;
   if (presentChars.length > 0 && presentChars.length === references.filter(r => !r.filename.includes("storyboard")).length) {
     const charRefs = presentChars
       .map((_, i) => `<image_${i}>`)
       .join(", ");
     const charNames = presentChars.map((c) => c.name).join(" and ");
     const plural = presentChars.length > 1 ? "faces, hair, and wardrobes" : "face, hair, and wardrobe";
-    sentences.push(
-      `${charNames} as shown in ${charRefs}. Preserve ${plural} exactly across the video.`
-    );
+    identityAnchor = `${charNames} as shown in ${charRefs}. Preserve ${plural} exactly across the video.`;
   }
 
-  // (B) STORYBOARD-DRIVEN CORE — DeepMind official 18-word pattern
-  if (storyboardSlot !== null) {
-    sentences.push(
-      `Show me in this story shown in <image_${storyboardSlot}>. Follow the story exactly in order starting top-left. Entire story in ${totalDurationSeconds} seconds. ${styleAdj}.`
-    );
-  } else {
-    // ---- WITHOUT storyboard grid: skeleton fallback ----
-    // DeepMind has no specific pattern for "no storyboard" — use minimal scene description.
-    const sceneSettings = scene.settings?.trim();
-    if (sceneSettings) {
-      sentences.push(`A ${styleAdj.toLowerCase()} scene set in ${sceneSettings}, ${totalDurationSeconds} seconds.`);
+  // Build single-chunk prompt text (DeepMind strict — minimal per chunk).
+  const buildChunkText = (chunk: OmniChunk): string => {
+    const sentences: string[] = [];
+
+    // (A) IDENTITY ANCHOR — repeat per chunk (independent Omni runs).
+    if (identityAnchor) sentences.push(identityAnchor);
+
+    // (B) STORYBOARD-DRIVEN CORE — DeepMind 18-word pattern, per-chunk duration.
+    if (storyboardSlot !== null) {
+      sentences.push(
+        `Show me in this story shown in <image_${storyboardSlot}>. Follow the story exactly in order starting top-left. Entire story in ${chunk.durationSeconds} seconds. ${styleAdj}.`
+      );
     } else {
-      sentences.push(`A ${styleAdj.toLowerCase()} scene, ${totalDurationSeconds} seconds.`);
+      // No storyboard fallback — minimal scene description with chunk duration.
+      if (sceneSettings) {
+        sentences.push(`A ${styleAdj.toLowerCase()} scene set in ${sceneSettings}, ${chunk.durationSeconds} seconds.`);
+      } else {
+        sentences.push(`A ${styleAdj.toLowerCase()} scene, ${chunk.durationSeconds} seconds.`);
+      }
     }
-  }
 
-  const promptText = sentences.join("\n\n");
+    return sentences.join("\n\n");
+  };
+
+  // -------- ASSEMBLE final clipboard text --------
+  let promptText: string;
+  if (chunks.length <= 1) {
+    promptText = chunks.length === 1 ? buildChunkText(chunks[0]) : "";
+  } else {
+    promptText = chunks
+      .map((chunk) => `${buildChunkSeparator(chunk)}\n\n${buildChunkText(chunk)}`)
+      .join("\n\n");
+  }
 
   return {
     promptText,
     references,
     totalDurationSeconds,
+    chunkCount: chunks.length,
   };
 }
 

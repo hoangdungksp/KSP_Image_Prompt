@@ -4210,20 +4210,23 @@ describe("Film v0.9.3 schema + actions", () => {
     expect(gridPrompt).toContain("Image #${castStartIdx}+");
   });
 
-  it("Storyboard Refs ZIP uses image-NN_*.png filename convention matching prompt references", async () => {
+  it("r7.40 → Storyboard Refs ZIP uses new top-level filename convention (image-NN_cast / image-NN_storyboard) with _extras subfolder", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.resolve("./src/components/FilmStoryboardSection.tsx"), "utf-8");
     expect(src).toContain("buildGridTemplateImage");
-    // New convention: image-NN_*.png (matches "IMAGE #N" in prompts)
-    expect(src).toContain("image-01_grid-template.png");
-    expect(src).toContain("image-${numStr}_cast-${safeName}_face-");
-    expect(src).toContain("image-${numStr}_cast-${safeName}_body-");
-    expect(src).toContain("cropped-cells/");
-    // Cropped cells now named by shot order (shot-N.png) to match prompt convention
+    // r7.40 convention: top-level files matching Omni prompt <image_N> slot numbering.
+    expect(src).toMatch(/image-\$\{slotStr\}_cast-\$\{safeName\}\.png/);
+    expect(src).toMatch(/image-\$\{slotStr\}_storyboard\.png/);
+    // _extras subfolder for supplementary files
+    expect(src).toContain("_extras/grid-template.png");
+    expect(src).toContain("_extras/face-refs/");
+    expect(src).toContain("_extras/cropped-cells/");
+    // Cropped cells named by shot order
     expect(src).toContain("shot-${cellShot.order}.png");
     // Old conventions removed
     expect(src).not.toContain("00_grid_template.png");
+    expect(src).not.toContain("image-01_grid-template.png"); // r7.40: moved into _extras
     expect(src).not.toContain("cropped_frames/cell_");
     expect(src).not.toContain("cropped-cells/cell-${idx}");
   });
@@ -5776,6 +5779,9 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
 
   it("r7.34 — buildOmniMultiShotPrompt adds per-cell timestamps + lighting override (Tip #4 community)", async () => {
     const { buildOmniMultiShotPrompt } = await import("../src/engine/omniMultiShotPromptBuilder");
+    // r7.39: keep total ≤10s (3+3+3=9s) so this single-chunk path tests
+    // per-cell structure without chunking interfering. Chunking semantics
+    // tested separately in test/omni_prompts.test.tsx r7.39 suite.
     const result = buildOmniMultiShotPrompt({
       scene: {
         id: "sc1",
@@ -5784,7 +5790,7 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
         actionLinesEn: "A character walks through a forest.",
         settings: "dense forest at dawn",
         lightingHintEn: "soft morning light",
-        durationSeconds: 12,
+        durationSeconds: 9,
       } as any,
       shots: [
         {
@@ -5792,7 +5798,7 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
           order: 1,
           actionEn: "wide shot of forest",
           cameraMovement: "static",
-          durationSeconds: 4,
+          durationSeconds: 3,
           lightingHintEn: "soft morning light", // same as scene → should NOT inject override
         },
         {
@@ -5800,7 +5806,7 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
           order: 2,
           actionEn: "character emerges",
           cameraMovement: "push_in",
-          durationSeconds: 4,
+          durationSeconds: 3,
           lightingHintEn: "dramatic side light", // differs from scene → should inject override
         },
         {
@@ -5808,7 +5814,7 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
           order: 3,
           actionEn: "close-up reveal",
           cameraMovement: "oner",
-          durationSeconds: 4,
+          durationSeconds: 3,
         },
       ] as any,
       cast: [],
@@ -5819,16 +5825,16 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     // Cell-by-cell cut list present
     expect(result.promptText).toContain("Cell-by-cell cut list:");
     // Per-cell timestamps format: "N) X-Ys: <camera>, <action>"
-    expect(result.promptText).toMatch(/1\) 0-4s: static,/);
-    expect(result.promptText).toMatch(/2\) 4-8s:/);
-    expect(result.promptText).toMatch(/3\) 8-12s:/);
+    expect(result.promptText).toMatch(/1\) 0-3s: static,/);
+    expect(result.promptText).toMatch(/2\) 3-6s:/);
+    expect(result.promptText).toMatch(/3\) 6-9s:/);
     // Camera vocab mapped correctly (push_in → "push in", oner → "one continuous shot")
     expect(result.promptText).toMatch(/push in/);
     expect(result.promptText).toMatch(/one continuous shot/);
     // Lighting override ONLY for shot 2 (differs from scene global)
     expect(result.promptText).toContain("[lighting: dramatic side light]");
     // Shot 1 lighting same as scene → NO override
-    const shot1Match = result.promptText.match(/1\) 0-4s:[^\n]+/);
+    const shot1Match = result.promptText.match(/1\) 0-3s:[^\n]+/);
     expect(shot1Match?.[0]).not.toContain("[lighting:");
   });
 
@@ -5954,6 +5960,37 @@ describe("Sprint 1.0 r7 — Sprint G1ab", () => {
     // r7.38: Refs ZIP exists exactly ONCE (moved, not duplicated)
     const refsZipMatches = src.match(/Refs ZIP/g) ?? [];
     expect(refsZipMatches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("r7.40 — Refs ZIP structure matches Omni prompt slot order (top-level files + _extras subfolder)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(
+      path.resolve("./src/components/FilmStoryboardSection.tsx"),
+      "utf-8"
+    );
+    // mergeGridsVertical imported (storyboard PNG is merged grid filled, not blank template)
+    expect(src).toContain('import { mergeGridsVertical }');
+    expect(src).toMatch(/await mergeGridsVertical\(gridDataUrls/);
+    // Top-level filename pattern uses image-NN_cast / image-NN_storyboard
+    expect(src).toMatch(/image-\$\{slotStr\}_cast-\$\{safeName\}\.png/);
+    expect(src).toMatch(/image-\$\{slotStr\}_storyboard\.png/);
+    // _extras subfolder for supplementary files
+    expect(src).toContain("_extras/grid-template.png");
+    expect(src).toContain("_extras/face-refs/");
+    expect(src).toContain("_extras/body-refs/");
+    expect(src).toContain("_extras/cropped-cells/");
+    // README.txt documents upload order
+    expect(src).toContain("README.txt");
+    expect(src).toMatch(/CÁCH DÙNG/);
+    // ZIP filename pattern updated
+    expect(src).toMatch(/scene-\$\{scene\.order\}_omni-refs\.zip/);
+    // OLD r7.38 patterns REMOVED
+    expect(src).not.toContain("image-01_grid-template.png"); // moved into _extras
+    expect(src).not.toMatch(/`cropped-cells\/\$\{/); // old top-level path
+    expect(src).not.toMatch(/scene-\$\{scene\.order\}_grid-\$\{grid\.order\}_refs\.zip/); // old name
+    // presentChars filter mirrors Omni builder (NOT film.characters blanket)
+    expect(src).toMatch(/const presentChars = film\.characters\.filter/);
   });
 
   it("r7.34 — DeepMind builder is SHORTER than KSP builder for same input (verifies trade-off)", async () => {

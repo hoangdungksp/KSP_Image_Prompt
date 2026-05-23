@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "KSP Image",
-  "version": "0.9.4.56",
-  "version_name": "0.9.4-r7.38-copy-prompts-refs-move",
+  "version": "0.9.4.58",
+  "version_name": "0.9.4-r7.40-refs-zip-fix",
   "description": "AI-powered prompt assembler for cinema (TVC, Photos, Product, Film) — Banana Pro, Imagen 4, Seedance, Veo3.",
   "permissions": ["storage", "sidePanel", "contextMenus", "downloads", "notifications", "tabs", "activeTab", "scripting"],
   "host_permissions": [
@@ -16,7 +16,7 @@
     "http://*/*"
   ],
   "action": {
-    "default_title": "KSP Image v0.9.4-r7.38-copy-prompts-refs-move — Open Editor"
+    "default_title": "KSP Image v0.9.4-r7.40-refs-zip-fix — Open Editor"
   },
   "side_panel": {
     "default_path": "src/sidepanel.html"
